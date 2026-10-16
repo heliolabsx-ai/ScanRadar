@@ -2,7 +2,7 @@
 
 Owner: Saurabh Verma. Personal intraday NSE F&O scanner. Everything below was decided in design sessions; treat it as the spec unless Saurabh says otherwise.
 
-> **Repo note (17 Oct 2026):** this checkout was cloned from an empty GitHub repo. The code described under *Status* was restored from a tarball of the design session on 17 Oct 2026; nothing is committed or pushed yet. The dashboard look-and-behaviour reference is the Claude artifact "Intraday Flow Scanner" (https://claude.ai/artifact/374M9Chnq9UXNQ3ChZDT6C). This project is kept strictly separate from the TrackSo desk UI work: never add that folder to a ScanRadar session or vice versa.
+> **Repo note (17 Oct 2026):** this checkout was cloned from an empty GitHub repo. The code described under *Status* was restored from a tarball of the design session on 17 Oct 2026 and pushed to `origin/main` the same day. The dashboard look-and-behaviour reference is the Claude artifact "Intraday Flow Scanner" (https://claude.ai/artifact/374M9Chnq9UXNQ3ChZDT6C). This project is kept strictly separate from the TrackSo desk UI work: never add that folder to a ScanRadar session or vice versa.
 
 ## What it is
 
@@ -44,8 +44,9 @@ Kite WebSocket ──► ingest ──► Postgres/TimescaleDB (candles_1m, dail
 Compose services: `postgres`, `redis`, `ingest`, `engine`, `api`, `caddy` (host network). All config via `.env` (see `.env.example`; never commit `.env`).
 
 ### ingest/ (Python 3.12, kiteconnect 5.x)
-- `main.py` — scheduler: 08:55 login + universe + daily refs; 09:14 open WS; every minute flush closed candles to Postgres and forming candle to Redis; 15:31 close. If started mid-session on a weekday it runs setup immediately.
-- `kite_auth.py` — TOTP auto-login → request_token → access_token (cached in Redis `kite:access_token`, 20 h TTL).
+- `main.py` — scheduler: 08:55 login + universe + daily refs; 09:14 open WS; every minute flush closed candles to Postgres and forming candle to Redis; 15:31 finalize last candle, close WS and **exit the process** (Docker restarts it; KiteTicker's twisted reactor cannot be restarted in-process). If started mid-session on a weekday it runs setup immediately. Ticks outside 09:15–15:30 update OI only, no candles. Historical calls go through `_hist()` (0.4 s pacing, retry on 429). `ingest:status` in Redis shows setup progress or `error: ...`.
+- `kite_auth.py` — `session(R)` reuses the Redis-cached token if Kite still accepts it (a fresh login invalidates the previous token for the api_key), else TOTP auto-login → request_token → access_token (cached in `kite:access_token`, 20 h TTL). The Connect redirect chain is walked hop-by-hop so an unreachable/401 callback URL doesn't lose the token; TOTP codes are never resubmitted within one 30 s window. `KITE_PASSWORD` empty = manual-token mode.
+- `preflight.py` — first-day check: `docker compose run --rm ingest python preflight.py` (session, universe, historical with OI, 20 s WS sample in market hours).
 - `universe.py` — NFO FUT nearest expiry ⋈ NSE EQ → `(symbol, eq_token, fut_token)`; static `SECTOR` map (extend as needed; unmapped → OTHERS).
 - `candles.py` — tick → 1-min OHLCV; volume delta by tick rule (uptick = buy); futures FULL-mode ticks supply OI.
 - Equity subscribed in QUOTE mode, futures in FULL mode (OI only comes in FULL).
@@ -78,8 +79,9 @@ Verify: `https://scanradar.tech/api/health` → `{"ingest":"ready","ws":"connect
 
 ## Status (17 Oct 2026)
 
-- Code written and syntax-checked; engine smoke-tested on synthetic candles. **Not yet run against live Kite data** — expect first-day fixes (tick field names, historical API rate limits, login flow quirks).
-- DNS not set; VPS not yet deployed; `.env` not filled.
+- Code committed and pushed to GitHub (17 Oct 2026). Engine smoke-tested on synthetic candles. **Not yet run against live Kite data.**
+- Ingest first-day review done against kiteconnect 5.0.1 source: tick keys `last_price`/`volume_traded` (QUOTE) and `oi` (FULL) confirmed; fixed historical pacing (two calls per symbol were sharing one sleep), lost-token-on-unreachable-redirect, TOTP reuse on retry, reactor restart across days, pre-open/post-close ticks, last-candle persistence, `$` in `DASH_HASH` breaking compose interpolation (must be single-quoted in `.env`), Caddy 2.8 `basic_auth` rename. Still unverified live: the exact JSON of Kite's `/api/login` + `/api/twofa`, and whether the Connect redirect chain is 2 or 3 hops — `preflight.py` is the first thing to run on the VPS.
+- DNS: zone still on Hostinger parking nameservers, `@`/`www` → 2.57.91.91; must be changed in hPanel to 200.234.37.207. VPS reachable on SSH; not yet deployed; `.env` not filled.
 - A browser-only demo of the dashboard on simulated data exists as a Claude artifact (reference for look & behaviour).
 
 ## To-do / roadmap (in priority order)

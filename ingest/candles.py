@@ -47,6 +47,12 @@ class SymbolState:
             if self.cur:
                 self.cur.oi = self.oi
 
+    def finalize(self):
+        """Market closed: move the forming candle to closed so the last minute is persisted."""
+        if self.cur is not None:
+            self.closed.append(self.cur)
+            self.cur = None
+
     def pop_closed(self) -> list:
         out, self.closed = self.closed, []
         return out

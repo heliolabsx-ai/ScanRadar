@@ -1,7 +1,7 @@
 scanradar.tech, www.scanradar.tech {
     encode gzip
 
-    basicauth {
+    basic_auth {
         {$DASH_USER} {$DASH_HASH}
     }
 
