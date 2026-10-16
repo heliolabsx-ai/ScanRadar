@@ -52,16 +52,13 @@ Harden SSH: in `/etc/ssh/sshd_config` set `PasswordAuthentication no` after you'
 mkdir -p /opt && cd /opt
 git clone https://github.com/heliolabsx-ai/ScanRadar.git scanradar   # private repo: use a GitHub PAT or deploy key
 cd /opt/scanradar
-cp .env.example .env
-nano .env        # fill every value
+bash configure-env.sh      # interactive: asks for every value, hashes the dashboard password, writes .env
 ```
 
-Generate the dashboard password hash and paste it as DASH_HASH **inside single quotes**
-(the hash contains `$`, which docker compose would otherwise try to interpolate):
-
-```bash
-docker run --rm caddy:2.8-alpine caddy hash-password --plaintext 'your-dashboard-password'
-```
+`configure-env.sh` single-quotes every value (the bcrypt hash contains `$`, which
+docker compose would otherwise try to interpolate) and sets mode 600. To edit by
+hand instead: `cp .env.example .env && nano .env`, and generate the hash with
+`docker run --rm caddy:2.8-alpine caddy hash-password --plaintext '<password>'`.
 
 Kite TOTP secret: Kite web → My profile → Password & security → External 2FA TOTP → *Can't scan? Copy the key*. If you already use an authenticator app, you must re-set up TOTP to see the key again (your phone app keeps working; add the same key there).
 

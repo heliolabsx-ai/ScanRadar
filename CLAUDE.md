@@ -81,7 +81,8 @@ Verify: `https://scanradar.tech/api/health` → `{"ingest":"ready","ws":"connect
 
 - Code committed and pushed to GitHub (17 Oct 2026). Engine smoke-tested on synthetic candles. **Not yet run against live Kite data.**
 - Ingest first-day review done against kiteconnect 5.0.1 source: tick keys `last_price`/`volume_traded` (QUOTE) and `oi` (FULL) confirmed; fixed historical pacing (two calls per symbol were sharing one sleep), lost-token-on-unreachable-redirect, TOTP reuse on retry, reactor restart across days, pre-open/post-close ticks, last-candle persistence, `$` in `DASH_HASH` breaking compose interpolation (must be single-quoted in `.env`), Caddy 2.8 `basic_auth` rename. Still unverified live: the exact JSON of Kite's `/api/login` + `/api/twofa`, and whether the Connect redirect chain is 2 or 3 hops — `preflight.py` is the first thing to run on the VPS.
-- DNS: zone still on Hostinger parking nameservers, `@`/`www` → 2.57.91.91; must be changed in hPanel to 200.234.37.207. VPS reachable on SSH; not yet deployed; `.env` not filled.
+- DNS done 17 Oct 2026: `@` A → 200.234.37.207, `www` CNAME → scanradar.tech (Hostinger nameservers, zone edited in hPanel).
+- VPS 17 Oct 2026: it was not empty — a Traefik proxy on 80/443, a Node app named `ingest` (`/docker/ingest`) and an Ollama container from Hostinger's Docker Manager were running. Saurabh chose to retire them (`docker compose -p <name> down`, volumes kept). Repo cloned to `/opt/scanradar`; `.env` is written by `configure-env.sh` (interactive, single-quoted values). Preflight not yet passed. Saurabh works through Hostinger's browser terminal and tends to paste command blocks literally, so never put placeholder values inside runnable blocks.
 - A browser-only demo of the dashboard on simulated data exists as a Claude artifact (reference for look & behaviour).
 
 ## To-do / roadmap (in priority order)
