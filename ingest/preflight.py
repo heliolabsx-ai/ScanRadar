@@ -34,7 +34,24 @@ def fail(msg):
     sys.exit(1)
 
 
+PLACEHOLDERS = {"KITE_API_KEY": "xxxx", "KITE_API_SECRET": "xxxx", "KITE_USER_ID": "AB1234",
+                "KITE_PASSWORD": "your-kite-password", "KITE_TOTP_SECRET": "BASE32SECRETHERE",
+                "TELEGRAM_BOT_TOKEN": "123456:ABC-DEF", "TELEGRAM_CHAT_ID": "123456789",
+                "POSTGRES_PASSWORD": "change-me", "DASH_HASH": "replace-with"}
+
+
+def check_env():
+    bad = [k for k, v in PLACEHOLDERS.items()
+           if v in os.environ.get(k, "") or (not os.environ.get(k) and k != "KITE_PASSWORD")]  # empty password = manual-token mode
+    if bad:
+        fail(f".env still has placeholder/empty values for: {', '.join(bad)} — edit /opt/scanradar/.env first")
+
+
 def main(do_ws=True):
+    step("0. .env sanity")
+    check_env()
+    print("OK  no placeholder values")
+
     step("1. Kite session")
     kite = kite_auth.session(R)
     prof = kite.profile()

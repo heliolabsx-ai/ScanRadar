@@ -34,23 +34,28 @@ def _fresh_totp(secret: str, used: set) -> str:
     return code
 
 
+def _kite_json(r: requests.Response, what: str) -> dict:
+    """Kite answers 4xx with a JSON body whose 'message' says why (wrong user id,
+    bad password, invalid TOTP...). Surface that instead of a bare HTTP status."""
+    try:
+        body = r.json()
+    except ValueError:
+        raise RuntimeError(f"{what}: HTTP {r.status_code}, non-JSON body {r.text[:200]!r}")
+    if r.status_code >= 400 or body.get("status") != "success":
+        raise RuntimeError(f"{what}: HTTP {r.status_code} {body.get('error_type', '')} {body.get('message') or body}")
+    return body
+
+
 def _browser_session(user_id: str, password: str, totp_secret: str, used_codes: set) -> requests.Session:
     s = requests.Session()
     s.headers["User-Agent"] = "Mozilla/5.0 (X11; Linux x86_64) scanradar-ingest"
     r = s.post(LOGIN_URL, data={"user_id": user_id, "password": password}, timeout=15)
-    r.raise_for_status()
-    body = r.json()
-    if body.get("status") != "success":
-        raise RuntimeError(f"login failed: {body.get('message') or body}")
-    request_id = body["data"]["request_id"]
+    request_id = _kite_json(r, "login failed")["data"]["request_id"]
 
     r = s.post(TWOFA_URL, data={"user_id": user_id, "request_id": request_id,
                                 "twofa_value": _fresh_totp(totp_secret, used_codes),
                                 "twofa_type": "totp", "skip_session": "true"}, timeout=15)
-    r.raise_for_status()
-    body = r.json()
-    if body.get("status") != "success":
-        raise RuntimeError(f"2FA failed: {body.get('message') or body}")
+    _kite_json(r, "2FA failed")
     return s
 
 
