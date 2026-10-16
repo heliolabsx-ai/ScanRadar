@@ -1,0 +1,12 @@
+{
+  "name": "VWAP reclaim long",
+  "timeframe": "5m",
+  "match": "all",
+  "rules": [
+    {"lhs": {"off": 1, "field": "close"}, "op": "<",  "rhs": {"off": 1, "field": "vwap"}},
+    {"lhs": {"off": 0, "field": "close"}, "op": ">",  "rhs": {"off": 0, "field": "vwap"}},
+    {"lhs": {"off": 0, "field": "close"}, "op": ">",  "rhs": {"series": "prev_day_close"}},
+    {"lhs": {"off": 0, "field": "volume"}, "op": ">", "rhs": {"off": 1, "field": "volume"}}
+  ],
+  "alert": {"telegram": true, "cooldown_min": 45}
+}

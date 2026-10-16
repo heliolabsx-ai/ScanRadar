@@ -1,0 +1,19 @@
+scanradar.tech, www.scanradar.tech {
+    encode gzip
+
+    basicauth {
+        {$DASH_USER} {$DASH_HASH}
+    }
+
+    handle /api/* {
+        reverse_proxy 127.0.0.1:8000
+    }
+    handle /ws/* {
+        reverse_proxy 127.0.0.1:8000
+    }
+
+    handle {
+        root * /srv/web
+        file_server
+    }
+}

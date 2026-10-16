@@ -1,0 +1,99 @@
+# ScanRadar — project brief for Claude Code
+
+Owner: Saurabh Verma. Personal intraday NSE F&O scanner. Everything below was decided in design sessions; treat it as the spec unless Saurabh says otherwise.
+
+> **Repo note (17 Oct 2026):** this checkout was cloned from an empty GitHub repo. The code described under *Status* was restored from a tarball of the design session on 17 Oct 2026; nothing is committed or pushed yet. The dashboard look-and-behaviour reference is the Claude artifact "Intraday Flow Scanner" (https://claude.ai/artifact/374M9Chnq9UXNQ3ChZDT6C). This project is kept strictly separate from the TrackSo desk UI work: never add that folder to a ScanRadar session or vice versa.
+
+## What it is
+
+Two scanners sharing one data pipeline, with alerts and a web dashboard at **https://scanradar.tech**:
+
+1. **Ranking scanner** — every minute, scores all ~200 NSE F&O stocks and ranks them bull/bear. Modelled on a commercial scanner Saurabh showed (card per stock: % change, OI build-up label, VWAP side, volume delta, order block, S1/S2/R1/R2, R:R, conviction score, rank/percentile, "top 3 picked" rule).
+2. **Rule scanner** — Chartink-style conditions on 5-min candles (e.g. `[=3] High <= [=2] Close`), defined as JSON in `scans/`, fire Telegram alerts with cooldown.
+
+Goals beyond the reference products: rank by **relative strength vs sector** rather than raw % change; log every signal and its outcome so the scanner grades itself (hit rate per setup); replay/backtest scans over stored candles. None of the "better than" features are built yet — see To-do.
+
+## Infrastructure (fixed decisions)
+
+| Item | Value |
+|---|---|
+| Hosting | Hostinger VPS **KVM 2** (2 vCPU / 8 GB), Docker image, Ubuntu. Hostname `srv1906667.hstgr.cloud`, IP **200.234.37.207**, paid to 2027-08-16. |
+| Domain | **scanradar.tech**. DNS A records for `@` and `www` → 200.234.37.207 (not yet set as of 17 Oct 2026). |
+| TLS / proxy | Caddy (auto Let's Encrypt), basic-auth on the whole site. Config in `Caddyfile`. |
+| Broker/data | **Zerodha Kite Connect**, "Connect" plan (₹500/month, WebSocket + historical). App created with redirect URL `https://scanradar.tech/api/auth/callback`. Static IP 200.234.37.207 whitelisted in Kite developer profile (needed only for order APIs from 1 Apr 2026; data APIs are IP-free). |
+| Login | **Fully automated** daily login with Kite user ID + password + TOTP secret from `.env` (`ingest/kite_auth.py` replays the browser flow — unofficial, fix here if Zerodha changes the login page). |
+| Universe | All NSE stock futures, nearest expiry, indices excluded. Built daily from the instrument dump. |
+| Alerts | Telegram bot (token + chat ID in `.env`). |
+| Repo | https://github.com/heliolabsx-ai/ScanRadar (private). |
+| Timezone | Asia/Kolkata everywhere. Market 09:15–15:30. |
+
+Alternatives considered and rejected: Upstox (free, slightly less reliable feed) — code should keep a thin broker adapter so switching is cheap; Tailscale-only private access instead of a domain — rejected in favour of a public domain + basic auth.
+
+## Architecture
+
+```
+Kite WebSocket ──► ingest ──► Postgres/TimescaleDB (candles_1m, daily_ref, instruments, alerts, scan_snapshots)
+                      │
+                      └──► Redis (live:{sym} forming candle, ref:{sym}, scan:latest, pub/sub)
+                                  │
+                   engine ◄───────┘  (subscribes candles:closed; runs analytics + rule scans; Telegram)
+                      │
+                   api (FastAPI) ──► web/index.html (static dashboard)  ◄── Caddy (HTTPS, basic auth)
+```
+
+Compose services: `postgres`, `redis`, `ingest`, `engine`, `api`, `caddy` (host network). All config via `.env` (see `.env.example`; never commit `.env`).
+
+### ingest/ (Python 3.12, kiteconnect 5.x)
+- `main.py` — scheduler: 08:55 login + universe + daily refs; 09:14 open WS; every minute flush closed candles to Postgres and forming candle to Redis; 15:31 close. If started mid-session on a weekday it runs setup immediately.
+- `kite_auth.py` — TOTP auto-login → request_token → access_token (cached in Redis `kite:access_token`, 20 h TTL).
+- `universe.py` — NFO FUT nearest expiry ⋈ NSE EQ → `(symbol, eq_token, fut_token)`; static `SECTOR` map (extend as needed; unmapped → OTHERS).
+- `candles.py` — tick → 1-min OHLCV; volume delta by tick rule (uptick = buy); futures FULL-mode ticks supply OI.
+- Equity subscribed in QUOTE mode, futures in FULL mode (OI only comes in FULL).
+
+### engine/
+- `analytics.py` — per symbol: % change, VWAP, OI % vs prev-day OI, OI label via price×OI matrix on a **30-min intraday trend** (long/short build-up, unwinding, covering), classic pivots from prev H/L/C, opening range (first 15 min), RVOL vs 20-day avg 1-min volume, order block = origin candle of largest 5-bar impulse, stop/target/R:R. `score()` = relative move×18 + OI confirmation + VWAP side + RVOL + R:R.
+- `rules.py` — JSON rule DSL. Sides: `{"number":x}`, `{"series":"prev_day_close|prev_day_high|prev_day_low"}`, `{"off":N,"field":"open|high|low|close|volume|vwap|oi"}` (`off` 0 = forming bar). Timeframes 1m/3m/5m/15m/30m/60m resampled from 1-min with 09:15 anchor. `match` all|any.
+- `main.py` — on each `candles:closed` message (debounced 20 s): load today's candles + forming bar, analyse, rank (TOP_N=3 per side, R:R ≥ 1.5 to be "picked"), write `scan:latest` to Redis + `scan_snapshots` to Postgres, evaluate every `scans/*.json`, insert `alerts`, send Telegram (cooldown key `cooldown:{scan}:{symbol}` in Redis).
+- `notify.py` — Telegram sendMessage.
+
+### api/ (FastAPI)
+`GET /api/health`, `GET /api/scan`, `GET /api/candles/{symbol}?day=`, `GET /api/alerts?limit=`, `WS /ws/scan` (pushes `scan:latest` on update).
+
+### web/
+Single static `index.html` (dark terminal style, IBM Plex Sans + JetBrains Mono, canvas candlestick chart with VWAP/pivots/OB). Connects to `/ws/scan`, falls back to `/api/scan`. Alert feed from `/api/alerts`.
+
+### scans/
+`bounce_failure_short.json` — 1:1 translation of Saurabh's Chartink scan (price > 1000, below prev close and VWAP, bar-2 bounce failing). `vwap_reclaim_long.json` — example long.
+
+## Deploy (VPS)
+
+```bash
+cd /opt && git clone https://github.com/heliolabsx-ai/ScanRadar.git scanradar && cd scanradar
+cp .env.example .env && nano .env         # Kite key/secret, user/password/TOTP, Telegram, Postgres pw, DASH_HASH
+docker run --rm caddy:2.8-alpine caddy hash-password --plaintext 'pw'   # → DASH_HASH
+docker compose up -d --build
+docker compose logs -f ingest
+```
+Verify: `https://scanradar.tech/api/health` → `{"ingest":"ready","ws":"connected"}` in market hours. Full walkthrough in `README.md`.
+
+## Status (17 Oct 2026)
+
+- Code written and syntax-checked; engine smoke-tested on synthetic candles. **Not yet run against live Kite data** — expect first-day fixes (tick field names, historical API rate limits, login flow quirks).
+- DNS not set; VPS not yet deployed; `.env` not filled.
+- A browser-only demo of the dashboard on simulated data exists as a Claude artifact (reference for look & behaviour).
+
+## To-do / roadmap (in priority order)
+
+1. First live run; fix whatever breaks in ingest. Confirm OI arrives on futures ticks and prev-day OI loads via `historical_data(..., oi=True)`.
+2. Dashboard: rule-alert tab, scan builder UI (Chartink-style), light theme.
+3. **Self-grading**: for every alert and every "picked" stock, record price at +15/+30/+60 min and whether R1/S1 target or stop hit first; show hit-rate per scan on the card.
+4. **Replay / backtest**: run any scan over stored `candles_1m` for N days; report fire count and forward returns.
+5. Sector rotation detection (rank changes over rolling 30 min), relative strength vs NIFTY, multi-timeframe alignment, option-chain OI (PCR, max-pain) — ideas discussed, not designed.
+6. Paper-trade log from the dashboard. No live order placement unless explicitly asked (SEBI retail-algo rules apply; static IP already whitelisted if ever needed).
+
+## Conventions
+
+- Python, FastAPI, pandas; keep broker-specific code inside `ingest/` behind the same interface so Upstox can be swapped in.
+- All times IST; candle `ts` is the minute **start**.
+- Secrets only in `.env`; never log tokens.
+- Prefer editing existing modules over adding services; the VPS is small.

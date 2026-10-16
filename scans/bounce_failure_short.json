@@ -1,0 +1,15 @@
+{
+  "name": "Bounce failure short",
+  "timeframe": "5m",
+  "match": "all",
+  "rules": [
+    {"lhs": {"off": 0, "field": "close"}, "op": ">",  "rhs": {"number": 1000}},
+    {"lhs": {"off": 1, "field": "close"}, "op": "<",  "rhs": {"series": "prev_day_close"}},
+    {"lhs": {"off": 0, "field": "close"}, "op": "<",  "rhs": {"off": 0, "field": "vwap"}},
+    {"lhs": {"off": 2, "field": "close"}, "op": ">",  "rhs": {"off": 0, "field": "low"}},
+    {"lhs": {"off": 3, "field": "high"},  "op": "<=", "rhs": {"off": 2, "field": "close"}},
+    {"lhs": {"off": 3, "field": "low"},   "op": "<=", "rhs": {"off": 2, "field": "low"}},
+    {"lhs": {"off": 3, "field": "close"}, "op": "<=", "rhs": {"off": 2, "field": "close"}}
+  ],
+  "alert": {"telegram": true, "cooldown_min": 30}
+}
