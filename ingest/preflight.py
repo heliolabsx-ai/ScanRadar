@@ -38,13 +38,17 @@ PLACEHOLDERS = {"KITE_API_KEY": "xxxx", "KITE_API_SECRET": "xxxx", "KITE_USER_ID
                 "KITE_PASSWORD": "your-kite-password", "KITE_TOTP_SECRET": "BASE32SECRETHERE",
                 "TELEGRAM_BOT_TOKEN": "123456:ABC-DEF", "TELEGRAM_CHAT_ID": "123456789",
                 "POSTGRES_PASSWORD": "change-me", "DASH_HASH": "replace-with"}
+OPTIONAL = {"KITE_PASSWORD",       # empty = manual-token mode
+            "TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID"}   # empty = engine logs alerts instead of sending
 
 
 def check_env():
     bad = [k for k, v in PLACEHOLDERS.items()
-           if v in os.environ.get(k, "") or (not os.environ.get(k) and k != "KITE_PASSWORD")]  # empty password = manual-token mode
+           if v in os.environ.get(k, "") or (not os.environ.get(k) and k not in OPTIONAL)]
     if bad:
         fail(f".env still has placeholder/empty values for: {', '.join(bad)} — edit /opt/scanradar/.env first")
+    if not os.environ.get("TELEGRAM_BOT_TOKEN"):
+        print("note: Telegram not configured; alerts will only appear in the engine log")
 
 
 def main(do_ws=True):

@@ -50,9 +50,12 @@ ask_secret  KITE_TOTP_SECRET "KITE_TOTP_SECRET base32 key from Kite > Password &
 KITE_TOTP_SECRET=$(echo "$KITE_TOTP_SECRET" | tr -d ' ' | tr '[:lower:]' '[:upper:]')
 case "$KITE_TOTP_SECRET" in *[!A-Z2-7=]*) echo "ERROR: TOTP secret must be base32 (A-Z, 2-7)"; exit 1;; esac
 echo
-echo "== Telegram"
-ask_secret  TELEGRAM_BOT_TOKEN "TELEGRAM_BOT_TOKEN from @BotFather (hidden)"
-ask         TELEGRAM_CHAT_ID   "TELEGRAM_CHAT_ID" "$(cur TELEGRAM_CHAT_ID | grep -v '^123456789$' || true)"
+echo "== Telegram (optional: press Enter to skip; alerts are then only logged by the engine)"
+read -r -s -p "TELEGRAM_BOT_TOKEN from @BotFather (hidden, Enter = skip): " TELEGRAM_BOT_TOKEN; echo
+TELEGRAM_CHAT_ID=""
+if [ -n "$TELEGRAM_BOT_TOKEN" ]; then
+    ask TELEGRAM_CHAT_ID "TELEGRAM_CHAT_ID" "$(cur TELEGRAM_CHAT_ID | grep -v '^123456789$' || true)"
+fi
 echo
 echo "== Postgres"
 PG_DEFAULT=$(openssl rand -hex 16 2>/dev/null || head -c 24 /dev/urandom | base64 | tr -d '/+=')
