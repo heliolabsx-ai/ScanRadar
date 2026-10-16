@@ -34,6 +34,12 @@ def _fresh_totp(secret: str, used: set) -> str:
     return code
 
 
+class KiteLoginRejected(RuntimeError):
+    """Kite rejected the credentials or the 2FA code. Never retried: Zerodha locks
+    the account after 5 wrong codes, so a second attempt with the same inputs
+    only burns an attempt."""
+
+
 def _kite_json(r: requests.Response, what: str) -> dict:
     """Kite answers 4xx with a JSON body whose 'message' says why (wrong user id,
     bad password, invalid TOTP...). Surface that instead of a bare HTTP status."""
@@ -42,8 +48,17 @@ def _kite_json(r: requests.Response, what: str) -> dict:
     except ValueError:
         raise RuntimeError(f"{what}: HTTP {r.status_code}, non-JSON body {r.text[:200]!r}")
     if r.status_code >= 400 or body.get("status") != "success":
-        raise RuntimeError(f"{what}: HTTP {r.status_code} {body.get('error_type', '')} {body.get('message') or body}")
+        msg = f"{what}: HTTP {r.status_code} {body.get('error_type', '')} {body.get('message') or body}"
+        if 400 <= r.status_code < 500:
+            raise KiteLoginRejected(msg)
+        raise RuntimeError(msg)
     return body
+
+
+def current_totp(secret: str) -> tuple[str, int]:
+    """The 6-digit code this secret produces right now and the seconds it stays valid.
+    Lets the preflight compare against the authenticator app before touching Kite."""
+    return pyotp.TOTP(secret).now(), 30 - int(time.time()) % 30
 
 
 def _browser_session(user_id: str, password: str, totp_secret: str, used_codes: set) -> requests.Session:
@@ -126,7 +141,10 @@ def login(retries: int = 3) -> tuple[KiteConnect, str]:
             kite.set_access_token(data["access_token"])
             log.info("Kite login OK for %s", data.get("user_id"))
             return kite, data["access_token"]
-        except Exception as e:  # noqa: BLE001
+        except KiteLoginRejected as e:
+            log.error("login rejected, not retrying (wrong credentials/TOTP would lock the account): %s", e)
+            raise
+        except Exception as e:  # noqa: BLE001   network / 5xx / parse problems: worth a retry
             last = e
             log.warning("login attempt %d failed: %s", attempt, e)
             time.sleep(10 * attempt)

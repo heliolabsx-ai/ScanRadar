@@ -56,6 +56,20 @@ def main(do_ws=True):
     check_env()
     print("OK  no placeholder values")
 
+    if os.environ.get("KITE_PASSWORD") and not R.get("kite:access_token"):
+        step("0b. TOTP key check (local only, nothing sent to Kite)")
+        code, left = kite_auth.current_totp(os.environ["KITE_TOTP_SECRET"])
+        print(f"    code from KITE_TOTP_SECRET right now: {code}  (valid {left}s more)")
+        print("    Compare with the 6-digit code your authenticator app shows for Zerodha/Kite.")
+        print("    Zerodha locks the account after 5 wrong codes, so do not continue unless they match.")
+        if sys.stdin.isatty():
+            ans = input("    Do they match? [y/N] ").strip().lower()
+            if ans != "y":
+                fail("TOTP key not confirmed. Re-copy the key from Kite > My profile > Password & security > "
+                     "External 2FA TOTP and rerun configure-env.sh")
+        else:
+            print("    (no terminal attached; continuing without confirmation)")
+
     step("1. Kite session")
     kite = kite_auth.session(R)
     prof = kite.profile()
