@@ -79,6 +79,11 @@ canvas{display:block;width:100%;max-width:100%;margin-top:10px;border-radius:4px
 .rule b{font-family:var(--mono)}
 .size{margin-top:8px;font-size:11.5px;padding:8px;border-radius:4px;border:1px solid var(--line);display:grid;grid-template-columns:auto 1fr;gap:3px 10px}
 .size dt{color:var(--muted);text-transform:uppercase;letter-spacing:.06em;font-size:10px}.size dd{margin:0;font-family:var(--mono)}
+.slider{display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:center;margin:-2px 0 12px;position:relative}
+.slider input[type=range]{width:100%;accent-color:var(--accent);margin:0}
+.slider .t{font-size:11px;color:var(--muted)}
+.slider .ticks{grid-column:2;position:relative;height:12px;font:10px var(--mono);color:var(--muted)}
+.slider .ticks span{position:absolute;transform:translateX(-50%)}
 .alerts{margin-top:12px}.alert{display:grid;grid-template-columns:40px 1fr auto;gap:6px;font-size:11.5px;padding:5px 0;border-bottom:1px solid var(--line);align-items:center}
 .empty{color:var(--muted);font-size:12px;padding:20px 4px;line-height:1.6}
 .empty code{font-family:var(--mono);background:var(--bg);border:1px solid var(--line);padding:2px 6px;border-radius:3px}
@@ -86,10 +91,18 @@ canvas{display:block;width:100%;max-width:100%;margin-top:10px;border-radius:4px
 </style></head><body>
 <div class="top">
   <h1>ScanRadar</h1>
+  <select id="day" title="Session"></select>
   <span class="clock mono" id="clock">--:--</span>
   <span class="st" id="status"><i class="dot"></i><span id="statusText">WAITING</span></span>
+  <button id="live" class="primary" hidden title="Return to the live feed">● Live</button>
   <label>Risk ₹ <input id="risk" type="number" min="100" step="100" value="2000" title="Rupees risked per trade; sizes the quantity in the detail panel"></label>
   <button id="theme" title="Toggle light / dark">◐</button>
+</div>
+<div class="slider">
+  <span class="t mono">09:15</span>
+  <input type="range" id="at" min="0" max="375" step="1" value="375" title="As-of time: drag to replay the day minute by minute (←/→ one minute, Shift for five)">
+  <span class="t mono">15:30</span>
+  <div class="ticks" id="ticks"></div>
 </div>
 <div class="grid">
   <div class="panel rail">
@@ -209,23 +222,95 @@ function renderAll(){
   renderDetail();
 }
 async function loadAlerts(){
-  try{ const al = await api('/api/alerts?limit=20');
-    $('alerts').innerHTML = al.map(a=>`<div class="alert"><span class="mono">${a.ts.slice(11,16)}</span><span>${a.scan}</span><b class="mono">${a.symbol}</b></div>`).join('') || '<span class="mut">none yet</span>';
+  const day = S.day;
+  try{ const res = await api(day ? `/api/alerts?day=${day}` : '/api/alerts?limit=20');
+    if(day !== S.day) return;
+    const al = Array.isArray(res) ? res : res.alerts;
+    S.alerts = al; S.alertsPending = !!(res && res.pending);
+    $('alerts').innerHTML = (S.alertsPending ? '<div class="mut" style="padding:4px 0">computing replay alerts for this day…</div>' : '') +
+      (al.map(a=>`<div class="alert"><span class="mono">${a.ts.slice(11,16)}</span><span>${a.scan}</span><b class="mono">${a.symbol}</b></div>`).join('') || (S.alertsPending ? '' : '<span class="mut">none yet</span>'));
+    if(S.alertsPending){ clearTimeout(S.alertsTimer); S.alertsTimer = setTimeout(loadAlerts, 10000); }
   }catch(e){}
 }
+function showEmpty(html){
+  S.snap = null; ['bulls','bears','sectors'].forEach(id => $(id).innerHTML = ''); $('nbull').textContent = $('nbear').textContent = '0';
+  $('detail').innerHTML = `<p class="eyebrow">Select a stock</p><div class="empty">${html}</div>`;
+}
+
+// ---------- time / day controls ----------
+const MIN0 = 9*60+15;
+const minToHHMM = m => { const t = MIN0 + Math.max(0, Math.min(375, m)); return String(Math.floor(t/60)).padStart(2,'0')+':'+String(t%60).padStart(2,'0'); };
+const hhmmToMin = s => { const [h,m] = s.split(':').map(Number); return h*60+m-MIN0; };
+const todayIST = () => new Date().toLocaleDateString('en-CA', {timeZone:'Asia/Kolkata'});
+$('ticks').innerHTML = ['10:00','11:00','12:00','13:00','14:00','15:00'].map(t=>`<span style="left:${hhmmToMin(t)/375*100}%">${t}</span>`).join('');
+S.following = true; S.liveSnap = null;
+let inflight = null, pending = null;
+
+function setAt(hhmm){ S.at = hhmm; $('clock').textContent = hhmm; $('at').value = hhmmToMin(hhmm); }
+async function fetchReplay(){
+  const want = {day:S.day, at:S.at};
+  if(inflight){ pending = want; return; }
+  inflight = want;
+  try{
+    const snap = await api(`/api/replay?day=${want.day}&at=${want.at}`);
+    if(want.day===S.day && want.at===S.at && !S.following){ S.snap = snap; S.mode='replay'; setStatus('REPLAY','replay'); renderAll(); }
+  }catch(e){
+    if(want.day===S.day && want.at===S.at && !S.following) showEmpty(`no data for ${want.day} at ${want.at}`);
+  }finally{
+    inflight = null;
+    if(pending){ const p = pending; pending = null; if(p.day!==want.day || p.at!==want.at) fetchReplay(); }
+  }
+}
+function enterReplay(day, at){
+  const dayChanged = day !== S.day;
+  S.following = false; S.day = day; setAt(at); $('live').hidden = false; $('day').value = day; setStatus('REPLAY','replay');
+  fetchReplay(); if(dayChanged) loadAlerts();
+}
+function goLive(){
+  S.following = true; S.day = null; S.mode = 'live'; $('live').hidden = true; $('day').value = todayIST();
+  if(S.liveSnap){ S.snap = S.liveSnap; setAt(S.snap.ts.slice(11,16)); setStatus('LIVE','live'); renderAll(); }
+  else { setStatus('WAITING',''); showEmpty('Waiting for the first ranking. Cards appear from 09:15 on a trading day.'); }
+  loadAlerts();
+}
+function populateDays(){
+  const today = todayIST();
+  const opts = (S.live && !S.days.includes(today)) ? [today, ...S.days] : S.days;
+  $('day').innerHTML = opts.map(d => `<option value="${d}">${d}${d===today?' · today':''}</option>`).join('');
+  $('day').hidden = opts.length === 0;
+}
+$('day').onchange = () => { const v = $('day').value; (v === todayIST() && S.live) ? goLive() : enterReplay(v, '15:30'); };
+$('at').oninput = () => enterReplay(S.day || todayIST(), minToHHMM(+$('at').value));
+$('live').onclick = goLive;
+document.addEventListener('keydown', e => {
+  if(e.target.closest('input,select,textarea') || (e.key!=='ArrowLeft' && e.key!=='ArrowRight')) return;
+  e.preventDefault();
+  const step = (e.shiftKey ? 5 : 1) * (e.key==='ArrowLeft' ? -1 : 1);
+  enterReplay(S.day || todayIST(), minToHHMM(hhmmToMin(S.at || '15:30') + step));
+});
 
 // ---------- live feed ----------
+function onLiveSnapshot(snap){
+  S.liveSnap = snap; S.live = true;
+  if(S.following){ S.snap = snap; S.mode='live'; setAt(snap.ts.slice(11,16)); setStatus('LIVE','live'); renderAll(); loadAlerts(); }
+}
 function connect(){
   const ws = new WebSocket((location.protocol==='https:'?'wss://':'ws://')+location.host+'/ws/scan');
-  ws.onmessage = e => { S.snap = JSON.parse(e.data); S.mode='live'; S.at = S.snap.ts.slice(11,16); setStatus('LIVE','live'); renderAll(); loadAlerts(); };
-  ws.onclose = () => { if(S.mode==='live') setStatus('RECONNECTING','warn'); setTimeout(connect, 3000); };
+  ws.onmessage = e => onLiveSnapshot(JSON.parse(e.data));
+  ws.onclose = () => { if(S.following && S.liveSnap) setStatus('RECONNECTING','warn'); setTimeout(connect, 3000); };
 }
 document.addEventListener('click', e => { const c = e.target.closest('.card'); if(c){ S.selected = c.dataset.sym; renderCards(); renderDetail(); } });
 matchMedia('(prefers-color-scheme: dark)').addEventListener('change', renderDetail);
 
 (async () => {
   try{ const ins = await api('/api/instruments'); ins.forEach(i => { S.lots[i.symbol] = i.lot_size; S.sectorsOf[i.symbol] = i.sector; }); }catch(e){}
-  try{ S.snap = await api('/api/scan'); S.mode='live'; S.at = S.snap.ts.slice(11,16); setStatus('LIVE','live'); renderAll(); }catch(e){ setStatus('WAITING',''); }
-  connect(); loadAlerts();
+  try{ const d = await api('/api/days'); S.days = d.days; S.live = d.live; S.expiry = d.expiry; }catch(e){ S.days = []; }
+  populateDays();
+  connect();
+  let liveSnap = null;
+  try{ liveSnap = await api('/api/scan'); }catch(e){}
+  if(liveSnap){ onLiveSnapshot(liveSnap); }
+  else if(S.live){ setStatus('WAITING',''); $('day').value = todayIST(); loadAlerts(); }
+  else if(S.days.length){ enterReplay(S.days[0], '15:30'); }
+  else { showEmpty('No sessions stored yet. On the VPS run <code>docker compose run --rm ingest python backfill.py</code> to load the last 60 days, then reload.'); }
 })();
 </script></body></html>

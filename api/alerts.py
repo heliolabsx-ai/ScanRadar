@@ -61,6 +61,26 @@ def _trade_payload(sym: str, df: pd.DataFrame, ref: dict, ts: pd.Timestamp, side
     return {"stop": stop, "target": target, "outcome": outcome(df, ts, side, price, stop, target)}
 
 
+def replay_needed(con, day: dt.date, scans: list[tuple[dict, str]]) -> bool:
+    """Cheap SQL-only check: is any scan missing replay rows for the day, or stored under an old hash?"""
+    start, end = ist_day_bounds(day)
+    with con.cursor() as cur:
+        cur.execute("SELECT scan, payload->>'scan_hash' FROM alerts WHERE source='replay' AND ts>=%s AND ts<%s GROUP BY 1,2",
+                    (start, end))
+        have: dict[str, set] = {}
+        for name, h in cur.fetchall():
+            have.setdefault(name, set()).add(h)
+    return any(have.get(scan["name"]) != {h} for scan, h in scans)
+
+
+def outcomes_needed(con, day: dt.date) -> bool:
+    start, end = ist_day_bounds(day)
+    with con.cursor() as cur:
+        cur.execute("SELECT 1 FROM alerts WHERE ts>=%s AND ts<%s AND NOT (COALESCE(payload,'{}'::jsonb) ? 'outcome') LIMIT 1",
+                    (start, end))
+        return cur.fetchone() is not None
+
+
 def ensure_replay_alerts(con, day: dt.date, frames: dict, refs: dict, scans: list[tuple[dict, str]], now: dt.datetime) -> None:
     """Cache per (day, scan): recompute when missing or when the scan file changed
     (hash in payload). Never for a day still in progress."""

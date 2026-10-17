@@ -12,7 +12,6 @@ R = aioredis.from_url(os.environ["REDIS_URL"], decode_responses=True)
 DB = os.environ["DATABASE_URL"]
 IST = dt.timezone(dt.timedelta(hours=5, minutes=30))
 _background: set = set()
-_day_locks: dict = {}
 
 
 def connect():
@@ -77,6 +76,40 @@ async def _timeline(day: dt.date):
     return tl
 
 
+def _prepare_day(day: dt.date) -> None:
+    """Background: replay alerts + outcomes (settled days) and the per-minute ranking
+    history. Triggered once per day by the first replay/alerts request."""
+    now = dt.datetime.now(IST)
+    with connect() as con:
+        if al.day_is_settled(day, now):
+            scans = al.scan_files()
+            if al.replay_needed(con, day, scans) or al.outcomes_needed(con, day):
+                frames = rp.load_day(con, day)
+                refs = rp.load_refs(con, day)
+                al.ensure_replay_alerts(con, day, frames, refs, scans, now)
+                al.ensure_outcomes(con, day, frames, refs, scans, now)
+        if hs.rank_timeline(con, day) is None and (day < now.date() or al.day_is_settled(day, now)):
+            hs.build_timeline(connect, day)
+
+
+async def _kick_prepare(day: dt.date) -> None:
+    key = f"prep:{day}"
+    if not await R.set(key, "1", ex=900, nx=True):
+        return
+    loop = asyncio.get_running_loop()
+    task = loop.run_in_executor(None, _prepare_day, day)
+    _background.add(task)
+
+    def done(t):
+        _background.discard(t)
+        try:
+            t.result()
+        except Exception:  # noqa: BLE001
+            logging.getLogger("api").exception("prepare_day %s failed", day)
+        asyncio.ensure_future(R.delete(key))
+    task.add_done_callback(done)
+
+
 @app.get("/api/replay")
 async def replay_at(day: str, at: str):
     try:
@@ -102,10 +135,8 @@ async def replay_at(day: str, at: str):
     if tl:
         for a in snap["bulls"] + snap["bears"]:
             a["top3_since"], a["rank_30m_ago"] = hs.stability(tl, at, a["symbol"])
-    elif d < _today() and await R.set(f"timeline:{d}", "1", ex=600, nx=True):
-        task = loop.run_in_executor(None, hs.build_timeline, connect, d)
-        _background.add(task)
-        task.add_done_callback(_background.discard)
+    else:
+        await _kick_prepare(d)
     return snap
 
 
@@ -158,18 +189,15 @@ async def alerts(limit: int = 100, day: str | None = None):
         d = dt.date.fromisoformat(day)
     except ValueError:
         raise HTTPException(400, "day must be YYYY-MM-DD")
-    lock = _day_locks.setdefault(d, asyncio.Lock())
-    async with lock:
-        def work():
-            with connect() as con:
-                frames = rp.load_day(con, d)
-                refs = rp.load_refs(con, d)
-                scans = al.scan_files()
-                now = dt.datetime.now(IST)
-                al.ensure_replay_alerts(con, d, frames, refs, scans, now)
-                al.ensure_outcomes(con, d, frames, refs, scans, now)
-                return al.alerts_for_day(con, d)
-        return await loop.run_in_executor(None, work)
+    def check():
+        with connect() as con:
+            now = dt.datetime.now(IST)
+            need = al.day_is_settled(d, now) and (al.replay_needed(con, d, al.scan_files()) or al.outcomes_needed(con, d))
+            return need, al.alerts_for_day(con, d)
+    need, rows = await loop.run_in_executor(None, check)
+    if need:
+        await _kick_prepare(d)
+    return {"day": d.isoformat(), "pending": bool(need), "alerts": rows}
 
 
 @app.get("/api/scan-stats")
