@@ -57,6 +57,12 @@ def main(do_ws=True):
     print("OK  no placeholder values")
 
     if os.environ.get("KITE_PASSWORD") and not R.get("kite:access_token"):
+        step("0a. Account 2FA mode (password step only; does not count toward the 2FA lock)")
+        d = kite_auth.probe_login(os.environ["KITE_USER_ID"], os.environ["KITE_PASSWORD"])
+        print(f"    twofa_type={d.get('twofa_type')} available={d.get('twofa_types')} status={d.get('twofa_status')}")
+        kite_auth.pick_twofa_type(d)   # raises with instructions if External TOTP is not enabled
+        print("OK  External TOTP is enabled on the account")
+
         step("0b. TOTP key check (local only, nothing sent to Kite)")
         code, left = kite_auth.current_totp(os.environ["KITE_TOTP_SECRET"])
         print(f"    code from KITE_TOTP_SECRET right now: {code}  (valid {left}s more)")

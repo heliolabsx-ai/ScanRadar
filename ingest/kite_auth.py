@@ -66,20 +66,39 @@ def _browser_session(user_id: str, password: str, totp_secret: str, used_codes: 
     s.headers["User-Agent"] = "Mozilla/5.0 (X11; Linux x86_64) scanradar-ingest"
     r = s.post(LOGIN_URL, data={"user_id": user_id, "password": password}, timeout=15)
     data = _kite_json(r, "login failed")["data"]
-    # Kite tells us which second factor the account uses. Accounts set up with
-    # the Kite app or external TOTP report "app_code" (older ones "totp"); sending
-    # the wrong name gives "The requested 2FA type is not available".
-    twofa_type = data.get("twofa_type") or "app_code"
-    log.info("Kite 2FA type for this account: %s", twofa_type)
-    if twofa_type not in ("totp", "app_code"):
-        raise RuntimeError(f"account 2FA type is '{twofa_type}', which cannot be automated; "
-                           "enable External 2FA TOTP in Kite > My profile > Password & security")
+    twofa_type = pick_twofa_type(data)
 
     r = s.post(TWOFA_URL, data={"user_id": user_id, "request_id": data["request_id"],
                                 "twofa_value": _fresh_totp(totp_secret, used_codes),
                                 "twofa_type": twofa_type, "skip_session": "true"}, timeout=15)
     _kite_json(r, "2FA failed")
     return s
+
+
+def pick_twofa_type(login_data: dict) -> str:
+    """The /api/login response lists the second factors the account accepts, e.g.
+    {"twofa_type": "app_code", "twofa_types": ["app_code", "sms"]}. Only "totp"
+    (External 2FA TOTP enabled in Kite > My profile > Password & security) can be
+    automated from a stored secret. Refuse up front otherwise: every rejected
+    code counts toward Zerodha's 5-strike account lock."""
+    available = login_data.get("twofa_types") or [login_data.get("twofa_type")]
+    log.info("Kite 2FA for this account: type=%s available=%s status=%s",
+             login_data.get("twofa_type"), available, login_data.get("twofa_status"))
+    if "totp" not in available:
+        raise KiteLoginRejected(
+            f"External TOTP is not enabled on this Kite account (accepts {available}). Enable it in Kite web > "
+            "My profile > Password & security > External 2FA TOTP, finish the verification step, then put the key "
+            "shown there into .env (configure-env.sh). No 2FA attempt was made.")
+    return "totp"
+
+
+def probe_login(user_id: str, password: str) -> dict:
+    """Password step only (does not count toward the 2FA lock): returns the login
+    response data so the preflight can show the account's 2FA mode."""
+    s = requests.Session()
+    s.headers["User-Agent"] = "Mozilla/5.0 (X11; Linux x86_64) scanradar-ingest"
+    r = s.post(LOGIN_URL, data={"user_id": user_id, "password": password}, timeout=15)
+    return _kite_json(r, "login failed")["data"]
 
 
 def fetch_request_token(api_key: str, sess: requests.Session) -> str:
