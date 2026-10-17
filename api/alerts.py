@@ -7,8 +7,8 @@ from core.analytics import analyse
 from core.asof import view_at
 from core.backtest import fires, outcome
 
-IST = dt.timezone(dt.timedelta(hours=5, minutes=30))
-SETTLED = dt.time(15, 35)            # a day's alerts/outcomes may be computed from this time on
+from replay import IST, SETTLED, day_is_settled  # noqa: F401  (re-exported for tests)
+
 SCAN_DIR = os.environ.get("SCAN_DIR", "/app/scans")
 
 
@@ -27,11 +27,6 @@ def scan_files() -> list[tuple[dict, str]]:
         except ValueError:
             continue
     return out
-
-
-def day_is_settled(day: dt.date, now: dt.datetime) -> bool:
-    today = now.astimezone(IST).date()
-    return day < today or (day == today and now.astimezone(IST).timetz().replace(tzinfo=None) >= SETTLED)
 
 
 def side_levels(a: dict, side: str) -> tuple[float, float]:
@@ -93,6 +88,9 @@ def ensure_replay_alerts(con, day: dt.date, frames: dict, refs: dict, scans: lis
         have: dict[str, set] = {}
         for name, h in cur.fetchall():
             have.setdefault(name, set()).add(h)
+        current = {scan["name"] for scan, _ in scans}
+        for gone in set(have) - current:          # scan file renamed/removed: its replay rows are orphans
+            cur.execute("DELETE FROM alerts WHERE source='replay' AND scan=%s AND ts>=%s AND ts<%s", (gone, start, end))
         for scan, h in scans:
             name = scan["name"]
             if have.get(name) == {h}:
@@ -130,13 +128,11 @@ def ensure_outcomes(con, day: dt.date, frames: dict, refs: dict, scans: list[tup
             scan = by_name.get(name)
             side = scan.get("side") if scan else None
             df, ref = frames.get(sym), refs.get(sym)
-            if not side or df is None or not ref or price is None:
-                continue
-            extra = _trade_payload(sym, df, ref, pd.Timestamp(ts).tz_convert("Asia/Kolkata"), side, float(price))
-            if extra:
-                extra["side"] = side
-                cur.execute("UPDATE alerts SET payload = COALESCE(payload,'{}'::jsonb) || %s::jsonb WHERE id=%s",
-                            (json.dumps(extra, default=float), aid))
+            extra: dict = {"outcome": None, "side": side}          # ungradable rows are marked, not skipped
+            if side and df is not None and ref and price is not None:
+                extra.update(_trade_payload(sym, df, ref, pd.Timestamp(ts).tz_convert("Asia/Kolkata"), side, float(price)) or {})
+            cur.execute("UPDATE alerts SET payload = COALESCE(payload,'{}'::jsonb) || %s::jsonb WHERE id=%s",
+                        (json.dumps(extra, default=float), aid))
     con.commit()
 
 
@@ -165,21 +161,23 @@ def alerts_for_day(con, day: dt.date) -> list[dict]:
              "outcome": r["payload"].get("outcome")} for r in rows]
 
 
-def scan_stats(con, days: int) -> list[dict]:
-    """Per-scan hit rate and average returns over roughly the last N trading days."""
-    since = dt.datetime.now(IST) - dt.timedelta(days=int(days * 7 / 5) + 3)
-    with con.cursor() as cur:
-        cur.execute("SELECT scan, payload->'outcome' FROM alerts WHERE ts>=%s AND payload ? 'outcome'", (since,))
-        rows = cur.fetchall()
+def aggregate_stats(rows: list[dict]) -> list[dict]:
+    """rows: {ts, scan, symbol, source, outcome}. Live and replay rows for the same fire
+    are counted once (live wins); rows with outcome None count as fires only."""
+    by_day: dict = {}
+    for r in rows:
+        by_day.setdefault(r["ts"].astimezone(IST).date(), []).append(r)
     agg: dict[str, dict] = {}
-    for name, o in rows:
-        s = agg.setdefault(name, {"scan": name, "fires": 0, "target": 0, "stop": 0, "r30": [], "r60": []})
-        s["fires"] += 1
-        if o.get("hit") in ("target", "stop"):
-            s[o["hit"]] += 1
-        for k in ("r30", "r60"):
-            if o.get(k) is not None:
-                s[k].append(float(o[k]))
+    for day_rows in by_day.values():
+        for r in merge_live_replay(day_rows):
+            s = agg.setdefault(r["scan"], {"scan": r["scan"], "fires": 0, "target": 0, "stop": 0, "r30": [], "r60": []})
+            s["fires"] += 1
+            o = r.get("outcome") or {}
+            if o.get("hit") in ("target", "stop"):
+                s[o["hit"]] += 1
+            for k in ("r30", "r60"):
+                if o.get(k) is not None:
+                    s[k].append(float(o[k]))
     out = []
     for s in agg.values():
         decided = s["target"] + s["stop"]
@@ -188,3 +186,12 @@ def scan_stats(con, days: int) -> list[dict]:
                     "avg_r30": (sum(s["r30"]) / len(s["r30"])) if s["r30"] else None,
                     "avg_r60": (sum(s["r60"]) / len(s["r60"])) if s["r60"] else None})
     return sorted(out, key=lambda x: x["scan"])
+
+
+def scan_stats(con, days: int) -> list[dict]:
+    """Per-scan hit rate and average returns over roughly the last N trading days."""
+    since = dt.datetime.now(IST) - dt.timedelta(days=int(days * 7 / 5) + 3)
+    with con.cursor() as cur:
+        cur.execute("SELECT ts, scan, symbol, source, payload->'outcome' FROM alerts WHERE ts>=%s AND payload ? 'outcome'", (since,))
+        rows = [{"ts": ts, "scan": sc, "symbol": sym, "source": src, "outcome": o} for ts, sc, sym, src, o in cur.fetchall()]
+    return aggregate_stats(rows)

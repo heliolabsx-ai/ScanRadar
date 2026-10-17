@@ -63,3 +63,39 @@ def test_side_levels_follow_scan_side_not_analysis_direction():
     assert side_levels(a, "short") == (104.0, 92.0)            # short: stop max(R1, ob.hi), target S2
     a2 = dict(a, dir=-1, stop=104.0, target=92.0)
     assert side_levels(a2, "long") == (96.0, 108.0)            # long against a bearish analysis: min(S1, ob.lo), R2
+
+
+class RowsCursor(RecordingCursor):
+    def __init__(self, rows): super().__init__(); self.rows = rows
+    def fetchall(self): return self.rows
+
+
+class RowsCon(FakeCon):
+    def __init__(self, rows): self.cur = RowsCursor(rows); self.commits = 0
+
+
+def test_ensure_outcomes_marks_ungradable_rows_null():
+    con = RowsCon([(7, T("10:05"), "deleted scan", "X", 100.0, {"tf": "5m"})])
+    settled = dt.datetime(2026, 10, 17, 9, 0, tzinfo=T("09:15").tzinfo)
+    ensure_outcomes(con, dt.date(2026, 10, 16), frames={"X": object()}, refs={"X": {"prev_close": 1}}, scans=[], now=settled)
+    updates = [q for q in con.cur.executed if q.lstrip().startswith("UPDATE")]
+    assert len(updates) == 1 and con.commits == 1
+
+
+def test_ensure_replay_alerts_deletes_rows_of_removed_scans():
+    con = RowsCon([("old scan", "abc")])
+    settled = dt.datetime(2026, 10, 17, 9, 0, tzinfo=T("09:15").tzinfo)
+    ensure_replay_alerts(con, dt.date(2026, 10, 16), frames={"X": object()}, refs={}, scans=[], now=settled)
+    assert any(q.lstrip().startswith("DELETE") for q in con.cur.executed)
+
+
+def test_aggregate_stats_dedups_live_replay_and_tolerates_null():
+    from alerts import aggregate_stats
+    rows = [
+        {"ts": T("10:05"), "scan": "s", "symbol": "X", "source": "live", "outcome": {"hit": "target", "r30": 1.0, "r60": 2.0}},
+        {"ts": T("10:05"), "scan": "s", "symbol": "X", "source": "replay", "outcome": {"hit": "target", "r30": 1.0, "r60": 2.0}},
+        {"ts": T("11:00"), "scan": "s", "symbol": "Y", "source": "replay", "outcome": {"hit": "stop", "r30": -1.0, "r60": None}},
+        {"ts": T("12:00"), "scan": "s", "symbol": "Z", "source": "replay", "outcome": None},
+    ]
+    st = aggregate_stats(rows)
+    assert st == [{"scan": "s", "fires": 3, "hit_rate": 50.0, "avg_r30": 0.0, "avg_r60": 2.0}]

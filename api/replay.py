@@ -10,6 +10,14 @@ OPEN, CLOSE = dt.time(9, 15), dt.time(15, 30)
 COLS = ["symbol", "ts", "open", "high", "low", "close", "volume", "oi", "delta"]
 
 
+SETTLED = dt.time(15, 35)            # a day's replay may be cached/prepared for good from this time on
+
+
+def day_is_settled(day: dt.date, now: dt.datetime) -> bool:
+    n = now.astimezone(IST)
+    return day < n.date() or (day == n.date() and n.timetz().replace(tzinfo=None) >= SETTLED)
+
+
 class ReplayError(Exception):
     """Client error (mapped to HTTP by the route). Kept free of FastAPI so the
     helpers import in plain unit tests."""
@@ -91,3 +99,22 @@ def snapshot_at(con, day: dt.date, at: dt.datetime) -> dict:
     if snap is None:
         raise ReplayError(404, f"no rankable symbols for {day} at {at:%H:%M}")
     return snap
+
+
+FLUSH_GRACE = dt.timedelta(seconds=90)   # the live ingest flushes a closed minute within ~60 s
+
+
+def assert_not_future(at: dt.datetime, now: dt.datetime) -> None:
+    if at > now.astimezone(IST):
+        raise ReplayError(400, f"{at:%H:%M} has not happened yet")
+
+
+def cache_ttl(day: dt.date, at: dt.datetime, now: dt.datetime) -> int | None:
+    """How long a replay frame may be cached. None = do not cache: on a live day the
+    `at` bar may still be forming, so the frame would be missing its stub (or, worse,
+    be a view of the past dressed as a later minute)."""
+    if day_is_settled(day, now):
+        return 7 * 86400
+    if at + FLUSH_GRACE > now.astimezone(IST):
+        return None
+    return 300

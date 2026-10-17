@@ -355,6 +355,7 @@ function renderAll(){
   renderDetail();
 }
 function outcomeLabel(o){
+  if(o === null) return '<span class="mut">—</span>';
   if(!o) return '<span class="mut">pending</span>';
   const r = o.r30 != null ? [o.r30,'30m'] : o.r15 != null ? [o.r15,'15m'] : o.r60 != null ? [o.r60,'60m'] : null;
   const hit = o.hit==='target' ? '<b class="up">target</b>' : o.hit==='stop' ? '<b class="dn">stop</b>' : 'open at close';
@@ -422,11 +423,12 @@ async function fetchReplay(){
 }
 function enterReplay(day, at, auto=false){
   const dayChanged = day !== S.day;
+  if(!auto) S.userReplay = true;
   S.following = false; S.day = day; S.atAuto = auto; setAt(at); $('live').hidden = !(S.live || S.liveSnap); $('day').value = day; setStatus('REPLAY','replay');
   fetchReplay(); if(dayChanged) loadAlerts();
 }
 function goLive(){
-  S.following = true; S.day = null; S.mode = 'live'; $('live').hidden = true; $('day').value = todayIST();
+  S.following = true; S.userReplay = false; S.day = null; S.mode = 'live'; $('live').hidden = true; $('day').value = todayIST();
   if(S.liveSnap){ S.snap = S.liveSnap; setAt(S.snap.ts.slice(11,16)); setStatus('LIVE','live'); renderAll(); }
   else { setStatus('WAITING',''); showEmpty('Waiting for the first ranking. Cards appear from 09:15 on a trading day.'); }
   loadAlerts();
@@ -449,7 +451,9 @@ document.addEventListener('keydown', e => {
 
 // ---------- live feed ----------
 function onLiveSnapshot(snap){
-  S.liveSnap = snap; S.live = true;
+  const wasLive = S.live; S.liveSnap = snap; S.live = true;
+  if(!wasLive){ populateDays(); $('live').hidden = false; }
+  if(!S.following && !S.userReplay){ goLive(); return; }   // page was parked on the last session before the bell
   if(S.following){ S.snap = snap; S.mode='live'; setAt(snap.ts.slice(11,16)); setStatus('LIVE','live'); renderAll(); loadAlerts(); }
 }
 function connect(){

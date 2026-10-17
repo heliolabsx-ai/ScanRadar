@@ -47,3 +47,22 @@ def test_stability_unbroken_run_and_rank_30m():
 def test_stability_symbol_absent():
     tl = {"10:00": {"Y": (3, 2, True)}}
     assert stability(tl, "10:00", "X") == (None, None)
+
+
+def test_cache_ttl_policy():
+    from replay import cache_ttl, IST as _IST
+    day = dt.date(2026, 10, 19)
+    at = dt.datetime(2026, 10, 19, 10, 0, tzinfo=_IST)
+    assert cache_ttl(dt.date(2026, 10, 16), at.replace(day=16), now=dt.datetime(2026, 10, 19, 11, 0, tzinfo=_IST)) == 7 * 86400   # past day
+    assert cache_ttl(day, at, now=dt.datetime(2026, 10, 19, 10, 0, 30, tzinfo=_IST)) is None      # the 10:00 bar is still forming
+    assert cache_ttl(day, at, now=dt.datetime(2026, 10, 19, 10, 2, 0, tzinfo=_IST)) == 300        # flushed, but the day is live
+    assert cache_ttl(day, at, now=dt.datetime(2026, 10, 19, 15, 40, 0, tzinfo=_IST)) == 7 * 86400  # settled
+
+
+def test_future_at_is_rejected_for_today():
+    from replay import assert_not_future, ReplayError, IST as _IST
+    at = dt.datetime(2026, 10, 19, 14, 0, tzinfo=_IST)
+    with pytest.raises(ReplayError) as e:
+        assert_not_future(at, now=dt.datetime(2026, 10, 19, 10, 0, tzinfo=_IST))
+    assert e.value.status_code == 400
+    assert_not_future(at, now=dt.datetime(2026, 10, 19, 14, 0, 5, tzinfo=_IST)) is None

@@ -1,4 +1,5 @@
 import os, json, asyncio, datetime as dt, logging
+from concurrent.futures import ProcessPoolExecutor
 import redis.asyncio as aioredis, psycopg
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
 
@@ -12,6 +13,8 @@ R = aioredis.from_url(os.environ["REDIS_URL"], decode_responses=True)
 DB = os.environ["DATABASE_URL"]
 IST = dt.timezone(dt.timedelta(hours=5, minutes=30))
 _background: set = set()
+_prep_pool = ProcessPoolExecutor(max_workers=1)      # keeps 2–4 min of pandas out of the API's GIL
+_tl_mem: dict = {}                                    # day -> (expires_at, timeline); parsed once per process
 
 
 def connect():
@@ -61,10 +64,15 @@ async def instruments():
 
 
 async def _timeline(day: dt.date):
+    hit = _tl_mem.get(day)
+    if hit and hit[0] > dt.datetime.now(IST):
+        return hit[1]
     key = f"tl:{day}"
     raw = await R.get(key)
     if raw:
-        return json.loads(raw)
+        tl = await asyncio.get_running_loop().run_in_executor(None, json.loads, raw)
+        _remember_tl(day, tl)
+        return tl
 
     def q():
         with connect() as con:
@@ -73,22 +81,31 @@ async def _timeline(day: dt.date):
     if tl:
         complete = max(tl) >= "15:30"
         await R.set(key, json.dumps(tl), ex=86400 if complete and day < _today() else 60)
+        _remember_tl(day, tl)
     return tl
+
+
+def _remember_tl(day: dt.date, tl) -> None:
+    ttl = 86400 if day < _today() else 60
+    _tl_mem[day] = (dt.datetime.now(IST) + dt.timedelta(seconds=ttl), tl)
+    while len(_tl_mem) > 8:                             # ~3 MB each; keep the recent handful
+        _tl_mem.pop(next(iter(_tl_mem)))
 
 
 def _prepare_day(day: dt.date) -> None:
     """Background: replay alerts + outcomes (settled days) and the per-minute ranking
     history. Triggered once per day by the first replay/alerts request."""
     now = dt.datetime.now(IST)
+    if not rp.day_is_settled(day, now):
+        return                                        # a live day is never prepared or pre-warmed
     with connect() as con:
-        if al.day_is_settled(day, now):
-            scans = al.scan_files()
-            if al.replay_needed(con, day, scans) or al.outcomes_needed(con, day):
-                frames = rp.load_day(con, day)
-                refs = rp.load_refs(con, day)
-                al.ensure_replay_alerts(con, day, frames, refs, scans, now)
-                al.ensure_outcomes(con, day, frames, refs, scans, now)
-        if hs.rank_timeline(con, day) is None and (day < now.date() or al.day_is_settled(day, now)):
+        scans = al.scan_files()
+        if al.replay_needed(con, day, scans) or al.outcomes_needed(con, day):
+            frames = rp.load_day(con, day)
+            refs = rp.load_refs(con, day)
+            al.ensure_replay_alerts(con, day, frames, refs, scans, now)
+            al.ensure_outcomes(con, day, frames, refs, scans, now)
+        if hs.rank_timeline(con, day) is None:
             hs.build_timeline(connect, day)
         # warm the frames a viewer lands on: the close and every half hour
         import redis as _redis
@@ -108,7 +125,7 @@ async def _kick_prepare(day: dt.date) -> None:
     if not await R.set(key, "1", ex=900, nx=True):
         return
     loop = asyncio.get_running_loop()
-    task = loop.run_in_executor(None, _prepare_day, day)
+    task = loop.run_in_executor(_prep_pool, _prepare_day, day)
     _background.add(task)
 
     def done(t):
@@ -127,6 +144,12 @@ async def replay_at(day: str, at: str):
         d, at_dt = rp.parse_replay_args(day, at)
     except rp.ReplayError as e:
         raise HTTPException(e.status_code, e.detail)
+    now = dt.datetime.now(IST)
+    try:
+        rp.assert_not_future(at_dt, now)
+    except rp.ReplayError as e:
+        raise HTTPException(e.status_code, e.detail)
+    at = at_dt.strftime("%H:%M")
     loop = asyncio.get_running_loop()
     key = f"replay:{d}:{at}"
     raw = await R.get(key)
@@ -140,13 +163,15 @@ async def replay_at(day: str, at: str):
             snap = await loop.run_in_executor(None, compute)
         except rp.ReplayError as e:
             raise HTTPException(e.status_code, e.detail)
-        await R.set(key, json.dumps(snap, default=float), ex=7 * 86400)
+        ttl = rp.cache_ttl(d, at_dt, now)
+        if ttl:
+            await R.set(key, json.dumps(snap, default=float), ex=ttl)
 
     tl = await _timeline(d)
     if tl:
         for a in snap["bulls"] + snap["bears"]:
             a["top3_since"], a["rank_30m_ago"] = hs.stability(tl, at, a["symbol"])
-    else:
+    elif rp.day_is_settled(d, now):
         await _kick_prepare(d)
     return snap
 
@@ -191,10 +216,11 @@ async def alerts(limit: int = 100, day: str | None = None):
     if day is None:
         def q_recent():
             with connect() as con, con.cursor() as cur:
-                cur.execute("SELECT ts,scan,symbol,price,payload,source FROM alerts ORDER BY ts DESC LIMIT %s", (limit,))
-                return [{"ts": r[0].astimezone(IST).isoformat(), "scan": r[1], "symbol": r[2], "price": r[3],
+                cur.execute("SELECT ts,scan,symbol,price,payload,source FROM alerts ORDER BY ts DESC LIMIT %s", (limit * 2,))
+                rows = [{"ts": r[0].astimezone(IST), "scan": r[1], "symbol": r[2], "price": r[3],
                          "tf": (r[4] or {}).get("tf"), "source": r[5], "side": (r[4] or {}).get("side"),
                          "outcome": (r[4] or {}).get("outcome")} for r in cur.fetchall()]
+                return [dict(r, ts=r["ts"].isoformat()) for r in al.merge_live_replay(rows)][:limit]
         return await loop.run_in_executor(None, q_recent)
     try:
         d = dt.date.fromisoformat(day)
@@ -203,7 +229,7 @@ async def alerts(limit: int = 100, day: str | None = None):
     def check():
         with connect() as con:
             now = dt.datetime.now(IST)
-            need = al.day_is_settled(d, now) and (al.replay_needed(con, d, al.scan_files()) or al.outcomes_needed(con, d))
+            need = rp.day_is_settled(d, now) and (al.replay_needed(con, d, al.scan_files()) or al.outcomes_needed(con, d))
             return need, al.alerts_for_day(con, d)
     need, rows = await loop.run_in_executor(None, check)
     if need:
