@@ -284,7 +284,44 @@ Keep the page responsive down to phone width as the artifact already is.
 alert inserts set `source='live'` (the column default). No replay work runs in
 the engine.
 
-## Phasing (pending Saurabh's confirmation)
+## Decision aids (added 17 Oct 2026 after Saurabh's review; approved)
+
+The replay is a viewing tool until it also tells the trader what happened next
+and how big to trade. Four additions, all computed from data already in hand:
+
+1. **Alert outcomes and per-scan hit rate.** Each scan JSON gains
+   `"side": "long" | "short"`. For every replay alert (and for live alerts once
+   the day is over) compute, from the 1-minute bars after the alert minute:
+   `r15, r30, r60` = signed % return of the close 15/30/60 minutes later versus
+   the alert price (positive = in the trade's favour), `hit` = which of
+   `target` / `stop` was touched first before 15:30 (`"target"`, `"stop"`,
+   `"none"`), where stop and target are the ones `analyse()` produced for that
+   symbol as of the alert minute. Stored in `alerts.payload.outcome`. The alert
+   list shows `+0.8% @30m · target` per row, and `GET /api/scan-stats?days=20`
+   returns per scan `{fires, hit_rate, avg_r30, avg_r60}` for the header line
+   `Bounce failure short · 23 fires · 61% hit · +0.4% avg @30m`.
+2. **Volume and OI panes** under the price chart on every intraday timeframe:
+   volume bars coloured by candle direction; OI as a line with the day's
+   starting OI as baseline, so a build-up is visible as a slope, not a chip.
+3. **Position size.** One page setting, *risk per trade* in rupees (default
+   ₹2,000, `localStorage`), and the detail panel shows `qty` =
+   floor(risk / |entry − stop| / lot) × lot using the symbol's futures
+   `lot_size`, plus rupee risk and rupee reward at target. Lot sizes come from
+   `GET /api/instruments` (`symbol, lot_size, sector, expiry`).
+4. **Rank stability on the card.** Each ranked row gains `top3_since`
+   (`"HH:MM"` or null) and `rank_30m_ago` (int or null). Source: the per-minute
+   ranking history of the day. For live days the engine already writes
+   `scan_snapshots(ts, symbol, score, rank, payload.picked)` every minute; for
+   backfilled days the API computes the same rows once, in the background, on
+   the first replay view of that day (≈375 rank passes, about two minutes on
+   the VPS) and inserts them into `scan_snapshots`. Until the history exists
+   the fields are null and the card shows `…`.
+
+Deferred, with reasons: relative strength versus NIFTY needs the index token in
+the live ingest subscription (Phase 2 territory); a paper-trade journal is
+roadmap item 6.
+
+## Phasing (confirmed by Saurabh, 17 Oct 2026)
 
 Monday 19 Oct 2026 is the first-ever live session, and roadmap item 1 ("fix
 whatever breaks in ingest") has not happened yet. To keep a Monday failure

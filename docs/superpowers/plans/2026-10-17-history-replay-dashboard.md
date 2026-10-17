@@ -172,6 +172,22 @@ Fixtures in `tests/test_ranking.py`: three `synthetic_day(seed=i)` frames and re
 - Produces: `core.backtest.fires(scan: dict, df1m: pd.DataFrame, ctx: dict, cooldown_min: int) -> list[pd.Timestamp]` — minutes at which the scan fires with the live as-of view, cooldown applied per symbol (a fire suppresses further fires for `cooldown_min` minutes).
 - Produces: `core.backtest.fires_naive(...)` with the same signature: reference implementation `for each ts in df1m.ts: evaluate(scan, resample(view_at(df1m, ts), tf), ctx)`. Kept in the module (used by tests and as documentation of the semantic).
 - Produces: `core.backtest.max_offset(scan) -> int`.
+- Produces: `core.backtest.outcome(df1m: pd.DataFrame, at: pd.Timestamp, side: str, entry: float, stop: float, target: float) -> dict` — `{"r15","r30","r60"}` signed % (long: close/entry−1; short: entry/close−1; `None` when fewer minutes remain), `"hit"`: first of `"target"`/`"stop"` touched by bars with `ts > at` (long: `high >= target` / `low <= stop`; short: `low <= target` / `high >= stop`; same bar touching both counts as `"stop"`), else `"none"`.
+
+Additional test for `outcome` in `tests/test_backtest.py`:
+
+```python
+def test_outcome_long_target_first_and_returns():
+    d = synthetic_day(); at = d.ts.iloc[100]; entry = float(d.open.iloc[100])
+    later = d[d.ts > at]
+    o = outcome(d, at, "long", entry, stop=entry * 0.5, target=float(later.high.max()))
+    assert o["hit"] == "target" and abs(o["r30"] - (float(d.close.iloc[130]) / entry - 1) * 100) < 1e-9
+
+def test_outcome_short_sign_and_none_near_close():
+    d = synthetic_day(); at = d.ts.iloc[370]; entry = float(d.open.iloc[370])
+    o = outcome(d, at, "short", entry, stop=entry * 2, target=entry * 0.5)
+    assert o["hit"] == "none" and o["r15"] is None and o["r30"] is None
+```
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -310,7 +326,18 @@ Expected: ~3M rows spanning ~60 calendar days; ≥ 250 daily days for RELIANCE; 
 - Produces: `api.replay.load_refs(con, day: date) -> dict[str, dict]` — `daily_ref` joined with `instruments.sector`.
 - Produces: `api.replay.snapshot_at(con, day: date, at: datetime) -> dict | None` — `view_at` per symbol then `core.ranking.rank(..., mode="replay")`.
 - Produces: `GET /api/days -> {"days": [...], "latest": str | None, "live": bool}` — distinct IST dates of RELIANCE rows in `candles_1m`, newest first; `live` = `ingest:ws == "connected"`.
-- Produces: `GET /api/replay?day=YYYY-MM-DD&at=HH:MM -> snapshot` — Redis cache `replay:{day}:{HH:MM}` TTL 7 days; 404 `no candles for that day` when `load_day` is empty; computation runs in `run_in_executor`.
+- Produces: `GET /api/replay?day=YYYY-MM-DD&at=HH:MM -> snapshot` — Redis cache `replay:{day}:{HH:MM}` TTL 7 days; 404 `no candles for that day` when `load_day` is empty; computation runs in `run_in_executor`. Each row additionally carries `top3_since` and `rank_30m_ago` from `api.history` (null when the day's history is not yet built).
+- Produces: `GET /api/instruments -> [{symbol, lot_size, sector, expiry}]` from the `instruments` table.
+- Produces: `api.history.rank_timeline(con, day: date) -> dict[str, dict[str, tuple[int, int, bool]]] | None` — `{"HH:MM": {symbol: (rank, side_rank, picked)}}` read from `scan_snapshots` for the IST day; `None` when the table has no rows for that day. `api.history.build_timeline(day)` computes it minute by minute with `snapshot_at` and inserts `scan_snapshots` rows (`payload` = `{"pct","oi_pct","oi_label","rvol","rr","picked","side_rank"}`, matching the engine's columns plus `side_rank`); triggered as a background task on the first `/api/replay` for a day without rows, guarded by a Redis lock `timeline:{day}` (TTL 10 min). `api.history.stability(timeline, at, symbol) -> tuple[str | None, int | None]` returns `(top3_since, rank_30m_ago)`: `top3_since` is the earliest minute of the unbroken run of `picked == True` ending at `at`.
+
+Additional pure test in `tests/test_api_replay.py`:
+
+```python
+def test_stability_unbroken_run_and_rank_30m():
+    tl = {m: {"X": (1 if "10:0" in m or m >= "10:10" else 7, 1, m >= "10:10")} for m in MINUTES("09:15", "10:40")}
+    assert stability(tl, "10:40", "X") == ("10:10", 1)
+    assert stability(tl, "09:30", "X") == (None, None)   # fewer than 30 minutes of history
+```
 
 - [ ] **Step 1: Write the failing tests** (pure helpers)
 
@@ -355,7 +382,10 @@ Expected: days list with ≥ 40 entries; first replay call 200 in < 3 s cold, se
 - Produces: `api.alerts.scan_files() -> list[tuple[dict, str]]` — `(scan, sha256 hex of file bytes)` for `/app/scans/*.json`.
 - Produces: `api.alerts.ensure_replay_alerts(con, day: date, frames, refs, now: datetime) -> None` — for each scan: if no `source='replay'` rows for `(day, scan)` or any stored `payload->>'scan_hash'` differs, delete that day's replay rows for the scan and insert `fires()` results with `ts = minute`, `price = stub open`, `payload = {"tf": tf, "scan_hash": h, "source": "replay"}`. No-op when `day == today` and `now < 15:35 IST`.
 - Produces: `api.alerts.merge_live_replay(rows: list[dict]) -> list[dict]` — drops a replay row when a live row with the same `scan` and `symbol` exists within ±1 minute.
-- Produces: `GET /api/alerts?day=YYYY-MM-DD` → list of `{ts, scan, symbol, price, tf, source}` newest first; `GET /api/alerts?limit=` unchanged.
+- Produces: `GET /api/alerts?day=YYYY-MM-DD` → list of `{ts, scan, symbol, price, tf, source, side, outcome}` newest first; `GET /api/alerts?limit=` unchanged (rows include `outcome` when present).
+- Produces: `api.alerts.ensure_outcomes(con, day: date, frames, refs, now: datetime) -> None` — for every alert of a completed day (live or replay) whose `payload` lacks `outcome`: `a = analyse(symbol, view_at(df, ts), ref)`; `outcome(df, ts, scan.side, price, a["stop"], a["target"])` with stop/target flipped to the scan's side when `analyse()`'s direction disagrees (long: stop below entry = `min(S1, ob.lo)`, target `R2`; short: stop `max(R1, ob.hi)`, target `S2`); write `payload.outcome` and `payload.side`.
+- Produces: `GET /api/scan-stats?days=20` → `[{scan, fires, hit_rate, avg_r30, avg_r60}]` over alerts with outcomes in the last N trading days (`hit_rate` = target hits / (target + stop hits), null when zero).
+- Scan files gain `"side"`: `bounce_failure_short.json` → `"short"`, `vwap_reclaim_long.json` → `"long"`.
 - Produces: `GET /api/candles/{symbol}?tf=1d&days=250` → `{"symbol", "bars": [{"day","o","h","l","c","v","oi"}]}` ascending; without `tf` the existing 1-minute response, now also including `"delta_available": bool`.
 
 - [ ] **Step 1: Write the failing tests**
@@ -406,6 +436,8 @@ Expected: first call completes (cold, computing both scans for 213 symbols) in u
 
 - [ ] **Step 2: Re-implement rendering** for the live snapshot with the artifact's card and detail markup (symbol, PICK chip, % change, OI chip, OI %, VWAP side, RVOL, rank/percentile; detail header with price, change, big %, side chip, conviction number + 5 dots, OI chip; kv table with OI Δ, Vol Δ, VWAP, RVOL, OR H/L, OB, S1/S2, R1/R2, Stop, Target, Risk, R:R; the PICKED/NOT PICKED rule line). Add to the detail eyebrow: `SECTOR +x.xx% · vs sector +y.yy%` from `snap.sectors`. Status chip shows `LIVE` with a pulsing dot when `mode==='live'`.
 
+  **Decision aids in this task:** (a) card footer `top 3 since HH:MM` / `#rank ↑ from 12 (30m)` from `top3_since` / `rank_30m_ago`, `…` when null; (b) a header setting `Risk ₹` (number input, default 2000, `localStorage('risk')`) and a `Size` block in the detail panel: `qty = floor(risk / |price − stop| / lot) × lot` with `lot` from `/api/instruments` (fetched once), showing `qty · ₹risk · ₹reward` and `lot too large for this risk` when qty is 0.
+
 - [ ] **Step 3: Verify in the browser against production**
 
 Push, then `ssh scanradar-vps 'cd /opt/scanradar && git pull -q'` (web is a read-only bind mount; no restart). Open https://scanradar.tech in the built-in browser (sign in as `saurabh`), screenshot in both themes. Expected: layout matches the artifact; with no live snapshot the header shows `WAITING` and panels are empty but styled; no console errors (`read_console_messages onlyErrors`).
@@ -454,6 +486,8 @@ Push, then `ssh scanradar-vps 'cd /opt/scanradar && git pull -q'` (web is a read
 
 - [ ] **Step 5: 1D chart**: 250 daily bars, selected day marked with a vertical line, no intraday overlays; kv row `Vol Δ` shows `—` when `delta_available` is false (any mode).
 
+- [ ] **Step 5b: Volume and OI panes** under the price area on every intraday timeframe (canvas height grows to ~420): volume bars coloured by candle direction; OI line with the first bar's OI as a dashed baseline and the OI change % labelled at the right edge; both cut at `S.at` like the candles; both included in the crosshair readout.
+
 - [ ] **Step 6: Verify in the browser** on 2026-10-16: switch through all seven timeframes; the cards do not change; at 15m with `at=10:00` the last bar covers 09:45–10:00 and is flat-ish (stub) while earlier bars are complete; crosshair readout matches a value checked against `/api/candles/RELIANCE?day=2026-10-16`; 1D shows ~250 bars with the marker.
 
 - [ ] **Step 7: Commit** — `git commit -m "web: chart timeframes, overlays, crosshair, alert markers, daily view"`
@@ -469,7 +503,7 @@ Push, then `ssh scanradar-vps 'cd /opt/scanradar && git pull -q'` (web is a read
 - Consumes: `/api/alerts?day=`, `/api/alerts?limit=20` (live).
 - Produces: `S.alerts` for the selected day; `renderAlerts()`.
 
-- [ ] **Step 1: Left-rail alert list** for the selected day, newest first: `HH:MM · scan · SYMBOL · ₹price`, a small `replay` tag when `source==='replay'`; in live mode new alerts prepend when the socket delivers a snapshot (re-fetch `?limit=20` as today). Clicking a row selects the symbol and sets `at` to that minute (entering replay if live).
+- [ ] **Step 1: Left-rail alert list** for the selected day, newest first: `HH:MM · scan · SYMBOL · ₹price`, a small `replay` tag when `source==='replay'`, and the outcome `+0.8% @30m · target` (green/red by sign, `—` while pending); in live mode new alerts prepend when the socket delivers a snapshot (re-fetch `?limit=20` as today). Clicking a row selects the symbol and sets `at` to that minute (entering replay if live). Above the list, one line per scan from `/api/scan-stats?days=20`: `Bounce failure short · 23 fires · 61% hit · +0.4% @30m`.
 
 - [ ] **Step 2: Footnote** under the sector rail when the selected day is older than the most recent monthly expiry: `OI before the current contract became front month is thin` (one sentence; compute "most recent expiry" as the latest `expiry` in `/api/days`' companion field — add `"expiry": "YYYY-MM-DD"` to `/api/days` from `instruments.expiry`).
 
