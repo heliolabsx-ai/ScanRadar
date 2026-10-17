@@ -8,3 +8,4 @@ graft/.cache/
 /graft/
 .superpowers/
 .pytest_cache/
+.claude/
