@@ -10,6 +10,7 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      - ./db/migrations:/migrations:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U scanner"]
       interval: 10s
@@ -43,6 +44,8 @@ services:
     build: ./api
     restart: unless-stopped
     env_file: .env
+    volumes:
+      - ./scans:/app/scans:ro
     ports:
       - "127.0.0.1:8000:8000"
     depends_on:

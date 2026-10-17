@@ -50,3 +50,15 @@ CREATE TABLE IF NOT EXISTS scan_snapshots (
   PRIMARY KEY (symbol, ts)
 );
 SELECT create_hypertable('scan_snapshots', 'ts', if_not_exists => TRUE);
+
+-- 001_history (kept in sync with db/migrations/001_history.sql)
+CREATE TABLE IF NOT EXISTS candles_1d (
+  day     DATE NOT NULL,
+  symbol  TEXT NOT NULL,
+  open DOUBLE PRECISION, high DOUBLE PRECISION, low DOUBLE PRECISION, close DOUBLE PRECISION,
+  volume  BIGINT,
+  oi      BIGINT,
+  PRIMARY KEY (symbol, day)
+);
+ALTER TABLE alerts ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'live';
+CREATE INDEX IF NOT EXISTS alerts_scan_ts ON alerts (scan, ts);
