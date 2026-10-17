@@ -84,6 +84,9 @@ canvas{display:block;width:100%;max-width:100%;margin-top:10px;border-radius:4px
 .slider .t{font-size:11px;color:var(--muted)}
 .slider .ticks{grid-column:2;position:relative;height:12px;font:10px var(--mono);color:var(--muted)}
 .slider .ticks span{position:absolute;transform:translateX(-50%)}
+.tfrow{display:flex;gap:4px;align-items:center;margin-top:10px;flex-wrap:wrap}
+.tfrow .tf{padding:2px 7px;font:600 10.5px var(--mono)}.tfrow .tf.on{background:var(--fg);color:var(--bg);border-color:var(--fg)}
+.readout{font-size:10.5px;color:var(--muted);margin-left:auto;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
 .alerts{margin-top:12px}.alert{display:grid;grid-template-columns:40px 1fr auto;gap:6px;font-size:11.5px;padding:5px 0;border-bottom:1px solid var(--line);align-items:center}
 .empty{color:var(--muted);font-size:12px;padding:20px 4px;line-height:1.6}
 .empty code{font-family:var(--mono);background:var(--bg);border:1px solid var(--line);padding:2px 6px;border-radius:3px}
@@ -175,6 +178,35 @@ function sizing(a){
   return `<dt>Qty</dt><dd>${qty.toLocaleString('en-IN')} <span class="mut">(${qty/lot} × ${lot})</span></dd>
           <dt>Risk</dt><dd class="dn">${inr(qty*dist)}</dd><dt>Reward</dt><dd class="up">${inr(qty*Math.abs(a.target-a.price))}</dd>`;
 }
+// ---------- detail panel + chart ----------
+const TFS = ['1m','3m','5m','15m','30m','60m','1D'];
+const TFMIN = {'1m':1,'3m':3,'5m':5,'15m':15,'30m':30,'60m':60};
+try{ const t = localStorage.getItem('tf'); if(TFS.includes(t)) S.tf = t; }catch(e){}
+const chartCache = {key:null, data:null, ref:null, delta:false};
+const dailyCache = {sym:null, bars:null};
+let hoverIdx = null;
+const minIdx = c => hhmmToMin(c.ts.slice(11,16));
+const K = n => n==null ? '—' : Math.abs(n)>=1e7 ? (n/1e7).toFixed(2)+'Cr' : Math.abs(n)>=1e5 ? (n/1e5).toFixed(1)+'L' : Math.abs(n)>=1e3 ? (n/1e3).toFixed(1)+'K' : String(n);
+
+function cutAt(cands, at){
+  const lim = hhmmToMin(at);
+  const done = cands.filter(c => minIdx(c) < lim);
+  const atBar = cands.find(c => minIdx(c) === lim);
+  if(!atBar) return done;
+  const prevOi = done.length ? done[done.length-1].oi : atBar.oi;
+  return [...done, {ts: atBar.ts, o: atBar.o, h: atBar.o, l: atBar.o, c: atBar.o, v: 0, oi: prevOi, d: 0, stub: true}];
+}
+function resampleBrowser(cands, tfm){
+  const out = []; let cur = null;
+  for(const c of cands){
+    const i = minIdx(c), w = Math.floor(i/tfm);
+    if(!cur || cur.w !== w){ cur = {w, i0: w*tfm, o:c.o, h:c.h, l:c.l, c:c.c, v:c.v, oi:c.oi, n:1, stub:!!c.stub}; out.push(cur); }
+    else { cur.h = Math.max(cur.h, c.h); cur.l = Math.min(cur.l, c.l); cur.c = c.c; cur.v += c.v; cur.oi = c.oi; cur.n++; cur.stub = !!c.stub; }
+  }
+  return out;
+}
+function vwapSeries(cands){ let pv=0, vv=0; return cands.map(c => { pv += (c.h+c.l+c.c)/3*c.v; vv += c.v; return {i: minIdx(c), v: vv ? pv/vv : c.c}; }); }
+
 async function renderDetail(){
   const a = rowFor(S.selected); const d = $('detail');
   if(!a){ if(S.snap) d.innerHTML = `<p class="eyebrow">Select a stock</p><div class="empty">${S.selected||'This symbol'} is not in the current ranking.</div>`; return; }
@@ -193,27 +225,110 @@ async function renderDetail(){
     <dt>Risk</dt><dd>${fmt(a.risk_pct)}%</dd><dt>R:R</dt><dd>1:${fmt(a.rr,1)}</dd>
    </dl>
    <dl class="size">${sizing(a)}</dl>
-   <canvas id="chart" width="620" height="300"></canvas>
+   <div class="tfrow">${TFS.map(t=>`<button class="tf ${S.tf===t?'on':''}" data-tf="${t}">${t}</button>`).join('')}<span class="readout mono" id="readout"></span></div>
+   <canvas id="chart" width="620" height="430"></canvas>
    <div class="rule">RULE · ${a.picked?`<b>PICKED</b> — #${bIdx+1} among ${side}s (top 3 taken).`:`<b>NOT PICKED</b> — #${bIdx+1} among ${side}s.`} ${a.rr<1.5?'R:R below 1.5 vetoes a pick.':''}</div>`;
-  try{ const r = await api(`/api/candles/${a.symbol}${S.day?`?day=${S.day}`:''}`); if(S.selected===a.symbol) drawChart(r.candles, a); }catch(e){}
+  d.querySelectorAll('.tf').forEach(b => b.onclick = () => { S.tf = b.dataset.tf; try{ localStorage.setItem('tf', S.tf); }catch(e){} d.querySelectorAll('.tf').forEach(x=>x.classList.toggle('on', x.dataset.tf===S.tf)); hoverIdx = null; loadAndDraw(a); });
+  const cv = $('chart');
+  cv.onpointermove = e => { const r = cv.getBoundingClientRect(); const px = (e.clientX - r.left) / r.width * cv.width; hoverIdx = px; drawChart(a); };
+  cv.onpointerleave = () => { hoverIdx = null; drawChart(a); };
+  loadAndDraw(a);
 }
-function drawChart(cs, a){
+async function loadAndDraw(a){
+  const day = S.day || todayIST();
+  try{
+    if(S.tf === '1D'){
+      if(dailyCache.sym !== a.symbol){ const r = await api(`/api/candles/${a.symbol}?tf=1d&days=250`); dailyCache.sym = a.symbol; dailyCache.bars = r.bars; }
+    }else{
+      const key = a.symbol + '|' + day;
+      if(chartCache.key !== key || S.following){ const r = await api(`/api/candles/${a.symbol}?day=${day}`); chartCache.key = key; chartCache.data = r.candles; chartCache.ref = r.ref || {}; chartCache.delta = r.delta_available; }
+    }
+  }catch(e){ return; }
+  if(S.selected === a.symbol) drawChart(a);
+}
+function drawChart(a){
   const cv = $('chart'); if(!cv) return; const ctx = cv.getContext('2d');
   const C = k => getComputedStyle(document.documentElement).getPropertyValue(k).trim();
-  const W=cv.width, H=cv.height, pL=8, pR=70, pT=10, pB=22, n=375; ctx.clearRect(0,0,W,H); if(!cs.length) return;
-  const lv=[a.R2,a.R1,a.S1,a.S2]; let lo=Math.min(...cs.map(c=>c.l),...lv), hi=Math.max(...cs.map(c=>c.h),...lv); const pd=(hi-lo)*.05; lo-=pd; hi+=pd;
-  const t0 = new Date(cs[0].ts); const idx = c => Math.round((new Date(c.ts)-t0)/60000);
-  const x=i=>pL+i/n*(W-pL-pR), y=p=>pT+(1-(p-lo)/(hi-lo))*(H-pT-pB); ctx.font='10px JetBrains Mono, monospace';
-  if(a.ob){ ctx.fillStyle=a.ob.dir>0?C('--bull-soft'):C('--bear-soft'); ctx.fillRect(pL,y(a.ob.hi),W-pL-pR,y(a.ob.lo)-y(a.ob.hi)); }
-  ctx.fillStyle=C('--line'); ctx.globalAlpha=.45; ctx.fillRect(x(0),y(a.orH),x(15)-x(0),y(a.orL)-y(a.orH)); ctx.globalAlpha=1;
-  [['R2',a.R2,'--bull'],['R1',a.R1,'--bull'],['S1',a.S1,'--amber'],['S2',a.S2,'--amber'],['PC',a.price-a.chg,'--muted']].forEach(([nm,p,c])=>{ctx.strokeStyle=C(c);ctx.setLineDash([3,3]);ctx.beginPath();ctx.moveTo(pL,y(p));ctx.lineTo(W-pR,y(p));ctx.stroke();ctx.setLineDash([]);ctx.fillStyle=C(c);ctx.fillText(`${nm} ${fmt(p)}`,W-pR+4,y(p)+3)});
-  ctx.strokeStyle=C('--vwap'); ctx.lineWidth=1.2; ctx.setLineDash([2,2]); ctx.beginPath(); let pv=0,vv=0;
-  cs.forEach((c,k)=>{pv+=(c.h+c.l+c.c)/3*c.v; vv+=c.v; const yy=y(vv?pv/vv:c.c); k?ctx.lineTo(x(idx(c)),yy):ctx.moveTo(x(idx(c)),yy)}); ctx.stroke(); ctx.setLineDash([]); ctx.lineWidth=1;
-  const w=Math.max(1,(W-pL-pR)/n*.7);
-  cs.forEach(c=>{const i=idx(c), up=c.c>=c.o; ctx.strokeStyle=ctx.fillStyle=up?C('--bull'):C('--bear'); ctx.beginPath(); ctx.moveTo(x(i)+w/2,y(c.h)); ctx.lineTo(x(i)+w/2,y(c.l)); ctx.stroke(); ctx.fillRect(x(i),y(Math.max(c.o,c.c)),w,Math.max(1,Math.abs(y(c.o)-y(c.c))))});
-  const last = cs[cs.length-1].c; ctx.fillStyle=C('--fg'); ctx.fillRect(W-pR,y(last)-7,66,14); ctx.fillStyle=C('--bg'); ctx.fillText(fmt(last),W-pR+4,y(last)+3);
-  ctx.fillStyle=C('--muted'); [['09:15',0],['10:00',45],['11:00',105],['12:00',165],['13:00',225],['14:00',285],['15:00',345]].forEach(([l,i])=>ctx.fillText(l,x(i)-12,H-6));
+  const W=cv.width, H=cv.height, pL=8, pR=70, pT=10, pB=18, gap=6, Hv=64, Ho=64, Hp=H-pT-pB-Hv-Ho-2*gap;
+  const yv0 = pT+Hp+gap, yo0 = yv0+Hv+gap;
+  ctx.clearRect(0,0,W,H); ctx.font='10px JetBrains Mono, monospace'; ctx.lineWidth=1;
+  const readout = $('readout');
+  const daily = S.tf === '1D';
+  const bars = daily ? (dailyCache.bars||[]) : (chartCache.data ? resampleBrowser(cutAt(chartCache.data, S.at||'15:30'), TFMIN[S.tf]) : []);
+  if(!bars.length){ ctx.fillStyle=C('--muted'); ctx.fillText(daily?'no daily bars':'no data for '+a.symbol+' on '+(S.day||todayIST()), pL+4, pT+14); if(readout) readout.textContent=''; return; }
+  const n = daily ? bars.length : 375;
+  const xi = i => pL + i/n*(W-pL-pR);
+  const tfm = daily ? 1 : TFMIN[S.tf];
+  const bw = Math.max(1, (W-pL-pR)/n*tfm*0.7);
+  const bx = b => daily ? xi(b.k) : xi(b.i0);
+  if(daily) bars.forEach((b,k)=>b.k=k);
+  // ---- price scale
+  const mins = chartCache.data && !daily ? cutAt(chartCache.data, S.at||'15:30') : [];
+  const lv = daily ? [] : [a.R2,a.R1,a.S1,a.S2];
+  let lo = Math.min(...bars.map(b=>b.l), ...lv), hi = Math.max(...bars.map(b=>b.h), ...lv); const pd=(hi-lo)*.05||1; lo-=pd; hi+=pd;
+  const y = p => pT + (1-(p-lo)/(hi-lo))*Hp;
+  // ---- overlays (intraday only, from 1-minute data)
+  if(!daily){
+    if(a.ob){ ctx.fillStyle=a.ob.dir>0?C('--bull-soft'):C('--bear-soft'); ctx.fillRect(pL,y(a.ob.hi),W-pL-pR,y(a.ob.lo)-y(a.ob.hi)); }
+    ctx.fillStyle=C('--line'); ctx.globalAlpha=.45; ctx.fillRect(xi(0),y(a.orH),xi(15)-xi(0),y(a.orL)-y(a.orH)); ctx.globalAlpha=1;
+    const ref = chartCache.ref||{};
+    const levels = [['R2',a.R2,'--bull'],['R1',a.R1,'--bull'],['S1',a.S1,'--amber'],['S2',a.S2,'--amber'],['PC',a.price-a.chg,'--muted']];
+    if(ref.prev_high) levels.push(['PDH',+ref.prev_high,'--muted'],['PDL',+ref.prev_low,'--muted']);
+    levels.forEach(([nm,p,c])=>{ if(p<lo||p>hi) return; ctx.strokeStyle=C(c); ctx.setLineDash(nm.startsWith('PD')?[1,3]:[3,3]); ctx.beginPath(); ctx.moveTo(pL,y(p)); ctx.lineTo(W-pR,y(p)); ctx.stroke(); ctx.setLineDash([]); ctx.fillStyle=C(c); ctx.fillText(`${nm} ${fmt(p)}`,W-pR+4,y(p)+3); });
+    ctx.strokeStyle=C('--vwap'); ctx.lineWidth=1.2; ctx.setLineDash([2,2]); ctx.beginPath();
+    vwapSeries(mins).forEach((p,k)=>{ const yy=y(p.v); k?ctx.lineTo(xi(p.i),yy):ctx.moveTo(xi(p.i),yy); }); ctx.stroke(); ctx.setLineDash([]); ctx.lineWidth=1;
+  }
+  // ---- candles + volume
+  const vmax = Math.max(...bars.map(b=>b.v||0), 1);
+  bars.forEach(b=>{ const up=b.c>=b.o, col = up?C('--bull'):C('--bear'); const x0 = bx(b);
+    ctx.strokeStyle=ctx.fillStyle=col; if(b.stub){ ctx.globalAlpha=.5; }
+    ctx.beginPath(); ctx.moveTo(x0+bw/2,y(b.h)); ctx.lineTo(x0+bw/2,y(b.l)); ctx.stroke();
+    ctx.fillRect(x0,y(Math.max(b.o,b.c)),bw,Math.max(1,Math.abs(y(b.o)-y(b.c))));
+    ctx.globalAlpha=.7; ctx.fillRect(x0, yv0+Hv-(b.v||0)/vmax*Hv, bw, (b.v||0)/vmax*Hv); ctx.globalAlpha=1; });
+  // ---- OI pane
+  const ois = bars.map(b=>b.oi).filter(v=>v);
+  if(ois.length){
+    const olo=Math.min(...ois), ohi=Math.max(...ois), opd=(ohi-olo)*.1||1; const yo = v => yo0 + (1-(v-(olo-opd))/((ohi+opd)-(olo-opd)))*Ho;
+    const base = ois[0]; ctx.strokeStyle=C('--line'); ctx.setLineDash([2,2]); ctx.beginPath(); ctx.moveTo(pL,yo(base)); ctx.lineTo(W-pR,yo(base)); ctx.stroke(); ctx.setLineDash([]);
+    ctx.strokeStyle=C('--accent'); ctx.lineWidth=1.4; ctx.beginPath(); let started=false;
+    bars.forEach(b=>{ if(!b.oi) return; const xx=bx(b)+bw/2, yy=yo(b.oi); started?ctx.lineTo(xx,yy):ctx.moveTo(xx,yy); started=true; }); ctx.stroke(); ctx.lineWidth=1;
+    const last = ois[ois.length-1], chg=(last/base-1)*100; ctx.fillStyle=chg>=0?C('--bull'):C('--bear'); ctx.fillText(`OI ${sg(chg,1)}%`, W-pR+4, yo(last)+3);
+  }
+  ctx.fillStyle=C('--muted'); ctx.fillText('VOL', pL+2, yv0+9); ctx.fillText('OI', pL+2, yo0+9);
+  // ---- markers: alerts for this symbol up to the as-of minute
+  if(!daily && S.alerts){
+    const at = S.at||'15:30';
+    S.alerts.filter(al => al.symbol===a.symbol && al.ts.slice(11,16) <= at).forEach(al => {
+      const i = hhmmToMin(al.ts.slice(11,16)); const m = (chartCache.data||[]).find(c=>minIdx(c)===i); if(!m) return;
+      const xx = xi(i)+ (W-pL-pR)/375*0.5; const longish = al.side==='long';
+      ctx.fillStyle = longish ? C('--bull') : C('--bear'); ctx.beginPath();
+      if(longish){ const yy=y(m.l)+4; ctx.moveTo(xx,yy); ctx.lineTo(xx-4,yy+7); ctx.lineTo(xx+4,yy+7); }
+      else { const yy=y(m.h)-4; ctx.moveTo(xx,yy); ctx.lineTo(xx-4,yy-7); ctx.lineTo(xx+4,yy-7); }
+      ctx.closePath(); ctx.fill();
+    });
+  }
+  // ---- last price tag, as-of marker, axis
+  const lastB = bars[bars.length-1]; ctx.fillStyle=C('--fg'); ctx.fillRect(W-pR,y(lastB.c)-7,66,14); ctx.fillStyle=C('--bg'); ctx.fillText(fmt(lastB.c),W-pR+4,y(lastB.c)+3);
+  if(!daily && S.at){ const xa = xi(hhmmToMin(S.at)); ctx.strokeStyle=C('--muted'); ctx.setLineDash([1,2]); ctx.beginPath(); ctx.moveTo(xa,pT); ctx.lineTo(xa,yo0+Ho); ctx.stroke(); ctx.setLineDash([]); }
+  ctx.fillStyle=C('--muted');
+  if(daily){ const step=Math.max(1,Math.round(bars.length/6)); bars.forEach((b,k)=>{ if(k%step===0) ctx.fillText(b.day.slice(5), xi(k)-14, H-5); });
+    const sel = S.day || todayIST(); const si = bars.findIndex(b=>b.day===sel); if(si>=0){ ctx.strokeStyle=C('--accent'); ctx.beginPath(); ctx.moveTo(xi(si)+bw/2,pT); ctx.lineTo(xi(si)+bw/2,yo0+Ho); ctx.stroke(); }
+  } else [['09:15',0],['10:00',45],['11:00',105],['12:00',165],['13:00',225],['14:00',285],['15:00',345]].forEach(([l,i])=>ctx.fillText(l,xi(i)-12,H-5));
+  // ---- crosshair + readout
+  if(hoverIdx != null){
+    let b, label;
+    if(daily){ const k = Math.max(0, Math.min(bars.length-1, Math.round((hoverIdx-pL)/(W-pL-pR)*n))); b = bars[k]; label = b.day; }
+    else { const i = Math.max(0, Math.min(374, Math.round((hoverIdx-pL)/(W-pL-pR)*n))); b = [...bars].reverse().find(x=>x.i0<=i); label = minToHHMM(b?b.i0:i); }
+    if(b){
+      const xx = daily ? xi(b.k)+bw/2 : xi(b.i0)+bw/2; ctx.strokeStyle=C('--fg'); ctx.globalAlpha=.35; ctx.beginPath(); ctx.moveTo(xx,pT); ctx.lineTo(xx,yo0+Ho); ctx.stroke(); ctx.globalAlpha=1;
+      let extra = '';
+      if(!daily){ const vw = vwapSeries(mins).filter(p=>p.i<=b.i0+tfm-1).pop(); if(vw) extra += `  VWAP ${fmt(vw.v)}`;
+        const hit = (S.alerts||[]).find(al=>al.symbol===a.symbol && Math.floor(hhmmToMin(al.ts.slice(11,16))/tfm)===Math.floor(b.i0/tfm)); if(hit) extra += `  ▲ ${hit.scan}`; }
+      if(readout) readout.textContent = `${label}  O ${fmt(b.o)}  H ${fmt(b.h)}  L ${fmt(b.l)}  C ${fmt(b.c)}  V ${b.stub&&!b.v?'—':K(b.v)}${extra}  OI ${K(b.oi)}`;
+    }
+  } else if(readout) readout.textContent = daily ? `${bars.length} daily bars` : (chartCache.delta===false ? 'backfilled day · no tick delta' : '');
 }
+
 function renderAll(){
   if(!S.snap) return;
   $('clock').textContent = S.at || S.snap.ts.slice(11,16);
