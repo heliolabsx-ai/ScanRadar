@@ -1,0 +1,12 @@
+.env
+.env.*
+!.env.example
+.git/
+.venv/
+graft/
+docs/
+web/
+.superpowers/
+tests/
+__pycache__/
+*.pyc

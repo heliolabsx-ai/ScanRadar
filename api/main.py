@@ -1,11 +1,24 @@
-import os, json, asyncio, datetime as dt
+import os, json, asyncio, datetime as dt, logging
 import redis.asyncio as aioredis, psycopg
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
 
+import replay as rp
+import history as hs
+
+logging.basicConfig(level=logging.INFO)
 app = FastAPI(title="ScanRadar API")
 R = aioredis.from_url(os.environ["REDIS_URL"], decode_responses=True)
 DB = os.environ["DATABASE_URL"]
 IST = dt.timezone(dt.timedelta(hours=5, minutes=30))
+_background: set = set()
+
+
+def connect():
+    return psycopg.connect(DB)
+
+
+def _today() -> dt.date:
+    return dt.datetime.now(IST).date()
 
 
 @app.get("/api/health")
@@ -19,6 +32,78 @@ async def scan():
     if not raw:
         raise HTTPException(404, "no scan yet (market closed or ingest not ready)")
     return json.loads(raw)
+
+
+@app.get("/api/days")
+async def days():
+    def q():
+        with connect() as con, con.cursor() as cur:
+            cur.execute("SELECT DISTINCT (ts AT TIME ZONE 'Asia/Kolkata')::date AS d FROM candles_1m "
+                        "WHERE symbol='RELIANCE' ORDER BY d DESC")
+            ds = [r[0].isoformat() for r in cur.fetchall()]
+            cur.execute("SELECT min(expiry) FROM instruments")
+            ex = cur.fetchone()[0]
+        return ds, ex
+    ds, ex = await asyncio.get_running_loop().run_in_executor(None, q)
+    live = (await R.get("ingest:ws")) == "connected"
+    return {"days": ds, "latest": ds[0] if ds else None, "live": live, "expiry": ex.isoformat() if ex else None}
+
+
+@app.get("/api/instruments")
+async def instruments():
+    def q():
+        with connect() as con, con.cursor() as cur:
+            cur.execute("SELECT symbol, lot_size, sector, expiry FROM instruments ORDER BY symbol")
+            return [{"symbol": s, "lot_size": lot, "sector": sec, "expiry": ex.isoformat() if ex else None}
+                    for s, lot, sec, ex in cur.fetchall()]
+    return await asyncio.get_running_loop().run_in_executor(None, q)
+
+
+async def _timeline(day: dt.date):
+    key = f"tl:{day}"
+    raw = await R.get(key)
+    if raw:
+        return json.loads(raw)
+
+    def q():
+        with connect() as con:
+            return hs.rank_timeline(con, day)
+    tl = await asyncio.get_running_loop().run_in_executor(None, q)
+    if tl:
+        complete = max(tl) >= "15:30"
+        await R.set(key, json.dumps(tl), ex=86400 if complete and day < _today() else 60)
+    return tl
+
+
+@app.get("/api/replay")
+async def replay_at(day: str, at: str):
+    try:
+        d, at_dt = rp.parse_replay_args(day, at)
+    except rp.ReplayError as e:
+        raise HTTPException(e.status_code, e.detail)
+    loop = asyncio.get_running_loop()
+    key = f"replay:{d}:{at}"
+    raw = await R.get(key)
+    if raw:
+        snap = json.loads(raw)
+    else:
+        def compute():
+            with connect() as con:
+                return rp.snapshot_at(con, d, at_dt)
+        snap = await loop.run_in_executor(None, compute)
+        if snap is None:
+            raise HTTPException(404, f"no candles for {d}")
+        await R.set(key, json.dumps(snap, default=float), ex=7 * 86400)
+
+    tl = await _timeline(d)
+    if tl:
+        for a in snap["bulls"] + snap["bears"]:
+            a["top3_since"], a["rank_30m_ago"] = hs.stability(tl, at, a["symbol"])
+    elif d < _today() and await R.set(f"timeline:{d}", "1", ex=600, nx=True):
+        task = loop.run_in_executor(None, hs.build_timeline, connect, d)
+        _background.add(task)
+        task.add_done_callback(_background.discard)
+    return snap
 
 
 @app.get("/api/candles/{symbol}")
