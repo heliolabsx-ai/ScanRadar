@@ -44,3 +44,8 @@ def test_rebuild_daily_ref_sql_mentions_write_once_window():
     assert "ROWS BETWEEN 20 PRECEDING AND 1 PRECEDING" in REBUILD_DAILY_REF_SQL
     assert "ON CONFLICT (day, symbol) DO UPDATE" in REBUILD_DAILY_REF_SQL
     assert "prev_close IS NOT NULL" in REBUILD_DAILY_REF_SQL
+
+
+def test_universe_upsert_sql_keys_on_symbol():
+    from backfill import UPSERT_INSTRUMENTS
+    assert "ON CONFLICT(symbol) DO UPDATE" in UPSERT_INSTRUMENTS and "lot_size=EXCLUDED.lot_size" in UPSERT_INSTRUMENTS

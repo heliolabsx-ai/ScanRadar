@@ -1,5 +1,6 @@
 {
   "name": "Bounce failure short",
+  "side": "short",
   "timeframe": "5m",
   "match": "all",
   "rules": [

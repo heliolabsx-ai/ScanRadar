@@ -23,6 +23,10 @@ UPSERT_1D = """INSERT INTO candles_1d(day,symbol,open,high,low,close,volume,oi) 
                ON CONFLICT (symbol,day) DO UPDATE SET open=EXCLUDED.open, high=EXCLUDED.high, low=EXCLUDED.low,
                close=EXCLUDED.close, volume=EXCLUDED.volume,
                oi=COALESCE(NULLIF(candles_1d.oi,0), EXCLUDED.oi)"""
+UPSERT_INSTRUMENTS = """INSERT INTO instruments(symbol,eq_token,fut_token,fut_symbol,expiry,lot_size,sector)
+               VALUES(%s,%s,%s,%s,%s,%s,%s) ON CONFLICT(symbol) DO UPDATE SET eq_token=EXCLUDED.eq_token,
+               fut_token=EXCLUDED.fut_token,fut_symbol=EXCLUDED.fut_symbol,expiry=EXCLUDED.expiry,
+               lot_size=EXCLUDED.lot_size,sector=EXCLUDED.sector,updated_at=now()"""
 REBUILD_DAILY_REF_SQL = """
 INSERT INTO daily_ref(day, symbol, prev_close, prev_high, prev_low, prev_oi, avg_vol_1m)
 SELECT day, symbol, prev_close, prev_high, prev_low, COALESCE(prev_oi, 0), avg_vol_1m FROM (
@@ -77,6 +81,7 @@ def main(argv=None) -> int:
     ap.add_argument("--days", type=int, default=60, help="calendar days of 1-minute history")
     ap.add_argument("--daily-days", type=int, default=400, help="calendar days of daily history")
     ap.add_argument("--symbols", default="", help="comma-separated subset")
+    ap.add_argument("--universe-only", action="store_true", help="only (re)write the instruments table from Kite's dump")
     args = ap.parse_args(argv)
 
     import redis, psycopg
@@ -103,9 +108,18 @@ def main(argv=None) -> int:
     with psycopg.connect(DB) as con, con.cursor() as cur:
         cur.execute("SELECT symbol, eq_token, fut_token FROM instruments ORDER BY symbol")
         uni = cur.fetchall()
-    if not uni:
+    if not uni or args.universe_only:
+        # the instruments table is normally written by the 08:55 ingest; before the first
+        # live day it is empty, and replay needs sector + lot_size from it
         import universe
         u = universe.build(kite)
+        with psycopg.connect(DB) as con, con.cursor() as cur:
+            cur.executemany(UPSERT_INSTRUMENTS, [(r.symbol, int(r.eq_token), int(r.fut_token), r.fut_symbol, r.expiry,
+                                                  int(r.lot_size), r.sector) for r in u.itertuples()])
+            con.commit()
+        log.info("instruments table written: %d symbols", len(u))
+        if args.universe_only:
+            return 0
         uni = [(r.symbol, int(r.eq_token), int(r.fut_token)) for r in u.itertuples()]
     if args.symbols:
         want = set(args.symbols.upper().split(","))

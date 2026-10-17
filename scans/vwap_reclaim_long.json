@@ -1,5 +1,6 @@
 {
   "name": "VWAP reclaim long",
+  "side": "long",
   "timeframe": "5m",
   "match": "all",
   "rules": [

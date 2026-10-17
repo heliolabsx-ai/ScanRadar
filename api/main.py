@@ -4,6 +4,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
 
 import replay as rp
 import history as hs
+import alerts as al
 
 logging.basicConfig(level=logging.INFO)
 app = FastAPI(title="ScanRadar API")
@@ -11,6 +12,7 @@ R = aioredis.from_url(os.environ["REDIS_URL"], decode_responses=True)
 DB = os.environ["DATABASE_URL"]
 IST = dt.timezone(dt.timedelta(hours=5, minutes=30))
 _background: set = set()
+_day_locks: dict = {}
 
 
 def connect():
@@ -107,22 +109,74 @@ async def replay_at(day: str, at: str):
 
 
 @app.get("/api/candles/{symbol}")
-async def candles(symbol: str, day: str | None = None):
-    d = dt.date.fromisoformat(day) if day else dt.datetime.now(IST).date()
+async def candles(symbol: str, day: str | None = None, tf: str | None = None, days: int = 250):
+    sym = symbol.upper()
+    loop = asyncio.get_running_loop()
+    if tf == "1d":
+        def q_daily():
+            with connect() as con, con.cursor() as cur:
+                cur.execute("SELECT day,open,high,low,close,volume,oi FROM candles_1d WHERE symbol=%s ORDER BY day DESC LIMIT %s", (sym, days))
+                rows = cur.fetchall()[::-1]
+            return {"symbol": sym, "tf": "1d", "bars": [{"day": r[0].isoformat(), "o": r[1], "h": r[2], "l": r[3], "c": r[4], "v": r[5], "oi": r[6]} for r in rows]}
+        return await loop.run_in_executor(None, q_daily)
+    try:
+        d = dt.date.fromisoformat(day) if day else _today()
+    except ValueError:
+        raise HTTPException(400, "day must be YYYY-MM-DD")
     start = dt.datetime.combine(d, dt.time(9, 15), IST)
-    with psycopg.connect(DB) as con, con.cursor() as cur:
-        cur.execute("SELECT ts,open,high,low,close,volume,oi,delta FROM candles_1m WHERE symbol=%s AND ts>=%s AND ts<%s ORDER BY ts",
-                    (symbol.upper(), start, start + dt.timedelta(hours=7)))
-        rows = [{"ts": r[0].isoformat(), "o": r[1], "h": r[2], "l": r[3], "c": r[4], "v": r[5], "oi": r[6], "d": r[7]} for r in cur.fetchall()]
-    ref = await R.hgetall(f"ref:{symbol.upper()}")
-    return {"symbol": symbol.upper(), "ref": ref, "candles": rows}
+
+    def q():
+        with connect() as con, con.cursor() as cur:
+            cur.execute("SELECT ts,open,high,low,close,volume,oi,delta FROM candles_1m WHERE symbol=%s AND ts>=%s AND ts<%s ORDER BY ts",
+                        (sym, start, start + dt.timedelta(hours=7)))
+            rows = [{"ts": r[0].astimezone(IST).isoformat(), "o": r[1], "h": r[2], "l": r[3], "c": r[4], "v": r[5], "oi": r[6], "d": r[7]} for r in cur.fetchall()]
+            cur.execute("SELECT prev_close, prev_high, prev_low, prev_oi, avg_vol_1m FROM daily_ref WHERE day=%s AND symbol=%s", (d, sym))
+            r = cur.fetchone()
+        ref = {"prev_close": r[0], "prev_high": r[1], "prev_low": r[2], "prev_oi": r[3], "avg_vol_1m": r[4]} if r else {}
+        return rows, ref
+    rows, ref = await loop.run_in_executor(None, q)
+    if d == _today():
+        live_ref = await R.hgetall(f"ref:{sym}")
+        if live_ref:
+            ref = {k: (float(v) if k != "sector" else v) for k, v in live_ref.items()}
+    return {"symbol": sym, "day": d.isoformat(), "ref": ref, "candles": rows, "delta_available": any(c["d"] for c in rows)}
 
 
 @app.get("/api/alerts")
-async def alerts(limit: int = 100):
-    with psycopg.connect(DB) as con, con.cursor() as cur:
-        cur.execute("SELECT ts,scan,symbol,price,payload FROM alerts ORDER BY ts DESC LIMIT %s", (limit,))
-        return [{"ts": r[0].isoformat(), "scan": r[1], "symbol": r[2], "price": r[3], "payload": r[4]} for r in cur.fetchall()]
+async def alerts(limit: int = 100, day: str | None = None):
+    loop = asyncio.get_running_loop()
+    if day is None:
+        def q_recent():
+            with connect() as con, con.cursor() as cur:
+                cur.execute("SELECT ts,scan,symbol,price,payload,source FROM alerts ORDER BY ts DESC LIMIT %s", (limit,))
+                return [{"ts": r[0].astimezone(IST).isoformat(), "scan": r[1], "symbol": r[2], "price": r[3],
+                         "tf": (r[4] or {}).get("tf"), "source": r[5], "side": (r[4] or {}).get("side"),
+                         "outcome": (r[4] or {}).get("outcome")} for r in cur.fetchall()]
+        return await loop.run_in_executor(None, q_recent)
+    try:
+        d = dt.date.fromisoformat(day)
+    except ValueError:
+        raise HTTPException(400, "day must be YYYY-MM-DD")
+    lock = _day_locks.setdefault(d, asyncio.Lock())
+    async with lock:
+        def work():
+            with connect() as con:
+                frames = rp.load_day(con, d)
+                refs = rp.load_refs(con, d)
+                scans = al.scan_files()
+                now = dt.datetime.now(IST)
+                al.ensure_replay_alerts(con, d, frames, refs, scans, now)
+                al.ensure_outcomes(con, d, frames, refs, scans, now)
+                return al.alerts_for_day(con, d)
+        return await loop.run_in_executor(None, work)
+
+
+@app.get("/api/scan-stats")
+async def scan_stats(days: int = 20):
+    def q():
+        with connect() as con:
+            return al.scan_stats(con, days)
+    return await asyncio.get_running_loop().run_in_executor(None, q)
 
 
 @app.websocket("/ws/scan")
