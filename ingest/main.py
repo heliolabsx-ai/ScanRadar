@@ -8,9 +8,9 @@ ScanRadar ingest:
 import os, json, time, logging, datetime as dt, threading
 import redis, psycopg, schedule
 from kiteconnect import KiteTicker
-from kiteconnect.exceptions import NetworkException
 
 import kite_auth, universe
+from hist import hist
 from candles import SymbolState
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
@@ -20,7 +20,6 @@ R = redis.from_url(os.environ["REDIS_URL"], decode_responses=True)
 DB = os.environ["DATABASE_URL"]
 IST = dt.timezone(dt.timedelta(hours=5, minutes=30))
 MARKET_OPEN, MARKET_CLOSE = dt.time(9, 15), dt.time(15, 30)
-HIST_PACE = 0.4   # seconds between historical calls; Kite allows 3 req/s per API key
 
 state: dict[int, SymbolState] = {}   # token -> state (both eq and fut tokens map to the same object)
 symbols: dict[str, SymbolState] = {}
@@ -30,21 +29,6 @@ lock = threading.Lock()
 
 
 # ---------------- daily setup ----------------
-def _hist(token, frm, to, interval, oi=False, tries=4):
-    """historical_data with pacing and back-off. Kite answers HTTP 429 with a JSON
-    NetworkException("Too many requests") when the 3 req/s budget is exceeded."""
-    for attempt in range(1, tries + 1):
-        try:
-            out = kite.historical_data(int(token), frm, to, interval, oi=oi)
-            time.sleep(HIST_PACE)
-            return out
-        except NetworkException as e:
-            if attempt == tries:
-                raise
-            log.warning("historical %s throttled (%s); retry %d in %ds", token, e, attempt, 2 * attempt)
-            time.sleep(2 * attempt)
-
-
 def load_daily_refs(u):
     """Previous day's close/high/low for equity, previous OI for futures, avg 1-min volume (20d)."""
     today = dt.date.today()
@@ -53,8 +37,8 @@ def load_daily_refs(u):
     with psycopg.connect(DB) as con, con.cursor() as cur:
         for row in u.itertuples():
             try:
-                d = _hist(row.eq_token, frm, to, "day")
-                f = _hist(row.fut_token, frm, to, "day", oi=True)
+                d = hist(kite, row.eq_token, frm, to, "day")
+                f = hist(kite, row.fut_token, frm, to, "day", oi=True)
                 if not d:
                     log.warning("ref load: no daily candles for %s", row.symbol)
                     continue
