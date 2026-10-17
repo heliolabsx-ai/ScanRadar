@@ -114,8 +114,13 @@ def fetch_request_token(api_key: str, sess: requests.Session) -> str:
             return m.group(1)
         r = sess.get(url, allow_redirects=False, timeout=20)
         if r.status_code not in REDIRECT_CODES:
-            raise RuntimeError(f"Connect login stopped redirecting: HTTP {r.status_code} at "
-                               f"{url.split('?')[0]} body={r.text[:200]!r}")
+            path = url.split("?")[0]
+            if path.endswith("/connect/authorize"):
+                raise KiteLoginRejected(
+                    "Kite is showing the one-time app authorisation page. Open "
+                    f"https://kite.trade/connect/login?v=3&api_key={api_key} in a browser, log in, click Authorize "
+                    "(the final redirect to scanradar.tech may 401/404; that is fine), then retry.")
+            raise RuntimeError(f"Connect login stopped redirecting: HTTP {r.status_code} at {path} body={r.text[:200]!r}")
         url = urljoin(url, r.headers["Location"])
     raise RuntimeError("too many redirects without a request_token")
 
