@@ -171,6 +171,10 @@ def main(do_ws=True):
 
 if __name__ == "__main__":
     code = 0
+    if "--totp-only" in sys.argv:   # print the code the stored key makes; no Kite call at all
+        c, left = kite_auth.current_totp(os.environ["KITE_TOTP_SECRET"])
+        print(f"code from KITE_TOTP_SECRET: {c}  (valid {left}s more)")
+        os._exit(0)
     try:
         main(do_ws="--no-ws" not in sys.argv)
         print("\nPREFLIGHT PASSED", flush=True)
