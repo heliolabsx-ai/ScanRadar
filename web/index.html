@@ -2,6 +2,7 @@
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>ScanRadar</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&display=swap">
+<script src="filter.js"></script>
 <style>
 /* Layout: control strip → sector/breadth rail → bull/bear card grid → detail panel with canvas chart. Terminal-style data UI. */
 :root{
@@ -87,6 +88,10 @@ canvas{display:block;width:100%;max-width:100%;margin-top:10px;border-radius:4px
 .tfrow{display:flex;gap:4px;align-items:center;margin-top:10px;flex-wrap:wrap}
 .tfrow .tf{padding:2px 7px;font:600 10.5px var(--mono)}.tfrow .tf.on{background:var(--fg);color:var(--bg);border-color:var(--fg)}
 .readout{font-size:10.5px;color:var(--muted);margin-left:auto;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
+.filters{display:flex;flex-wrap:wrap;gap:6px 14px;align-items:center;margin:-4px 0 12px;padding:8px 10px;border:1px solid var(--line);border-radius:6px;background:var(--panel)}
+.filters .eyebrow{margin:0}.filters label{gap:4px}.filters input[type=number]{width:64px}.filters select{max-width:150px}
+.filters .chk{display:inline-flex;align-items:center;gap:4px;cursor:pointer}.filters.on{border-color:var(--accent)}
+.filters .count{font:600 10.5px var(--mono);color:var(--accent);margin-left:auto}
 .alerts{margin-top:12px}.alerts .list{max-height:460px;overflow:auto}
 .alert{display:grid;grid-template-columns:38px 1fr auto;gap:2px 6px;font-size:11.5px;padding:5px 0;border-bottom:1px solid var(--line);align-items:center;cursor:pointer}
 .alert:hover{background:var(--bg)}.alert .oc{grid-column:2/-1;font:500 10.5px var(--mono);color:var(--muted)}.alert .oc b{font-weight:600}
@@ -111,6 +116,18 @@ canvas{display:block;width:100%;max-width:100%;margin-top:10px;border-radius:4px
   <input type="range" id="at" min="0" max="375" step="1" value="375" title="As-of time: drag to replay the day minute by minute (←/→ one minute, Shift for five)">
   <span class="t mono">15:30</span>
   <div class="ticks" id="ticks"></div>
+</div>
+<div class="filters" id="filters">
+  <p class="eyebrow">Filter</p>
+  <label>Sector <select id="fSectors" multiple size="1" title="Hold Cmd/Ctrl to pick several; none = all"></select></label>
+  <label>Price <input id="fPmin" type="number" min="0" step="10" placeholder="min"> – <input id="fPmax" type="number" min="0" step="10" placeholder="max"></label>
+  <label>RVOL ≥ <input id="fRvol" type="number" min="0" step="0.1" placeholder="any"></label>
+  <label>R:R ≥ <input id="fRr" type="number" min="0" step="0.1" placeholder="any"></label>
+  <label>OI <select id="fOi"><option value="any">any</option><option value="buildup">build-up only</option></select></label>
+  <label>VWAP <select id="fVwap"><option value="any">any side</option><option value="aligned">with direction</option></select></label>
+  <label class="chk"><input id="fPicks" type="checkbox"> picks only</label>
+  <button id="fClear" title="Reset all filters">Clear</button>
+  <span class="count" id="fCount"></span>
 </div>
 <div class="grid">
   <div class="panel rail">
@@ -147,6 +164,35 @@ $('risk').onchange = () => { S.risk = Math.max(100, +$('risk').value || 2000); $
 // ---------- status ----------
 function setStatus(text, cls){ $('statusText').textContent = text; $('status').className = 'st ' + (cls||''); }
 
+// ---------- view filter ----------
+S.filter = ScanFilter.defaults();
+try{ const raw = localStorage.getItem('filter'); if(raw) S.filter = ScanFilter.load(raw); }catch(e){}
+const FIDS = {pmin:'fPmin', pmax:'fPmax', rvol:'fRvol', rr:'fRr'};
+function filterToForm(){
+  const f = S.filter;
+  Object.entries(FIDS).forEach(([k,id]) => $(id).value = f[k] == null ? '' : f[k]);
+  $('fOi').value = f.oi; $('fVwap').value = f.vwap; $('fPicks').checked = f.picks;
+  [...$('fSectors').options].forEach(o => o.selected = f.sectors.includes(o.value));
+  $('filters').classList.toggle('on', ScanFilter.isActive(f));
+}
+function formToFilter(){
+  const f = ScanFilter.defaults();
+  Object.entries(FIDS).forEach(([k,id]) => { const v = $(id).value; f[k] = v === '' ? null : +v; });
+  f.oi = $('fOi').value; f.vwap = $('fVwap').value; f.picks = $('fPicks').checked;
+  f.sectors = [...$('fSectors').selectedOptions].map(o => o.value);
+  S.filter = f; try{ localStorage.setItem('filter', ScanFilter.save(f)); }catch(e){}
+  $('filters').classList.toggle('on', ScanFilter.isActive(f));
+  renderCards(); renderAlerts();
+}
+function populateSectors(){
+  const secs = [...new Set(Object.values(S.sectorsOf))].sort();
+  $('fSectors').innerHTML = secs.map(x => `<option value="${x}">${x}</option>`).join('');
+  $('fSectors').size = 1; filterToForm();
+}
+['fPmin','fPmax','fRvol','fRr','fOi','fVwap','fPicks','fSectors'].forEach(id => $(id).addEventListener('change', formToFilter));
+$('fClear').onclick = () => { S.filter = ScanFilter.defaults(); try{ localStorage.removeItem('filter'); }catch(e){} filterToForm(); renderCards(); renderAlerts(); };
+const shown = rows => rows.filter(r => ScanFilter.pass(r, S.filter));
+
 // ---------- rendering ----------
 function stab(a){
   if(a.top3_since === undefined && a.rank_30m_ago === undefined) return '';
@@ -169,10 +215,12 @@ function renderCards(){
   $('sectors').innerHTML = Object.entries(s.sectors).sort((a,b)=>b[1]-a[1]).map(([k,v])=>{
     const w = Math.abs(v)/mx*50, l = v>=0?50:50-w;
     return `<div class="sector"><span>${k}</span><span class="bar"><i style="left:${l}%;width:${w}%;background:var(--${v>=0?'bull':'bear'})"></i></span><span class="v mono ${v>=0?'up':'dn'}">${sg(v)}%</span></div>`}).join('');
-  $('bulls').innerHTML = s.bulls.slice(0,15).map(a=>card(a,'bull')).join('');
-  $('bears').innerHTML = s.bears.slice(0,15).map(a=>card(a,'bear')).join('');
-  $('bullhdr').textContent = `${s.n_bull} · top ${Math.min(3,s.n_bull)} picked`;
-  $('bearhdr').textContent = `${s.n_bear} · top ${Math.min(3,s.n_bear)} picked`;
+  const fb = shown(s.bulls), fr = shown(s.bears), active = ScanFilter.isActive(S.filter);
+  $('bulls').innerHTML = fb.slice(0,15).map(a=>card(a,'bull')).join('') || (active ? '<div class="empty">no bulls pass the filter</div>' : '');
+  $('bears').innerHTML = fr.slice(0,15).map(a=>card(a,'bear')).join('') || (active ? '<div class="empty">no bears pass the filter</div>' : '');
+  $('bullhdr').textContent = active ? `${fb.length} of ${s.n_bull} shown` : `${s.n_bull} · top ${Math.min(3,s.n_bull)} picked`;
+  $('bearhdr').textContent = active ? `${fr.length} of ${s.n_bear} shown` : `${s.n_bear} · top ${Math.min(3,s.n_bear)} picked`;
+  $('fCount').textContent = active ? `${fb.length + fr.length} of ${s.n_bull + s.n_bear} stocks shown` : '';
 }
 function rowFor(sym){ const s=S.snap; return s ? [...s.bulls, ...s.bears].find(x=>x.symbol===sym) : null; }
 function sizing(a){
@@ -363,7 +411,8 @@ function outcomeLabel(o){
 }
 function renderAlerts(){
   const at = S.at || '15:30';
-  const rows = (S.alerts||[]).filter(a => !S.day || a.ts.slice(11,16) <= at);
+  const bySym = {}; if(S.snap) [...S.snap.bulls, ...S.snap.bears].forEach(r => bySym[r.symbol] = r);
+  const rows = (S.alerts||[]).filter(a => (!S.day || a.ts.slice(11,16) <= at) && ScanFilter.passAlert(a, bySym, S.sectorsOf, S.filter));
   $('alertsAt').textContent = S.day ? `· to ${at}` : '';
   $('alerts').innerHTML = (S.alertsPending ? '<div class="mut" style="padding:4px 0">computing replay alerts for this day…</div>' : '') +
     (rows.map(a => `<div class="alert" data-sym="${a.symbol}" data-at="${a.ts.slice(11,16)}"><span class="mono">${a.ts.slice(11,16)}</span><span>${a.scan}${a.source==='replay'?'<span class="tag">replay</span>':''}</span><b class="mono">${a.symbol}</b><span class="oc">₹${fmt(a.price)} · ${outcomeLabel(a.outcome)}</span></div>`).join('')
@@ -469,6 +518,7 @@ matchMedia('(prefers-color-scheme: dark)').addEventListener('change', renderDeta
 
 (async () => {
   try{ const ins = await api('/api/instruments'); ins.forEach(i => { S.lots[i.symbol] = i.lot_size; S.sectorsOf[i.symbol] = i.sector; }); }catch(e){}
+  populateSectors();
   try{ const d = await api('/api/days'); S.days = d.days; S.live = d.live; S.expiry = d.expiry; }catch(e){ S.days = []; }
   populateDays(); loadStats(); setInterval(loadStats, 300000);
   connect();
