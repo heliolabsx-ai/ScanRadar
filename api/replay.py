@@ -75,8 +75,15 @@ def snapshot_from_frames(frames: dict[str, pd.DataFrame], refs: dict[str, dict],
     return rank(views, refs, at.to_pydatetime(), mode="replay")
 
 
-def snapshot_at(con, day: dt.date, at: dt.datetime) -> dict | None:
+def snapshot_at(con, day: dt.date, at: dt.datetime) -> dict:
+    """Raises ReplayError(404) with the specific reason when nothing can be ranked."""
     frames = load_day(con, day, upto=at)
     if not frames:
-        return None
-    return snapshot_from_frames(frames, load_refs(con, day), pd.Timestamp(at))
+        raise ReplayError(404, f"no candles for {day}")
+    refs = load_refs(con, day)
+    if not refs:
+        raise ReplayError(404, f"no daily references for {day} yet (the backfill writes them when it finishes)")
+    snap = snapshot_from_frames(frames, refs, pd.Timestamp(at))
+    if snap is None:
+        raise ReplayError(404, f"no rankable symbols for {day} at {at:%H:%M}")
+    return snap

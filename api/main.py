@@ -92,9 +92,10 @@ async def replay_at(day: str, at: str):
         def compute():
             with connect() as con:
                 return rp.snapshot_at(con, d, at_dt)
-        snap = await loop.run_in_executor(None, compute)
-        if snap is None:
-            raise HTTPException(404, f"no candles for {d}")
+        try:
+            snap = await loop.run_in_executor(None, compute)
+        except rp.ReplayError as e:
+            raise HTTPException(e.status_code, e.detail)
         await R.set(key, json.dumps(snap, default=float), ex=7 * 86400)
 
     tl = await _timeline(d)
