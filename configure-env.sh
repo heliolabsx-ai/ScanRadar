@@ -37,6 +37,26 @@ check_quote() {    # single-quoted dotenv values cannot contain a single quote
     case "$2" in *"'"*) echo "ERROR: $1 contains a single quote ('), which .env cannot store. Choose another value."; exit 1;; esac
 }
 
+set_one() {        # set_one VAR : re-enter a single value (hidden) and rewrite only that line
+    local var=$1 v tmp
+    [ -f "$ENV_FILE" ] || { echo "$ENV_FILE does not exist yet; run without --set first"; exit 1; }
+    ask_secret v "$var (hidden)"
+    check_quote "$var" "$v"
+    tmp=$(mktemp); grep -v "^$var=" "$ENV_FILE" > "$tmp"; printf "%s='%s'\n" "$var" "$v" >> "$tmp"
+    if [ "$var" = POSTGRES_PASSWORD ]; then
+        grep -v "^DATABASE_URL=" "$tmp" > "$tmp.2"; printf "DATABASE_URL='postgresql://scanner:%s@postgres:5432/scanner'\n" "$v" >> "$tmp.2"; mv "$tmp.2" "$tmp"
+    fi
+    umask 077; mv "$tmp" "$ENV_FILE"; chmod 600 "$ENV_FILE"
+    echo "updated $var in $ENV_FILE"
+}
+
+if [ "${1:-}" = "--set" ]; then
+    case "${2:-}" in
+        KITE_API_SECRET|KITE_PASSWORD|KITE_TOTP_SECRET|TELEGRAM_BOT_TOKEN|POSTGRES_PASSWORD) set_one "$2"; exit 0;;
+        *) echo "usage: bash configure-env.sh --set KITE_PASSWORD|KITE_API_SECRET|KITE_TOTP_SECRET|TELEGRAM_BOT_TOKEN|POSTGRES_PASSWORD"; exit 1;;
+    esac
+fi
+
 command -v docker >/dev/null || { echo "docker not found; run this on the VPS"; exit 1; }
 
 echo "== Kite Connect (developers.kite.trade -> your app)"
