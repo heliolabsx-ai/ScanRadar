@@ -214,7 +214,16 @@ function vwapSeries(cands){ let pv=0, vv=0; return cands.map(c => { pv += (c.h+c
 
 async function renderDetail(){
   const a = rowFor(S.selected); const d = $('detail');
-  if(!a){ if(S.snap) d.innerHTML = `<p class="eyebrow">Select a stock</p><div class="empty">${S.selected||'This symbol'} is not in the current ranking.</div>`; return; }
+  if(!a){
+    if(!S.snap || !S.selected){ d.innerHTML = `<p class="eyebrow">Select a stock</p>`; return; }
+    // outside the top 40 of either side at this minute (e.g. reached via an alert): chart only
+    const m = {symbol: S.selected, minimal: true};
+    d.innerHTML = `<p class="eyebrow">${S.sectorsOf[S.selected]||''} · not in the top 40 of either side at ${S.at||''} · chart only</p>
+     <div class="head"><div class="mono" style="font-weight:700;font-size:15px">${S.selected}</div></div>
+     <div class="tfrow">${TFS.map(t=>`<button class="tf ${S.tf===t?'on':''}" data-tf="${t}">${t}</button>`).join('')}<span class="readout mono" id="readout"></span></div>
+     <canvas id="chart" width="620" height="430"></canvas>`;
+    wireChart(m); return;
+  }
   const side = a.dir>0?'bull':'bear', sec = S.snap.sectors[a.sector], lst = side==='bull'?S.snap.bulls:S.snap.bears;
   const bIdx = lst.findIndex(x=>x.symbol===a.symbol);
   d.innerHTML = `<p class="eyebrow">${a.sector} ${sec!=null?`<span class="${sec>=0?'up':'dn'}">${sg(sec)}%</span> · vs sector <span class="${a.pct-sec>=0?'up':'dn'}">${sg(a.pct-sec)}%</span>`:''} · rank #${a.rank}/${S.snap.n_bull+S.snap.n_bear} · p${fmt(a.pctile,1)}</p>
@@ -233,6 +242,10 @@ async function renderDetail(){
    <div class="tfrow">${TFS.map(t=>`<button class="tf ${S.tf===t?'on':''}" data-tf="${t}">${t}</button>`).join('')}<span class="readout mono" id="readout"></span></div>
    <canvas id="chart" width="620" height="430"></canvas>
    <div class="rule">RULE · ${a.picked?`<b>PICKED</b> — #${bIdx+1} among ${side}s (top 3 taken).`:`<b>NOT PICKED</b> — #${bIdx+1} among ${side}s.`} ${a.rr<1.5?'R:R below 1.5 vetoes a pick.':''}</div>`;
+  wireChart(a);
+}
+function wireChart(a){
+  const d = $('detail');
   d.querySelectorAll('.tf').forEach(b => b.onclick = () => { S.tf = b.dataset.tf; try{ localStorage.setItem('tf', S.tf); }catch(e){} d.querySelectorAll('.tf').forEach(x=>x.classList.toggle('on', x.dataset.tf===S.tf)); hoverIdx = null; loadAndDraw(a); });
   const cv = $('chart');
   cv.onpointermove = e => { const r = cv.getBoundingClientRect(); const px = (e.clientX - r.left) / r.width * cv.width; hoverIdx = px; drawChart(a); };
@@ -269,11 +282,11 @@ function drawChart(a){
   if(daily) bars.forEach((b,k)=>b.k=k);
   // ---- price scale
   const mins = chartCache.data && !daily ? cutAt(chartCache.data, S.at||'15:30') : [];
-  const lv = daily ? [] : [a.R2,a.R1,a.S1,a.S2];
+  const lv = (daily || a.minimal) ? [] : [a.R2,a.R1,a.S1,a.S2];
   let lo = Math.min(...bars.map(b=>b.l), ...lv), hi = Math.max(...bars.map(b=>b.h), ...lv); const pd=(hi-lo)*.05||1; lo-=pd; hi+=pd;
   const y = p => pT + (1-(p-lo)/(hi-lo))*Hp;
   // ---- overlays (intraday only, from 1-minute data)
-  if(!daily){
+  if(!daily && !a.minimal){
     if(a.ob){ ctx.fillStyle=a.ob.dir>0?C('--bull-soft'):C('--bear-soft'); ctx.fillRect(pL,y(a.ob.hi),W-pL-pR,y(a.ob.lo)-y(a.ob.hi)); }
     ctx.fillStyle=C('--line'); ctx.globalAlpha=.45; ctx.fillRect(xi(0),y(a.orH),xi(15)-xi(0),y(a.orL)-y(a.orH)); ctx.globalAlpha=1;
     const ref = chartCache.ref||{};
