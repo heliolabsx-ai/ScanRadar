@@ -90,6 +90,17 @@ def _prepare_day(day: dt.date) -> None:
                 al.ensure_outcomes(con, day, frames, refs, scans, now)
         if hs.rank_timeline(con, day) is None and (day < now.date() or al.day_is_settled(day, now)):
             hs.build_timeline(connect, day)
+        # warm the frames a viewer lands on: the close and every half hour
+        import redis as _redis
+        r = _redis.from_url(os.environ["REDIS_URL"], decode_responses=True)
+        for hhmm in ("15:30", "09:45", "10:00", "10:30", "11:00", "11:30", "12:00", "12:30", "13:00", "13:30", "14:00", "14:30", "15:00"):
+            key = f"replay:{day}:{hhmm}"
+            if not r.exists(key):
+                try:
+                    snap = rp.snapshot_at(con, day, dt.datetime.combine(day, dt.time.fromisoformat(hhmm), IST))
+                    r.set(key, json.dumps(snap, default=float), ex=7 * 86400)
+                except rp.ReplayError:
+                    pass
 
 
 async def _kick_prepare(day: dt.date) -> None:

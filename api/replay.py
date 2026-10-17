@@ -72,7 +72,11 @@ def snapshot_from_frames(frames: dict[str, pd.DataFrame], refs: dict[str, dict],
     views = {s: v for s, v in views.items() if not v.empty}
     if not views:
         return None
-    return rank(views, refs, at.to_pydatetime(), mode="replay")
+    snap = rank(views, refs, at.to_pydatetime(), mode="replay")
+    if snap:
+        # equities stop printing at 15:14 in the 2026 calendar; tell the UI where the data ends
+        snap["last_bar"] = max(v.ts.iloc[-1] for v in views.values()).strftime("%H:%M")
+    return snap
 
 
 def snapshot_at(con, day: dt.date, at: dt.datetime) -> dict:

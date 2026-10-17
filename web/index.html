@@ -253,7 +253,11 @@ async function fetchReplay(){
   inflight = want;
   try{
     const snap = await api(`/api/replay?day=${want.day}&at=${want.at}`);
-    if(want.day===S.day && want.at===S.at && !S.following){ S.snap = snap; S.mode='replay'; setStatus('REPLAY','replay'); renderAll(); }
+    if(want.day===S.day && want.at===S.at && !S.following){
+      // equities stop printing before 15:30; park the slider on the last real bar when the user asked for "end of day"
+      if(snap.last_bar && snap.last_bar < want.at && S.atAuto) setAt(snap.last_bar);
+      S.snap = snap; S.mode='replay'; setStatus('REPLAY','replay'); renderAll();
+    }
   }catch(e){
     if(want.day===S.day && want.at===S.at && !S.following) showEmpty(`no data for ${want.day} at ${want.at}`);
   }finally{
@@ -261,9 +265,9 @@ async function fetchReplay(){
     if(pending){ const p = pending; pending = null; if(p.day!==want.day || p.at!==want.at) fetchReplay(); }
   }
 }
-function enterReplay(day, at){
+function enterReplay(day, at, auto=false){
   const dayChanged = day !== S.day;
-  S.following = false; S.day = day; setAt(at); $('live').hidden = false; $('day').value = day; setStatus('REPLAY','replay');
+  S.following = false; S.day = day; S.atAuto = auto; setAt(at); $('live').hidden = !(S.live || S.liveSnap); $('day').value = day; setStatus('REPLAY','replay');
   fetchReplay(); if(dayChanged) loadAlerts();
 }
 function goLive(){
@@ -278,7 +282,7 @@ function populateDays(){
   $('day').innerHTML = opts.map(d => `<option value="${d}">${d}${d===today?' · today':''}</option>`).join('');
   $('day').hidden = opts.length === 0;
 }
-$('day').onchange = () => { const v = $('day').value; (v === todayIST() && S.live) ? goLive() : enterReplay(v, '15:30'); };
+$('day').onchange = () => { const v = $('day').value; (v === todayIST() && S.live) ? goLive() : enterReplay(v, '15:30', true); };
 $('at').oninput = () => enterReplay(S.day || todayIST(), minToHHMM(+$('at').value));
 $('live').onclick = goLive;
 document.addEventListener('keydown', e => {
@@ -310,7 +314,7 @@ matchMedia('(prefers-color-scheme: dark)').addEventListener('change', renderDeta
   try{ liveSnap = await api('/api/scan'); }catch(e){}
   if(liveSnap){ onLiveSnapshot(liveSnap); }
   else if(S.live){ setStatus('WAITING',''); $('day').value = todayIST(); loadAlerts(); }
-  else if(S.days.length){ enterReplay(S.days[0], '15:30'); }
+  else if(S.days.length){ enterReplay(S.days[0], '15:30', true); }
   else { showEmpty('No sessions stored yet. On the VPS run <code>docker compose run --rm ingest python backfill.py</code> to load the last 60 days, then reload.'); }
 })();
 </script></body></html>
