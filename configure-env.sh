@@ -58,14 +58,18 @@ if [ -n "$TELEGRAM_BOT_TOKEN" ]; then
 fi
 echo
 echo "== Postgres"
-PG_DEFAULT=$(openssl rand -hex 16 2>/dev/null || head -c 24 /dev/urandom | base64 | tr -d '/+=')
-ask         POSTGRES_PASSWORD "POSTGRES_PASSWORD (Enter = generated)" "$PG_DEFAULT"
-if docker volume ls -q 2>/dev/null | grep -qx scanradar_pgdata && [ "$(cur POSTGRES_PASSWORD)" != "$POSTGRES_PASSWORD" ] && [ -n "$(cur POSTGRES_PASSWORD)" ]; then
+PG_EXISTING=$(cur POSTGRES_PASSWORD | grep -v '^change-me$' || true)
+if [ -n "$PG_EXISTING" ]; then
+    ask     POSTGRES_PASSWORD "POSTGRES_PASSWORD (Enter = keep current)" "$PG_EXISTING"
+else
+    ask     POSTGRES_PASSWORD "POSTGRES_PASSWORD (Enter = generated)" "$(openssl rand -hex 16 2>/dev/null || head -c 24 /dev/urandom | base64 | tr -d '/+=')"
+fi
+if docker volume ls -q 2>/dev/null | grep -qx scanradar_pgdata && [ -n "$PG_EXISTING" ] && [ "$PG_EXISTING" != "$POSTGRES_PASSWORD" ]; then
     echo "NOTE: a Postgres volume already exists; a changed password only applies after 'docker compose down -v' (destroys stored candles)."
 fi
 echo
 echo "== Dashboard basic auth"
-ask         DASH_USER "DASH_USER" "$(cur DASH_USER)"
+ask         DASH_USER "DASH_USER (login name for the dashboard, not a password)" "$(cur DASH_USER)"
 [ -n "$DASH_USER" ] || DASH_USER=saurabh
 while true; do
     ask_secret DASH_PW  "Dashboard password (hidden)"
