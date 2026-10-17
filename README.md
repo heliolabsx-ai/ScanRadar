@@ -118,11 +118,50 @@ Logs: `docker compose logs -f engine` shows `scan: N symbols, B bull / R bear, A
 
 Manual token fallback: set `KITE_PASSWORD=` blank, then `docker compose exec redis redis-cli set kite:access_token <token>` and restart ingest; it validates the token with `profile()` and proceeds.
 
-## 7. Adding a scan
+## 7. History and replay
+
+The dashboard shows any stored session, not just the live one: pick a date in the
+header, drag the time slider to see the ranking exactly as the scanner had it at
+that minute, switch the chart between 1m/3m/5m/15m/30m/60m/1D, and read the rule
+alerts for that day with what each trade did afterwards (return at 15/30/60 min,
+target or stop first) plus a per-scan hit rate over the last 20 sessions.
+
+One-time setup after deploying this version (also in the migration file header):
+
+```bash
+docker compose exec -T postgres psql -U scanner -d scanner -f /migrations/001_history.sql
+```
+
+Load the last 60 calendar days of 1-minute candles (with futures OI) and about a
+year of daily bars for the whole universe. Takes about 18 minutes; safe to re-run,
+it only fills gaps and never overwrites live-captured candles:
+
+```bash
+docker compose run --rm ingest python backfill.py
+```
+
+Evening top-up if the live ingest missed anything (run after 15:35):
+
+```bash
+docker compose run --rm ingest python backfill.py --days 3
+```
+
+The first time a past day is opened the API prepares it in the background (replay
+alerts, outcomes, per-minute ranking history; two to four minutes) and the page
+polls until it is ready. Limits: backfilled days have no tick-rule volume delta
+(the panel shows "—"); futures OI before the current contract became front month
+is thin, and the dashboard says so under the sector rail; NSE equities stop
+printing at 15:14 in the 2026 calendar while futures run to 15:39, so the slider
+parks on the last real bar.
+
+Replay and live use the same analytics code (`core/`). The engine switches to
+`core/` after the first clean live day (Phase 2 in the design doc).
+
+## 8. Adding a scan
 
 Create `scans/my_scan.json` (see the two examples). Sides are `{"number": x}`, `{"series": "prev_day_close|prev_day_high|prev_day_low"}`, or `{"off": N, "field": "open|high|low|close|volume|vwap|oi"}` where `off` 0 = forming candle, 1 = last closed, etc. Timeframes: 1m, 3m, 5m, 15m, 30m, 60m. The engine reloads the folder every minute.
 
-## 8. Known limits / to-do
+## 9. Known limits / to-do
 
 - Auto-login replays Kite's browser flow; if Zerodha changes the login page, fix `ingest/kite_auth.py`.
 - Volume delta uses the tick rule (uptick = buy); it is an approximation.

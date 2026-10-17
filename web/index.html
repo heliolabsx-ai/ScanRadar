@@ -87,7 +87,12 @@ canvas{display:block;width:100%;max-width:100%;margin-top:10px;border-radius:4px
 .tfrow{display:flex;gap:4px;align-items:center;margin-top:10px;flex-wrap:wrap}
 .tfrow .tf{padding:2px 7px;font:600 10.5px var(--mono)}.tfrow .tf.on{background:var(--fg);color:var(--bg);border-color:var(--fg)}
 .readout{font-size:10.5px;color:var(--muted);margin-left:auto;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
-.alerts{margin-top:12px}.alert{display:grid;grid-template-columns:40px 1fr auto;gap:6px;font-size:11.5px;padding:5px 0;border-bottom:1px solid var(--line);align-items:center}
+.alerts{margin-top:12px}.alerts .list{max-height:460px;overflow:auto}
+.alert{display:grid;grid-template-columns:38px 1fr auto;gap:2px 6px;font-size:11.5px;padding:5px 0;border-bottom:1px solid var(--line);align-items:center;cursor:pointer}
+.alert:hover{background:var(--bg)}.alert .oc{grid-column:2/-1;font:500 10.5px var(--mono);color:var(--muted)}.alert .oc b{font-weight:600}
+.tag{font:600 9px var(--mono);border:1px solid var(--line);padding:0 4px;border-radius:3px;color:var(--muted);margin-left:4px}
+.stats{font:500 10.5px var(--mono);color:var(--muted);margin:0 0 6px;line-height:1.6}.stats b{color:var(--fg)}
+.foot{font-size:10.5px;color:var(--muted);margin-top:10px;line-height:1.4}
 .empty{color:var(--muted);font-size:12px;padding:20px 4px;line-height:1.6}
 .empty code{font-family:var(--mono);background:var(--bg);border:1px solid var(--line);padding:2px 6px;border-radius:3px}
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
@@ -112,7 +117,7 @@ canvas{display:block;width:100%;max-width:100%;margin-top:10px;border-radius:4px
     <p class="eyebrow">Breadth &amp; sectors</p>
     <div class="breadth"><span>▲ Bullish <b class="up" id="nbull">0</b></span><span>▼ Bearish <b class="dn" id="nbear">0</b></span></div>
     <div id="sectors"></div>
-    <div class="alerts"><p class="eyebrow">Rule alerts</p><div id="alerts"><span class="mut">none yet</span></div></div>
+    <div class="alerts"><p class="eyebrow">Rule alerts <span class="mut" id="alertsAt"></span></p><div class="stats" id="stats"></div><div class="list" id="alerts"><span class="mut">none yet</span></div></div><div class="foot" id="foot"></div>
   </div>
   <div class="panel col"><h2><span class="up">Bulls</span><span class="mono" id="bullhdr"></span></h2><div id="bulls"></div></div>
   <div class="panel col"><h2><span class="dn">Bears</span><span class="mono" id="bearhdr"></span></h2><div id="bears"></div></div>
@@ -332,20 +337,42 @@ function drawChart(a){
 function renderAll(){
   if(!S.snap) return;
   $('clock').textContent = S.at || S.snap.ts.slice(11,16);
-  renderCards();
+  renderCards(); renderAlerts(); renderFoot();
   if(!S.selected && S.snap.bulls[0]) S.selected = S.snap.bulls[0].symbol;
   renderDetail();
 }
+function outcomeLabel(o){
+  if(!o) return '<span class="mut">pending</span>';
+  const r = o.r30 != null ? [o.r30,'30m'] : o.r15 != null ? [o.r15,'15m'] : o.r60 != null ? [o.r60,'60m'] : null;
+  const hit = o.hit==='target' ? '<b class="up">target</b>' : o.hit==='stop' ? '<b class="dn">stop</b>' : 'open at close';
+  return (r ? `<span class="${r[0]>=0?'up':'dn'}">${sg(r[0])}% @${r[1]}</span> · ` : '') + hit;
+}
+function renderAlerts(){
+  const at = S.at || '15:30';
+  const rows = (S.alerts||[]).filter(a => !S.day || a.ts.slice(11,16) <= at);
+  $('alertsAt').textContent = S.day ? `· to ${at}` : '';
+  $('alerts').innerHTML = (S.alertsPending ? '<div class="mut" style="padding:4px 0">computing replay alerts for this day…</div>' : '') +
+    (rows.map(a => `<div class="alert" data-sym="${a.symbol}" data-at="${a.ts.slice(11,16)}"><span class="mono">${a.ts.slice(11,16)}</span><span>${a.scan}${a.source==='replay'?'<span class="tag">replay</span>':''}</span><b class="mono">${a.symbol}</b><span class="oc">₹${fmt(a.price)} · ${outcomeLabel(a.outcome)}</span></div>`).join('')
+     || (S.alertsPending ? '' : '<span class="mut">none yet</span>'));
+}
 async function loadAlerts(){
   const day = S.day;
-  try{ const res = await api(day ? `/api/alerts?day=${day}` : '/api/alerts?limit=20');
+  try{ const res = await api(day ? `/api/alerts?day=${day}` : '/api/alerts?limit=30');
     if(day !== S.day) return;
-    const al = Array.isArray(res) ? res : res.alerts;
-    S.alerts = al; S.alertsPending = !!(res && res.pending);
-    $('alerts').innerHTML = (S.alertsPending ? '<div class="mut" style="padding:4px 0">computing replay alerts for this day…</div>' : '') +
-      (al.map(a=>`<div class="alert"><span class="mono">${a.ts.slice(11,16)}</span><span>${a.scan}</span><b class="mono">${a.symbol}</b></div>`).join('') || (S.alertsPending ? '' : '<span class="mut">none yet</span>'));
+    S.alerts = Array.isArray(res) ? res : res.alerts; S.alertsPending = !!(res && res.pending);
+    renderAlerts();
     if(S.alertsPending){ clearTimeout(S.alertsTimer); S.alertsTimer = setTimeout(loadAlerts, 10000); }
   }catch(e){}
+}
+async function loadStats(){
+  try{ const st = await api('/api/scan-stats?days=20');
+    $('stats').innerHTML = st.map(x => `<div><b>${x.scan}</b> · ${x.fires} fires · ${x.hit_rate!=null?fmt(x.hit_rate,0)+'% hit':'no hits yet'} · ${x.avg_r30!=null?sg(x.avg_r30)+'% @30m':'—'}</div>`).join('') || '<span class="mut">no outcomes yet</span>';
+  }catch(e){}
+}
+function renderFoot(){
+  const day = S.day; let msg = '';
+  if(day && S.expiry){ const cut = new Date(S.expiry); cut.setDate(cut.getDate()-28); if(new Date(day) < cut) msg = 'OI on this day is from the current futures contract before it became front month, so OI % and build-up labels are thinner than live.'; }
+  $('foot').textContent = msg;
 }
 function showEmpty(html){
   S.snap = null; ['bulls','bears','sectors'].forEach(id => $(id).innerHTML = ''); $('nbull').textContent = $('nbear').textContent = '0';
@@ -417,13 +444,16 @@ function connect(){
   ws.onmessage = e => onLiveSnapshot(JSON.parse(e.data));
   ws.onclose = () => { if(S.following && S.liveSnap) setStatus('RECONNECTING','warn'); setTimeout(connect, 3000); };
 }
-document.addEventListener('click', e => { const c = e.target.closest('.card'); if(c){ S.selected = c.dataset.sym; renderCards(); renderDetail(); } });
+document.addEventListener('click', e => {
+  const c = e.target.closest('.card'); if(c){ S.selected = c.dataset.sym; renderCards(); renderDetail(); return; }
+  const r = e.target.closest('.alert'); if(r){ S.selected = r.dataset.sym; enterReplay(S.day || todayIST(), r.dataset.at); }
+});
 matchMedia('(prefers-color-scheme: dark)').addEventListener('change', renderDetail);
 
 (async () => {
   try{ const ins = await api('/api/instruments'); ins.forEach(i => { S.lots[i.symbol] = i.lot_size; S.sectorsOf[i.symbol] = i.sector; }); }catch(e){}
   try{ const d = await api('/api/days'); S.days = d.days; S.live = d.live; S.expiry = d.expiry; }catch(e){ S.days = []; }
-  populateDays();
+  populateDays(); loadStats(); setInterval(loadStats, 300000);
   connect();
   let liveSnap = null;
   try{ liveSnap = await api('/api/scan'); }catch(e){}

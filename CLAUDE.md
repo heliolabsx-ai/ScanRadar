@@ -57,11 +57,17 @@ Compose services: `postgres`, `redis`, `ingest`, `engine`, `api`, `caddy` (host 
 - `main.py` — on each `candles:closed` message (debounced 20 s): load today's candles + forming bar, analyse, rank (TOP_N=3 per side, R:R ≥ 1.5 to be "picked"), write `scan:latest` to Redis + `scan_snapshots` to Postgres, evaluate every `scans/*.json`, insert `alerts`, send Telegram (cooldown key `cooldown:{scan}:{symbol}` in Redis).
 - `notify.py` — Telegram sendMessage.
 
-### api/ (FastAPI)
-`GET /api/health`, `GET /api/scan`, `GET /api/candles/{symbol}?day=`, `GET /api/alerts?limit=`, `WS /ws/scan` (pushes `scan:latest` on update).
+### core/ (shared analytics, added 17 Oct 2026)
+`analytics.py` and `rules.py` are byte-identical copies of the engine's (the engine switches to importing them in Phase 2, see the design doc). `asof.py` defines the one as-of semantic (`view_at`: complete bars `ts < at` + a flat stub of the `at` bar). `ranking.py` `rank()` is the engine's score/rank/picked logic as a function. `backtest.py` `fires()` replays a scan over a day with the live view at every minute (proven equal to the naive definition by tests) and `outcome()` grades a trade. Tests in `tests/` run with `.venv/bin/python -m pytest tests -q` (`requirements-dev.txt`).
+
+### api/ (FastAPI; imports core/)
+`GET /api/health`, `GET /api/scan`, `GET /api/days` (stored sessions, `live`, `expiry`), `GET /api/replay?day&at` (as-of ranking, Redis-cached, with `top3_since`/`rank_30m_ago` from `scan_snapshots`, `last_bar`), `GET /api/instruments`, `GET /api/candles/{symbol}?day=` (1-minute + `daily_ref` + `delta_available`) and `?tf=1d&days=`, `GET /api/alerts?day=` → `{pending, alerts}` (live + replay rows with outcomes; first request per day kicks a background `_prepare_day`: replay alerts, outcomes, per-minute ranking history, warm frames), `GET /api/alerts?limit=`, `GET /api/scan-stats?days=`, `WS /ws/scan`. Scans mounted read-only at `/app/scans`; each scan JSON carries `"side"`.
+
+### ingest/backfill.py
+`docker compose run --rm ingest python backfill.py [--days 60] [--daily-days 400] [--symbols A,B] [--universe-only]`. Gap-fill only (`ON CONFLICT DO NOTHING`, daily OI write-once), rebuilds `daily_ref` with window functions, writes the `instruments` table when empty. Uses the cached token, never logs in. Kite fact: equity minute bars end 15:14 (360/day), futures 15:39.
 
 ### web/
-Single static `index.html` (dark terminal style, IBM Plex Sans + JetBrains Mono, canvas candlestick chart with VWAP/pivots/OB). Connects to `/ws/scan`, falls back to `/api/scan`. Alert feed from `/api/alerts`.
+Single static `index.html` (reference-artifact look, light/dark, IBM Plex Sans + JetBrains Mono). Header: date selector, as-of clock, LIVE/REPLAY chip, Live button, risk-per-trade input, theme toggle; full-width time slider (←/→ keys). Cards carry rank stability; detail panel has sector context, position size from lot size, timeframe row 1m–1D, canvas chart with VWAP/pivots/PDH-PDL/OR/OB, volume and OI panes, crosshair readout, alert markers. Left rail: breadth, sectors, per-scan stats line, per-day alert list cut at the as-of minute with outcomes (click jumps to that minute). Dev loop without the dashboard password: SSH tunnel `-L 18000:127.0.0.1:8000` + a static server that proxies `/api` (see the plan's Task 8 notes).
 
 ### scans/
 `bounce_failure_short.json` — 1:1 translation of Saurabh's Chartink scan (price > 1000, below prev close and VWAP, bar-2 bounce failing). `vwap_reclaim_long.json` — example long.
