@@ -38,13 +38,13 @@ check_quote() {    # single-quoted dotenv values cannot contain a single quote
 }
 
 set_one() {        # set_one VAR : re-enter a single value (hidden) and rewrite only that line
-    local var=$1 v tmp
+    local var=$1 val tmp
     [ -f "$ENV_FILE" ] || { echo "$ENV_FILE does not exist yet; run without --set first"; exit 1; }
-    ask_secret v "$var (hidden)"
-    check_quote "$var" "$v"
-    tmp=$(mktemp); grep -v "^$var=" "$ENV_FILE" > "$tmp"; printf "%s='%s'\n" "$var" "$v" >> "$tmp"
+    ask_secret val "$var (hidden)"
+    check_quote "$var" "$val"
+    tmp=$(mktemp); grep -v "^$var=" "$ENV_FILE" > "$tmp"; printf "%s='%s'\n" "$var" "$val" >> "$tmp"
     if [ "$var" = POSTGRES_PASSWORD ]; then
-        grep -v "^DATABASE_URL=" "$tmp" > "$tmp.2"; printf "DATABASE_URL='postgresql://scanner:%s@postgres:5432/scanner'\n" "$v" >> "$tmp.2"; mv "$tmp.2" "$tmp"
+        grep -v "^DATABASE_URL=" "$tmp" > "$tmp.2"; printf "DATABASE_URL='postgresql://scanner:%s@postgres:5432/scanner'\n" "$val" >> "$tmp.2"; mv "$tmp.2" "$tmp"
     fi
     umask 077; mv "$tmp" "$ENV_FILE"; chmod 600 "$ENV_FILE"
     echo "updated $var in $ENV_FILE"
