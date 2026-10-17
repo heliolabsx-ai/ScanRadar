@@ -107,7 +107,8 @@ Logs: `docker compose logs -f engine` shows `scan: N symbols, B bull / R bear, A
 | Symptom | Likely cause | Fix |
 |---|---|---|
 | `login failed: ...` | wrong KITE_USER_ID / KITE_PASSWORD | fix `.env`, `docker compose restart ingest` |
-| `2FA failed: Invalid TOTP` on every attempt | wrong TOTP secret, or VPS clock skew | re-copy the key from Kite; `timedatectl` must show synchronised |
+| `External TOTP is not enabled on this Kite account (accepts ['app_code', 'sms'])` | the account uses the Kite app's own code; a stored secret can never match | Kite web > My profile > Password & security > External 2FA TOTP > Enable, **complete the verification step**, copy the key, rerun `configure-env.sh`. Preflight step 0a shows the account's list; `totp` must be in it |
+| `2FA failed: ... Invalid TOTP/App Code. N attempt(s) remain` | wrong key, or VPS clock skew | **stop**: Zerodha locks the account after 5 wrong codes. Preflight step 0b prints the code the stored key generates; it must equal the authenticator app's. `timedatectl` must show synchronised |
 | `Connect login stopped redirecting: HTTP 200` | Zerodha changed the login flow (or the API key is inactive / the Kite Connect subscription lapsed) | check developers.kite.trade billing; then fix `ingest/kite_auth.py` |
 | `historical ... throttled` repeatedly / refs `N without prev-day OI` | 429 from the historical API | raise `HIST_PACE` in `ingest/main.py`; refs for throttled symbols are retried 4× |
 | `futures candle has no 'oi' key` (preflight) | historical add-on not active on the Kite Connect app | enable it in the developer console |
