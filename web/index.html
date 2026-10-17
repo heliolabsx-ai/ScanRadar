@@ -1,76 +1,231 @@
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>ScanRadar</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&display=swap">
 <style>
-:root{--bg:#111513;--panel:#191e1b;--fg:#e6ebe7;--muted:#8b968f;--line:#2a312d;--bull:#4cc47f;--bull-soft:#15301f;--bear:#f06a6c;--bear-soft:#3a1a1b;--amber:#e0a63a;--accent:#8aa6e8;--vwap:#8fa6ea;color-scheme:dark;
---sans:'IBM Plex Sans',system-ui,sans-serif;--mono:'JetBrains Mono',ui-monospace,monospace}
-*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:13px var(--sans);padding:14px 16px}
+/* Layout: control strip → sector/breadth rail → bull/bear card grid → detail panel with canvas chart. Terminal-style data UI. */
+:root{
+  --bg:#f6f7f4; --panel:#ffffff; --fg:#1b1f1c; --muted:#6b7570; --line:#dfe3df;
+  --bull:#1e8a4c; --bull-soft:#e3f3e9; --bear:#c4383a; --bear-soft:#f9e5e5;
+  --amber:#b9790f; --accent:#2b4a8c; --vwap:#4f6fd6;
+  --sans:'IBM Plex Sans',system-ui,sans-serif; --mono:'JetBrains Mono',ui-monospace,Menlo,monospace;
+  color-scheme:light;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#111513; --panel:#191e1b; --fg:#e6ebe7; --muted:#8b968f; --line:#2a312d;
+  --bull:#4cc47f; --bull-soft:#15301f; --bear:#f06a6c; --bear-soft:#3a1a1b;
+  --amber:#e0a63a; --accent:#8aa6e8; --vwap:#8fa6ea; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#111513; --panel:#191e1b; --fg:#e6ebe7; --muted:#8b968f; --line:#2a312d;
+  --bull:#4cc47f; --bull-soft:#15301f; --bear:#f06a6c; --bear-soft:#3a1a1b;
+  --amber:#e0a63a; --accent:#8aa6e8; --vwap:#8fa6ea; color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font-family:var(--sans);font-size:13px;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:14px}
 .mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
+h1{font:600 16px/1.2 var(--sans);margin:0;letter-spacing:.01em}
 .top{display:flex;flex-wrap:wrap;gap:10px 18px;align-items:center;margin-bottom:12px}
-h1{font:600 16px var(--sans);margin:0}.clock{font:700 20px var(--mono)}.st{font-size:11px;color:var(--muted);border:1px solid var(--line);padding:2px 8px;border-radius:3px}
-.grid{display:grid;grid-template-columns:230px 1fr 1fr 330px;gap:12px;align-items:start}
-@media(max-width:1150px){.grid{grid-template-columns:200px 1fr 1fr}.detail{grid-column:1/-1}}
-@media(max-width:760px){.grid{grid-template-columns:1fr}.detail{grid-column:auto}}
+.top .clock{font:700 20px var(--mono);font-variant-numeric:tabular-nums}
+.st{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;border:1px solid var(--line);padding:2px 8px;border-radius:3px;display:inline-flex;align-items:center;gap:6px}
+.st .dot{width:7px;height:7px;border-radius:50%;background:var(--line);display:inline-block}
+.st.live{color:var(--bull);border-color:var(--bull)}.st.live .dot{background:var(--bull);animation:pulse 1.4s ease-in-out infinite}
+.st.replay{color:var(--accent);border-color:var(--accent)}.st.replay .dot{background:var(--accent)}
+.st.warn{color:var(--amber);border-color:var(--amber)}.st.warn .dot{background:var(--amber)}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.25}}
+button{font:500 12px var(--sans);background:var(--panel);color:var(--fg);border:1px solid var(--line);border-radius:4px;padding:5px 11px;cursor:pointer}
+button:hover{border-color:var(--fg)}
+button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+button.primary{background:var(--fg);color:var(--bg);border-color:var(--fg)}
+label{font-size:12px;color:var(--muted);display:flex;align-items:center;gap:6px}
+input[type=number],select{font:500 12px var(--mono);background:var(--panel);color:var(--fg);border:1px solid var(--line);border-radius:4px;padding:4px 6px}
+input[type=number]{width:84px}
+.grid{display:grid;grid-template-columns:230px 1fr 1fr 360px;gap:12px;align-items:start}
+@media (max-width:1150px){.grid{grid-template-columns:200px 1fr 1fr}.detail{grid-column:1/-1}}
+@media (max-width:760px){.grid{grid-template-columns:1fr}.detail{grid-column:auto}}
 .panel{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:10px;min-width:0}
 .eyebrow{font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin:0 0 8px}
-.breadth{display:flex;justify-content:space-between;margin-bottom:10px}.breadth b{font:700 22px var(--mono)}
+.breadth{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:10px}
+.breadth b{font:700 22px var(--mono)}
 .sector{display:grid;grid-template-columns:72px 1fr 54px;gap:6px;align-items:center;font-size:11.5px;padding:3px 0}
-.sector .bar{height:6px;background:var(--line);border-radius:2px;position:relative;overflow:hidden}.sector .bar i{position:absolute;top:0;bottom:0}
-.sector .v{text-align:right}.up{color:var(--bull)}.dn{color:var(--bear)}
+.sector .bar{height:6px;background:var(--line);border-radius:2px;position:relative;overflow:hidden}
+.sector .bar i{position:absolute;top:0;bottom:0;border-radius:2px}
+.sector .v{text-align:right}
+.up{color:var(--bull)}.dn{color:var(--bear)}.mut{color:var(--muted)}
 .col h2{font:600 12px var(--sans);letter-spacing:.08em;text-transform:uppercase;margin:0 0 8px;display:flex;justify-content:space-between}
-.card{display:grid;grid-template-columns:1fr auto;gap:2px 8px;padding:8px 10px;border:1px solid var(--line);border-left:3px solid var(--line);border-radius:4px;margin-bottom:6px;cursor:pointer}
-.card:hover{border-color:var(--fg)}.card.sel{outline:2px solid var(--accent)}.card.bull{border-left-color:var(--bull)}.card.bear{border-left-color:var(--bear)}
-.card .sym{font:700 13px var(--mono)}.card .pct{font:600 13px var(--mono);text-align:right}.card .sub{font-size:11px;color:var(--muted);display:flex;gap:8px;flex-wrap:wrap}.card .rank{font:500 11px var(--mono);color:var(--muted);text-align:right}
-.chip{font:600 10px var(--mono);padding:1px 6px;border-radius:3px}.chip.lb{background:var(--bull-soft);color:var(--bull)}.chip.sb{background:var(--bear-soft);color:var(--bear)}.chip.lu,.chip.sc,.chip.nt{background:var(--line);color:var(--muted)}.chip.pick{background:var(--fg);color:var(--bg)}
-.big{font:700 26px var(--mono)}.kv{display:grid;grid-template-columns:auto 1fr auto 1fr;gap:4px 10px;font-size:11.5px;margin-top:8px}.kv dt{color:var(--muted);text-transform:uppercase;font-size:10px}.kv dd{margin:0;font-family:var(--mono)}
-canvas{display:block;width:100%;margin-top:10px}
-.alerts{margin-top:12px}.alert{display:grid;grid-template-columns:48px 1fr auto;gap:8px;font-size:12px;padding:5px 0;border-bottom:1px solid var(--line)}
+.card{display:grid;grid-template-columns:1fr auto;gap:2px 8px;padding:8px 10px;border:1px solid var(--line);border-left:3px solid var(--line);border-radius:4px;margin-bottom:6px;cursor:pointer;background:var(--panel)}
+.card:hover{border-color:var(--fg)}
+.card.sel{outline:2px solid var(--accent)}
+.card.bull{border-left-color:var(--bull)}.card.bear{border-left-color:var(--bear)}
+.card .sym{font:700 13px var(--mono)}
+.card .pct{font:600 13px var(--mono);text-align:right}
+.card .sub{font-size:11px;color:var(--muted);display:flex;gap:8px;flex-wrap:wrap}
+.card .rank{font:500 11px var(--mono);color:var(--muted);text-align:right}
+.card .stab{grid-column:1/-1;font:500 10.5px var(--mono);color:var(--muted)}
+.chip{font:600 10px var(--mono);letter-spacing:.04em;padding:1px 6px;border-radius:3px}
+.chip.lb{background:var(--bull-soft);color:var(--bull)}.chip.sb{background:var(--bear-soft);color:var(--bear)}
+.chip.lu,.chip.sc,.chip.nt{background:var(--line);color:var(--muted)}
+.chip.pick{background:var(--fg);color:var(--bg)}
+.detail .head{display:flex;justify-content:space-between;align-items:baseline;gap:8px;flex-wrap:wrap}
+.detail .big{font:700 26px var(--mono)}
+.detail .px{font:500 14px var(--mono)}
+.kv{display:grid;grid-template-columns:auto 1fr auto 1fr;gap:4px 10px;font-size:11.5px;margin-top:8px}
+.kv dt{color:var(--muted);text-transform:uppercase;letter-spacing:.06em;font-size:10px;align-self:center}
+.kv dd{margin:0;font-family:var(--mono);font-variant-numeric:tabular-nums}
+canvas{display:block;width:100%;max-width:100%;margin-top:10px;border-radius:4px}
+.conv{display:inline-flex;gap:2px;vertical-align:middle;margin-left:4px}
+.conv i{width:6px;height:6px;border-radius:50%;background:var(--line);display:block}
+.conv i.on{background:currentColor}
+.rule{margin-top:10px;font-size:11.5px;padding:8px;border-radius:4px;background:var(--bg);border:1px solid var(--line)}
+.rule b{font-family:var(--mono)}
+.size{margin-top:8px;font-size:11.5px;padding:8px;border-radius:4px;border:1px solid var(--line);display:grid;grid-template-columns:auto 1fr;gap:3px 10px}
+.size dt{color:var(--muted);text-transform:uppercase;letter-spacing:.06em;font-size:10px}.size dd{margin:0;font-family:var(--mono)}
+.alerts{margin-top:12px}.alert{display:grid;grid-template-columns:40px 1fr auto;gap:6px;font-size:11.5px;padding:5px 0;border-bottom:1px solid var(--line);align-items:center}
+.empty{color:var(--muted);font-size:12px;padding:20px 4px;line-height:1.6}
+.empty code{font-family:var(--mono);background:var(--bg);border:1px solid var(--line);padding:2px 6px;border-radius:3px}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
 </style></head><body>
-<div class="top"><h1>ScanRadar</h1><span class="clock mono" id="clock">--:--</span><span class="st" id="status">connecting…</span></div>
+<div class="top">
+  <h1>ScanRadar</h1>
+  <span class="clock mono" id="clock">--:--</span>
+  <span class="st" id="status"><i class="dot"></i><span id="statusText">WAITING</span></span>
+  <label>Risk ₹ <input id="risk" type="number" min="100" step="100" value="2000" title="Rupees risked per trade; sizes the quantity in the detail panel"></label>
+  <button id="theme" title="Toggle light / dark">◐</button>
+</div>
 <div class="grid">
-  <div class="panel"><p class="eyebrow">Breadth &amp; sectors</p><div class="breadth"><span>▲ <b class="up" id="nbull">0</b></span><span>▼ <b class="dn" id="nbear">0</b></span></div><div id="sectors"></div>
-    <div class="alerts"><p class="eyebrow">Rule alerts</p><div id="alerts"></div></div></div>
-  <div class="panel col"><h2><span class="up">Bulls</span></h2><div id="bulls"></div></div>
-  <div class="panel col"><h2><span class="dn">Bears</span></h2><div id="bears"></div></div>
-  <div class="panel detail" id="detail"><p class="eyebrow">Select a stock</p></div>
+  <div class="panel rail">
+    <p class="eyebrow">Breadth &amp; sectors</p>
+    <div class="breadth"><span>▲ Bullish <b class="up" id="nbull">0</b></span><span>▼ Bearish <b class="dn" id="nbear">0</b></span></div>
+    <div id="sectors"></div>
+    <div class="alerts"><p class="eyebrow">Rule alerts</p><div id="alerts"><span class="mut">none yet</span></div></div>
+  </div>
+  <div class="panel col"><h2><span class="up">Bulls</span><span class="mono" id="bullhdr"></span></h2><div id="bulls"></div></div>
+  <div class="panel col"><h2><span class="dn">Bears</span><span class="mono" id="bearhdr"></span></h2><div id="bears"></div></div>
+  <div class="panel detail" id="detail"><p class="eyebrow">Select a stock</p><div class="empty" id="detailEmpty">Waiting for the first ranking. Cards appear from 09:15 on a trading day.</div></div>
 </div>
 <script>
-const fmt=(n,d=2)=>Number(n).toLocaleString('en-IN',{minimumFractionDigits:d,maximumFractionDigits:d}),sg=(n,d=2)=>(n>=0?'+':'')+fmt(n,d);
-let snap=null,selected=null;
-function card(a,side){return `<div class="card ${side} ${selected===a.symbol?'sel':''}" data-sym="${a.symbol}">
- <span class="sym">${a.symbol} ${a.picked?'<span class="chip pick">PICK</span>':''}</span><span class="pct ${side==='bull'?'up':'dn'}">${sg(a.pct)}%</span>
- <span class="sub"><span class="chip ${a.oi_cls}">${a.oi_label}</span><span>OI ${sg(a.oi_pct,1)}%</span><span>${a.above_vwap?'▲':'▼'} VWAP</span><span>RVOL ${fmt(a.rvol,1)}×</span></span>
- <span class="rank">#${a.rank} · p${fmt(a.pctile,0)}</span></div>`}
-function render(){if(!snap)return;
- document.getElementById('clock').textContent=snap.ts.slice(11,16);
- document.getElementById('nbull').textContent=snap.n_bull;document.getElementById('nbear').textContent=snap.n_bear;
- const mx=Math.max(...Object.values(snap.sectors).map(Math.abs),0.1);
- document.getElementById('sectors').innerHTML=Object.entries(snap.sectors).sort((a,b)=>b[1]-a[1]).map(([k,v])=>{const w=Math.abs(v)/mx*50,l=v>=0?50:50-w;return `<div class="sector"><span>${k}</span><span class="bar"><i style="left:${l}%;width:${w}%;background:var(--${v>=0?'bull':'bear'})"></i></span><span class="v mono ${v>=0?'up':'dn'}">${sg(v)}%</span></div>`}).join('');
- document.getElementById('bulls').innerHTML=snap.bulls.slice(0,15).map(a=>card(a,'bull')).join('');
- document.getElementById('bears').innerHTML=snap.bears.slice(0,15).map(a=>card(a,'bear')).join('');
- if(!selected&&snap.bulls[0])selected=snap.bulls[0].symbol; if(selected)detail();}
-async function detail(){const a=[...snap.bulls,...snap.bears].find(x=>x.symbol===selected);if(!a)return;const side=a.dir>0?'bull':'bear';
- document.getElementById('detail').innerHTML=`<p class="eyebrow">${a.sector} · rank #${a.rank} · p${fmt(a.pctile,1)}</p>
- <div style="display:flex;justify-content:space-between;align-items:baseline"><div><div class="mono" style="font-weight:700;font-size:15px">${a.symbol}</div><div class="mono">₹${fmt(a.price)} <span class="${side==='bull'?'up':'dn'}">${sg(a.chg)}</span></div></div><div class="big ${side==='bull'?'up':'dn'}">${sg(a.pct)}%</div></div>
- <div style="margin-top:6px"><span class="chip ${side==='bull'?'lb':'sb'}">${side.toUpperCase()}</span> <b class="mono">${a.conv}</b> &nbsp;<span class="chip ${a.oi_cls}">${a.oi_label}</span> ${a.picked?'<span class="chip pick">PICKED</span>':`<span class="chip nt">NOT PICKED · #${a.side_rank} ${side}</span>`}</div>
- <dl class="kv"><dt>OI Δ</dt><dd>${sg(a.oi_pct,1)}%</dd><dt>Vol Δ</dt><dd>${(a.delta/1000).toFixed(1)}K</dd><dt>VWAP</dt><dd>${fmt(a.vwap)} ${a.above_vwap?'▲':'▼'}</dd><dt>RVOL</dt><dd>${fmt(a.rvol)}×</dd>
- <dt>OR H/L</dt><dd>${fmt(a.orH)} / ${fmt(a.orL)}</dd><dt>OB</dt><dd>${a.ob?fmt(a.ob.lo)+'–'+fmt(a.ob.hi):'—'}</dd><dt>S1/S2</dt><dd>${fmt(a.S1)} / ${fmt(a.S2)}</dd><dt>R1/R2</dt><dd>${fmt(a.R1)} / ${fmt(a.R2)}</dd>
- <dt>Stop</dt><dd>${fmt(a.stop)}</dd><dt>Target</dt><dd>${fmt(a.target)}</dd><dt>Risk</dt><dd>${fmt(a.risk_pct)}%</dd><dt>R:R</dt><dd>1:${fmt(a.rr,1)}</dd></dl><canvas id="chart" width="620" height="300"></canvas>`;
- const r=await fetch(`/api/candles/${a.symbol}`).then(x=>x.json());draw(r.candles,a);}
-function draw(cs,a){const cv=document.getElementById('chart'),ctx=cv.getContext('2d'),C=k=>getComputedStyle(document.documentElement).getPropertyValue(k).trim();
- const W=cv.width,H=cv.height,pL=8,pR=70,pT=10,pB=22,n=375;ctx.clearRect(0,0,W,H);if(!cs.length)return;
- const lv=[a.R2,a.R1,a.S1,a.S2];let lo=Math.min(...cs.map(c=>c.l),...lv),hi=Math.max(...cs.map(c=>c.h),...lv);const pd=(hi-lo)*.05;lo-=pd;hi+=pd;
- const x=i=>pL+i/n*(W-pL-pR),y=p=>pT+(1-(p-lo)/(hi-lo))*(H-pT-pB);ctx.font='10px JetBrains Mono';
- if(a.ob){ctx.fillStyle=a.ob.dir>0?C('--bull-soft'):C('--bear-soft');ctx.fillRect(pL,y(a.ob.hi),W-pL-pR,y(a.ob.lo)-y(a.ob.hi));}
- [['R2',a.R2,'--bull'],['R1',a.R1,'--bull'],['S1',a.S1,'--amber'],['S2',a.S2,'--amber']].forEach(([nm,p,c])=>{ctx.strokeStyle=C(c);ctx.setLineDash([3,3]);ctx.beginPath();ctx.moveTo(pL,y(p));ctx.lineTo(W-pR,y(p));ctx.stroke();ctx.setLineDash([]);ctx.fillStyle=C(c);ctx.fillText(`${nm} ${fmt(p)}`,W-pR+4,y(p)+3)});
- ctx.strokeStyle=C('--vwap');ctx.setLineDash([2,2]);ctx.beginPath();let pv=0,vv=0;cs.forEach((c,i)=>{pv+=(c.h+c.l+c.c)/3*c.v;vv+=c.v;const yy=y(vv?pv/vv:c.c);i?ctx.lineTo(x(i),yy):ctx.moveTo(x(i),yy)});ctx.stroke();ctx.setLineDash([]);
- const w=Math.max(1,(W-pL-pR)/n*.7);cs.forEach((c,i)=>{const up=c.c>=c.o;ctx.strokeStyle=ctx.fillStyle=up?C('--bull'):C('--bear');ctx.beginPath();ctx.moveTo(x(i)+w/2,y(c.h));ctx.lineTo(x(i)+w/2,y(c.l));ctx.stroke();ctx.fillRect(x(i),y(Math.max(c.o,c.c)),w,Math.max(1,Math.abs(y(c.o)-y(c.c))))});
- ctx.fillStyle=C('--muted');[['09:15',0],['10:00',45],['11:00',105],['12:00',165],['13:00',225],['14:00',285],['15:00',345]].forEach(([l,i])=>ctx.fillText(l,x(i)-12,H-6));}
-async function loadAlerts(){const al=await fetch('/api/alerts?limit=20').then(x=>x.json()).catch(()=>[]);document.getElementById('alerts').innerHTML=al.map(a=>`<div class="alert"><span class="mono">${a.ts.slice(11,16)}</span><span>${a.scan}</span><b class="mono">${a.symbol}</b></div>`).join('')||'<span style="color:var(--muted)">none yet</span>'}
-function connect(){const ws=new WebSocket((location.protocol==='https:'?'wss://':'ws://')+location.host+'/ws/scan');
- ws.onmessage=e=>{snap=JSON.parse(e.data);document.getElementById('status').textContent='live';render();loadAlerts()};
- ws.onclose=()=>{document.getElementById('status').textContent='reconnecting…';setTimeout(connect,3000)}}
-document.addEventListener('click',e=>{const c=e.target.closest('.card');if(c){selected=c.dataset.sym;render()}});
-fetch('/api/scan').then(r=>r.ok?r.json():null).then(s=>{if(s){snap=s;render()}});connect();loadAlerts();
+// ---------- state ----------
+const S = {mode:'live', day:null, at:null, snap:null, selected:null, tf:'1m', days:[], live:false, lots:{}, sectorsOf:{}, risk:2000, alerts:[]};
+const $ = id => document.getElementById(id);
+const fmt = (n, d=2) => (n==null||isNaN(n)) ? '—' : Number(n).toLocaleString('en-IN',{minimumFractionDigits:d,maximumFractionDigits:d});
+const sg = (n, d=2) => (n==null||isNaN(n)) ? '—' : (n>=0?'+':'')+fmt(n,d);
+const inr = n => (n==null||isNaN(n)) ? '—' : '₹'+Number(n).toLocaleString('en-IN',{maximumFractionDigits:0});
+const api = p => fetch(p).then(r => r.ok ? r.json() : Promise.reject(new Error(r.status+' '+p)));
+
+// ---------- theme ----------
+try{ const t = localStorage.getItem('theme'); if(t) document.documentElement.dataset.theme = t; }catch(e){}
+$('theme').onclick = () => {
+  const cur = document.documentElement.dataset.theme || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+  const next = cur === 'dark' ? 'light' : 'dark';
+  document.documentElement.dataset.theme = next;
+  try{ localStorage.setItem('theme', next); }catch(e){}
+  renderDetail();
+};
+try{ const r = +localStorage.getItem('risk'); if(r>0){ S.risk = r; $('risk').value = r; } }catch(e){}
+$('risk').onchange = () => { S.risk = Math.max(100, +$('risk').value || 2000); $('risk').value = S.risk; try{ localStorage.setItem('risk', S.risk); }catch(e){} renderDetail(); };
+
+// ---------- status ----------
+function setStatus(text, cls){ $('statusText').textContent = text; $('status').className = 'st ' + (cls||''); }
+
+// ---------- rendering ----------
+function stab(a){
+  if(a.top3_since === undefined && a.rank_30m_ago === undefined) return '';
+  const parts = [];
+  if(a.picked) parts.push(a.top3_since ? `top 3 since ${a.top3_since}` : 'top 3 …');
+  if(a.rank_30m_ago != null){ const d = a.rank_30m_ago - a.rank; parts.push(`#${a.rank} ${d>0?'↑':d<0?'↓':'→'} from #${a.rank_30m_ago} (30m)`); }
+  else parts.push(`#${a.rank} · 30m ago …`);
+  return `<span class="stab">${parts.join(' · ')}</span>`;
+}
+function card(a, side){
+  return `<div class="card ${side} ${S.selected===a.symbol?'sel':''}" data-sym="${a.symbol}">
+    <span class="sym">${a.symbol} ${a.picked?'<span class="chip pick">PICK</span>':''}</span><span class="pct ${side==='bull'?'up':'dn'}">${sg(a.pct)}%</span>
+    <span class="sub"><span class="chip ${a.oi_cls}">${a.oi_label}</span><span>OI ${sg(a.oi_pct,1)}%</span><span>${a.above_vwap?'▲':'▼'} VWAP</span><span>RVOL ${fmt(a.rvol,1)}×</span></span>
+    <span class="rank">#${a.rank} · p${fmt(a.pctile,0)}</span>${stab(a)}</div>`;
+}
+function renderCards(){
+  const s = S.snap; if(!s) return;
+  $('nbull').textContent = s.n_bull; $('nbear').textContent = s.n_bear;
+  const mx = Math.max(...Object.values(s.sectors).map(Math.abs), 0.1);
+  $('sectors').innerHTML = Object.entries(s.sectors).sort((a,b)=>b[1]-a[1]).map(([k,v])=>{
+    const w = Math.abs(v)/mx*50, l = v>=0?50:50-w;
+    return `<div class="sector"><span>${k}</span><span class="bar"><i style="left:${l}%;width:${w}%;background:var(--${v>=0?'bull':'bear'})"></i></span><span class="v mono ${v>=0?'up':'dn'}">${sg(v)}%</span></div>`}).join('');
+  $('bulls').innerHTML = s.bulls.slice(0,15).map(a=>card(a,'bull')).join('');
+  $('bears').innerHTML = s.bears.slice(0,15).map(a=>card(a,'bear')).join('');
+  $('bullhdr').textContent = `${s.n_bull} · top ${Math.min(3,s.n_bull)} picked`;
+  $('bearhdr').textContent = `${s.n_bear} · top ${Math.min(3,s.n_bear)} picked`;
+}
+function rowFor(sym){ const s=S.snap; return s ? [...s.bulls, ...s.bears].find(x=>x.symbol===sym) : null; }
+function sizing(a){
+  const lot = S.lots[a.symbol] || 0, dist = Math.abs(a.price - a.stop);
+  if(!lot || !dist) return `<dt>Size</dt><dd class="mut">lot size unknown</dd>`;
+  const qty = Math.floor(S.risk / dist / lot) * lot;
+  if(!qty) return `<dt>Size</dt><dd class="mut">lot of ${lot} too large for ₹${fmt(S.risk,0)} risk (₹${fmt(dist*lot,0)}/lot)</dd>`;
+  return `<dt>Qty</dt><dd>${qty.toLocaleString('en-IN')} <span class="mut">(${qty/lot} × ${lot})</span></dd>
+          <dt>Risk</dt><dd class="dn">${inr(qty*dist)}</dd><dt>Reward</dt><dd class="up">${inr(qty*Math.abs(a.target-a.price))}</dd>`;
+}
+async function renderDetail(){
+  const a = rowFor(S.selected); const d = $('detail');
+  if(!a){ if(S.snap) d.innerHTML = `<p class="eyebrow">Select a stock</p><div class="empty">${S.selected||'This symbol'} is not in the current ranking.</div>`; return; }
+  const side = a.dir>0?'bull':'bear', sec = S.snap.sectors[a.sector], lst = side==='bull'?S.snap.bulls:S.snap.bears;
+  const bIdx = lst.findIndex(x=>x.symbol===a.symbol);
+  d.innerHTML = `<p class="eyebrow">${a.sector} ${sec!=null?`<span class="${sec>=0?'up':'dn'}">${sg(sec)}%</span> · vs sector <span class="${a.pct-sec>=0?'up':'dn'}">${sg(a.pct-sec)}%</span>`:''} · rank #${a.rank}/${S.snap.n_bull+S.snap.n_bear} · p${fmt(a.pctile,1)}</p>
+   <div class="head"><div><div class="mono" style="font-weight:700;font-size:15px">${a.symbol}</div><div class="px">₹${fmt(a.price)} <span class="${side==='bull'?'up':'dn'}">${sg(a.chg)}</span></div></div>
+   <div class="big ${side==='bull'?'up':'dn'}">${sg(a.pct)}%</div></div>
+   <div style="margin-top:6px"><span class="chip ${side==='bull'?'lb':'sb'}">${side.toUpperCase()}</span> <span class="mono" style="font-weight:700">${a.conv}</span><span class="conv ${side==='bull'?'up':'dn'}">${[1,2,3,4,5].map(i=>`<i class="${a.conv>=i*20-10?'on':''}"></i>`).join('')}</span> &nbsp;<span class="chip ${a.oi_cls}">${a.oi_label}</span></div>
+   <dl class="kv">
+    <dt>OI Δ</dt><dd>${sg(a.oi_pct,1)}%</dd><dt>Vol Δ</dt><dd>${S.snap.delta_available===false?'<span class="mut">—</span>':(a.delta/1000).toFixed(1)+'K'}</dd>
+    <dt>VWAP</dt><dd>${fmt(a.vwap)} ${a.above_vwap?'▲':'▼'}</dd><dt>RVOL</dt><dd>${fmt(a.rvol)}×</dd>
+    <dt>OR H/L</dt><dd>${fmt(a.orH)} / ${fmt(a.orL)}</dd><dt>OB</dt><dd>${a.ob?fmt(a.ob.lo)+'–'+fmt(a.ob.hi):'—'}</dd>
+    <dt>S1 / S2</dt><dd>${fmt(a.S1)} / ${fmt(a.S2)}</dd><dt>R1 / R2</dt><dd>${fmt(a.R1)} / ${fmt(a.R2)}</dd>
+    <dt>Stop</dt><dd>${fmt(a.stop)}</dd><dt>Target</dt><dd>${fmt(a.target)}</dd>
+    <dt>Risk</dt><dd>${fmt(a.risk_pct)}%</dd><dt>R:R</dt><dd>1:${fmt(a.rr,1)}</dd>
+   </dl>
+   <dl class="size">${sizing(a)}</dl>
+   <canvas id="chart" width="620" height="300"></canvas>
+   <div class="rule">RULE · ${a.picked?`<b>PICKED</b> — #${bIdx+1} among ${side}s (top 3 taken).`:`<b>NOT PICKED</b> — #${bIdx+1} among ${side}s.`} ${a.rr<1.5?'R:R below 1.5 vetoes a pick.':''}</div>`;
+  try{ const r = await api(`/api/candles/${a.symbol}${S.day?`?day=${S.day}`:''}`); if(S.selected===a.symbol) drawChart(r.candles, a); }catch(e){}
+}
+function drawChart(cs, a){
+  const cv = $('chart'); if(!cv) return; const ctx = cv.getContext('2d');
+  const C = k => getComputedStyle(document.documentElement).getPropertyValue(k).trim();
+  const W=cv.width, H=cv.height, pL=8, pR=70, pT=10, pB=22, n=375; ctx.clearRect(0,0,W,H); if(!cs.length) return;
+  const lv=[a.R2,a.R1,a.S1,a.S2]; let lo=Math.min(...cs.map(c=>c.l),...lv), hi=Math.max(...cs.map(c=>c.h),...lv); const pd=(hi-lo)*.05; lo-=pd; hi+=pd;
+  const t0 = new Date(cs[0].ts); const idx = c => Math.round((new Date(c.ts)-t0)/60000);
+  const x=i=>pL+i/n*(W-pL-pR), y=p=>pT+(1-(p-lo)/(hi-lo))*(H-pT-pB); ctx.font='10px JetBrains Mono, monospace';
+  if(a.ob){ ctx.fillStyle=a.ob.dir>0?C('--bull-soft'):C('--bear-soft'); ctx.fillRect(pL,y(a.ob.hi),W-pL-pR,y(a.ob.lo)-y(a.ob.hi)); }
+  ctx.fillStyle=C('--line'); ctx.globalAlpha=.45; ctx.fillRect(x(0),y(a.orH),x(15)-x(0),y(a.orL)-y(a.orH)); ctx.globalAlpha=1;
+  [['R2',a.R2,'--bull'],['R1',a.R1,'--bull'],['S1',a.S1,'--amber'],['S2',a.S2,'--amber'],['PC',a.price-a.chg,'--muted']].forEach(([nm,p,c])=>{ctx.strokeStyle=C(c);ctx.setLineDash([3,3]);ctx.beginPath();ctx.moveTo(pL,y(p));ctx.lineTo(W-pR,y(p));ctx.stroke();ctx.setLineDash([]);ctx.fillStyle=C(c);ctx.fillText(`${nm} ${fmt(p)}`,W-pR+4,y(p)+3)});
+  ctx.strokeStyle=C('--vwap'); ctx.lineWidth=1.2; ctx.setLineDash([2,2]); ctx.beginPath(); let pv=0,vv=0;
+  cs.forEach((c,k)=>{pv+=(c.h+c.l+c.c)/3*c.v; vv+=c.v; const yy=y(vv?pv/vv:c.c); k?ctx.lineTo(x(idx(c)),yy):ctx.moveTo(x(idx(c)),yy)}); ctx.stroke(); ctx.setLineDash([]); ctx.lineWidth=1;
+  const w=Math.max(1,(W-pL-pR)/n*.7);
+  cs.forEach(c=>{const i=idx(c), up=c.c>=c.o; ctx.strokeStyle=ctx.fillStyle=up?C('--bull'):C('--bear'); ctx.beginPath(); ctx.moveTo(x(i)+w/2,y(c.h)); ctx.lineTo(x(i)+w/2,y(c.l)); ctx.stroke(); ctx.fillRect(x(i),y(Math.max(c.o,c.c)),w,Math.max(1,Math.abs(y(c.o)-y(c.c))))});
+  const last = cs[cs.length-1].c; ctx.fillStyle=C('--fg'); ctx.fillRect(W-pR,y(last)-7,66,14); ctx.fillStyle=C('--bg'); ctx.fillText(fmt(last),W-pR+4,y(last)+3);
+  ctx.fillStyle=C('--muted'); [['09:15',0],['10:00',45],['11:00',105],['12:00',165],['13:00',225],['14:00',285],['15:00',345]].forEach(([l,i])=>ctx.fillText(l,x(i)-12,H-6));
+}
+function renderAll(){
+  if(!S.snap) return;
+  $('clock').textContent = S.at || S.snap.ts.slice(11,16);
+  renderCards();
+  if(!S.selected && S.snap.bulls[0]) S.selected = S.snap.bulls[0].symbol;
+  renderDetail();
+}
+async function loadAlerts(){
+  try{ const al = await api('/api/alerts?limit=20');
+    $('alerts').innerHTML = al.map(a=>`<div class="alert"><span class="mono">${a.ts.slice(11,16)}</span><span>${a.scan}</span><b class="mono">${a.symbol}</b></div>`).join('') || '<span class="mut">none yet</span>';
+  }catch(e){}
+}
+
+// ---------- live feed ----------
+function connect(){
+  const ws = new WebSocket((location.protocol==='https:'?'wss://':'ws://')+location.host+'/ws/scan');
+  ws.onmessage = e => { S.snap = JSON.parse(e.data); S.mode='live'; S.at = S.snap.ts.slice(11,16); setStatus('LIVE','live'); renderAll(); loadAlerts(); };
+  ws.onclose = () => { if(S.mode==='live') setStatus('RECONNECTING','warn'); setTimeout(connect, 3000); };
+}
+document.addEventListener('click', e => { const c = e.target.closest('.card'); if(c){ S.selected = c.dataset.sym; renderCards(); renderDetail(); } });
+matchMedia('(prefers-color-scheme: dark)').addEventListener('change', renderDetail);
+
+(async () => {
+  try{ const ins = await api('/api/instruments'); ins.forEach(i => { S.lots[i.symbol] = i.lot_size; S.sectorsOf[i.symbol] = i.sector; }); }catch(e){}
+  try{ S.snap = await api('/api/scan'); S.mode='live'; S.at = S.snap.ts.slice(11,16); setStatus('LIVE','live'); renderAll(); }catch(e){ setStatus('WAITING',''); }
+  connect(); loadAlerts();
+})();
 </script></body></html>
