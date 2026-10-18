@@ -46,6 +46,8 @@ services:
     env_file: .env
     volumes:
       - ./scans:/app/scans:ro
+      - ./scripts:/app/scripts:ro
+      - ./docs/superpowers/notes:/app/scripts/out
     ports:
       - "127.0.0.1:8000:8000"
     depends_on:
