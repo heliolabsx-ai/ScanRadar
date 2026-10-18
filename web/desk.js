@@ -29,7 +29,8 @@
     const t = (v.context || {}).ticket || {};
     const s = t.size || {};
     return { entry: fmt2(t.entry), stop: fmt2(t.stop), target: fmt2(t.target), rr: t.rr != null ? `1 : ${Number(t.rr).toFixed(1)}` : '—',
-      size: s.qty ? `${s.qty.toLocaleString('en-IN')} · ${s.lots} lot${s.lots > 1 ? 's' : ''}` : '—', riskLabel: `Size @₹${(risk || s.risk_inr || 0).toLocaleString('en-IN')}` };
+      size: s.qty ? `${s.qty.toLocaleString('en-IN')} · ${s.lots} lot${s.lots > 1 ? 's' : ''}` : s.one_lot_risk ? `0 · 1 lot risks ₹${Math.round(s.one_lot_risk).toLocaleString('en-IN')}` : '—',
+      riskLabel: `Size @₹${(risk || s.risk_inr || 0).toLocaleString('en-IN')}` };
   }
 
   function reasons(v) {

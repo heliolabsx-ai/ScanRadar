@@ -15,7 +15,9 @@ def test_cost_uses_the_price_table_and_cache_rates():
 
 
 def test_budget_shares():
-    assert desk.budget_allows("verdict", 99, budget=100) and not desk.budget_allows("verdict", 100, budget=100)
+    assert desk.budget_allows("verdict", 94, budget=100) and not desk.budget_allows("verdict", 95, budget=100)
+    assert desk.budget_allows("alert", 59, budget=100) and not desk.budget_allows("alert", 60, budget=100)
+    assert desk.budget_allows("review", 99, budget=100) and not desk.budget_allows("review", 100, budget=100)
     assert desk.budget_allows("brief", 69, budget=100) and not desk.budget_allows("brief", 70, budget=100)
     assert desk.budget_allows("ask", 97, budget=100) and not desk.budget_allows("ask", 98, budget=100)
     assert not desk.budget_allows("verdict", 0, budget=0)
@@ -45,7 +47,8 @@ def test_rank_row_trims_and_rounds():
 def test_size_for_rounds_down_to_lots():
     s = desk.size_for(174.9, 172.35, 750, risk=2000)
     assert (s["qty"], s["lots"], s["lot"], s["risk_inr"]) == (750, 1, 750, 2000) and abs(s["rupees_at_stop"] - 1912.5) <= 0.5
-    assert desk.size_for(100, 99, 5000, risk=2000)["qty"] == 0
+    big = desk.size_for(100, 99, 5000, risk=2000)
+    assert big["qty"] == 0 and big["one_lot_risk"] == 5000
     assert desk.size_for(100, 100, 100)["qty"] == 0
 
 
@@ -106,8 +109,8 @@ def test_review_context_sums_pnl_by_bucket():
             "output": {"call": "skip", "confidence": 6, "reasons": [{"mark": "no", "text": "x"}]}, "outcome": {"hit": "target"}}]
     ctx = desk.review_context(dt.date(2026, 10, 19), alerts=[], patterns=pats, verdicts=vds, lots={"A": 500, "B": 500}, candles={"minutes_with_candles": 360}, spend=41.2)
     assert len(ctx["patterns_triggered"]) == 2
-    assert ctx["pnl_summary"]["all_pattern_triggers"] == 4000 - 2000 and ctx["pnl_summary"]["patterns_score_ge3"] == 4000   # 2 lots each
-    assert ctx["pnl_summary"]["verdict_skip_if_taken"] == 2000 and ctx["verdicts"][0]["hit"] == "target"
+    assert ctx["pnl_summary"]["all_pattern_triggers"] == 2000 - 1000 and ctx["pnl_summary"]["patterns_score_ge3"] == 2000   # one lot each
+    assert ctx["pnl_summary"]["verdict_skip_if_taken"] == 2000 and ctx["verdicts"][0]["hit"] == "target" and "one lot" in ctx["pnl_basis"]
 
 
 def test_run_job_records_budget_stop_without_calling(monkeypatch):
@@ -156,6 +159,23 @@ def test_live_desk_schedule():
     assert live_desk.should_run(dt.datetime(2026, 10, 19, 15, 46, tzinfo=IST)) is False
     due = [f"{h:02d}:{m:02d}" for h in range(9, 16) for m in range(0, 60) if live_desk.brief_due(dt.datetime(2026, 10, 19, h, m, tzinfo=IST))]
     assert due[:3] == ["09:30", "09:45", "10:00"] and due[-1] == "15:15" and len(due) == 24
+
+
+def test_stale_and_skipped_rows_stay_out_of_the_cards():
+    at = dt.datetime(2026, 10, 19, 10, 30, tzinfo=IST)
+    assert live_desk.stale(at - dt.timedelta(minutes=11), at) and not live_desk.stale(at - dt.timedelta(minutes=10), at)
+    rows = [{"kind": "verdict", "ts": "2026-10-19T10:30:00+05:30", "error": "stale: triggered 09:40", "cost_inr": 0},
+            {"kind": "verdict", "ts": "2026-10-19T10:30:00+05:30", "error": "skipped: R:R 1:1.2 below 1.5", "cost_inr": 0},
+            {"kind": "verdict", "ts": "2026-10-19T10:30:00+05:30", "error": "AuthenticationError: bad key", "cost_inr": 0},
+            {"kind": "verdict", "ts": "2026-10-19T10:30:00+05:30", "output": {"call": "wait"}, "cost_inr": 1}]
+    v = desk.day_view(rows)
+    assert len(v["verdicts"]) == 2 and v["skipped"] == 2 and v["calls"]["wait"] == 1
+
+
+def test_brief_context_lists_only_verdicts_since_the_last_brief():
+    mk = lambda hhmm, call: {"symbol": "A", "ts": f"2026-10-19T{hhmm}:00+05:30", "output": {"call": call, "confidence": 5}, "context": {"side": "long", "trigger": {"label": "x"}}}  # noqa: E731
+    ctx = desk.brief_context(None, [], [mk("09:40", "take"), mk("09:50", "skip"), mk("10:05", "wait")], None, "10:15", "10:00")
+    assert [v["at"] for v in ctx["verdicts_since_last"]] == ["10:05"] and ctx["verdicts_today_counts"] == {"take": 1, "wait": 1, "skip": 1}
 
 
 def test_gate_and_pattern_ref():

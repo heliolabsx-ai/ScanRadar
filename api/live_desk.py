@@ -38,6 +38,15 @@ def gate(score, rr) -> bool:
     return (score or 0) >= desk.MIN_SCORE and (rr or 0) >= desk.MIN_RR
 
 
+def stale(trigger_at: dt.datetime, at: dt.datetime, max_age: int = desk.MAX_AGE_MIN) -> bool:
+    """A trigger older than max_age minutes (restart backlog, day preparation) gets no verdict."""
+    return (at - trigger_at).total_seconds() > max_age * 60
+
+
+def skip_row(cur, day, at, ref, symbol, why: str, trigger: dict | None = None) -> None:
+    desk.store(cur, {"day": day, "kind": "verdict", "ts": at, "ref": ref, "symbol": symbol, "context": {"trigger": trigger or {}}, "error": why})
+
+
 def load_symbol(con, day, symbol: str, upto: dt.datetime) -> pd.DataFrame:
     start, end = session_bounds(day)
     with con.cursor() as cur:
@@ -120,8 +129,12 @@ def process_minute(con, R, day, at: dt.datetime, snap: dict | None, *, prepare=N
     with con.cursor() as cur:
         for r in new_pattern_triggers(con, day, at, include_replay):
             ref = pattern_ref(r)
-            if r["state"] == "failed" or desk.exists(cur, day, "verdict", ref) or not gate(r.get("score"), r.get("rr")):
+            if r["state"] == "failed" or desk.exists(cur, day, "verdict", ref):
                 continue                                      # a trigger that already failed gets no verdict
+            if not gate(r.get("score"), r.get("rr")):
+                skip_row(cur, day, at, ref, r["symbol"], f"skipped: score {r.get('score')} / R:R {r.get('rr'):.1f} below the gate"); con.commit(); continue
+            if stale(r["triggered_at"], at):
+                skip_row(cur, day, at, ref, r["symbol"], f"stale: triggered {desk._hhmm(r['triggered_at'])}, judged only within {desk.MAX_AGE_MIN} min"); con.commit(); continue
             trig = {"source": "pattern", "kind": r["kind"], "label": desk.LABEL.get(r["kind"], r["kind"]), "at": desk._hhmm(r["triggered_at"]),
                     "score": r.get("score"), "checks": r.get("checks"), "tf": "5m", "symbol": r["symbol"], "side": r["side"],
                     "entry": r["entry"], "stop": r["stop"], "target": r["target"], "state": r["state"]}
@@ -135,6 +148,10 @@ def process_minute(con, R, day, at: dt.datetime, snap: dict | None, *, prepare=N
                 continue
             sc = scans.get(a["scan"]) or {}
             side = sc.get("side") or a["payload"].get("side")
+            if stale(a["ts"], at):
+                skip_row(cur, day, at, ref, a["symbol"], f"stale: fired {a['ts'].strftime('%H:%M')}, judged only within {desk.MAX_AGE_MIN} min", {"label": a["scan"]}); con.commit(); continue
+            if not desk.budget_allows("alert", desk.spent(R, day)):
+                skip_row(cur, day, at, ref, a["symbol"], f"skipped: rule-alert share of the budget ({int(desk.ALERT_SHARE * 100)} %) is spent", {"label": a["scan"]}); con.commit(); continue
             row = desk.raw_row(snap, a["symbol"])
             if row is None:
                 df = load_symbol(con, day, a["symbol"], at)
@@ -145,8 +162,8 @@ def process_minute(con, R, day, at: dt.datetime, snap: dict | None, *, prepare=N
                 continue
             stop, target = al.side_levels(row, side)
             rr = abs(target - a["price"]) / abs(a["price"] - stop) if a["price"] != stop else 0
-            if not gate(None if desk.MIN_SCORE == 0 else 5, rr):
-                continue
+            if rr < desk.ALERT_MIN_RR or not gate(None if desk.MIN_SCORE == 0 else 5, rr):
+                skip_row(cur, day, at, ref, a["symbol"], f"skipped: R:R 1:{rr:.1f} below {desk.ALERT_MIN_RR:.1f}", {"label": a["scan"], "side": side}); con.commit(); continue
             st = scan_stats.get(a["scan"]) or {}
             trig = {"source": "alert", "kind": a["scan"], "label": a["scan"], "at": a["ts"].strftime("%H:%M"), "tf": a["payload"].get("tf") or sc.get("timeframe"),
                     "scan_rules": sc.get("rules"), "symbol": a["symbol"], "side": side, "entry": a["price"], "stop": stop, "target": target}

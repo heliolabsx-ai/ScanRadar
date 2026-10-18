@@ -725,7 +725,7 @@ function renderDesk(err){
   $('dbudget').classList.toggle('stop', b.stopped); $('dbudget').querySelector('.bar i').style.width = b.pct + '%';
   $('dbudgetText').textContent = d.enabled ? `${b.text} · ${String(d.model).replace('claude-','')}` : 'desk off (no API key)';
   const c = d.calls || {};
-  $('deyebrow').textContent = `Desk · verdicts as of ${at} · ${c.take||0} take · ${c.wait||0} wait · ${c.skip||0} skip`;
+  $('deyebrow').textContent = `Desk · verdicts as of ${at} · ${c.take||0} take · ${c.wait||0} wait · ${c.skip||0} skip${d.skipped ? ` · ${d.skipped} not judged` : ''}`;
   const rows = d.verdicts.filter(v => !ScanFilter.isActive(S.filter) || ScanFilter.passAlert({symbol: v.symbol, price: (v.context&&v.context.ticket||{}).entry}, {}, S.sectorsOf, S.filter));
   $('dverdicts').innerHTML = rows.map(verdictCard).join('');
   $('dempty').textContent = rows.length ? '' : d.enabled ? `no verdicts by ${at}${b.stopped ? ' · budget reached' : ''}` : 'Set ANTHROPIC_API_KEY on the VPS (bash configure-env.sh --set ANTHROPIC_API_KEY) and restart the api service.';

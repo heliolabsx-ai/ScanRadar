@@ -20,7 +20,11 @@ MODEL = os.environ.get("DESK_MODEL", "claude-opus-5-5")
 BRIEF_MODEL = os.environ.get("DESK_BRIEF_MODEL") or MODEL
 EFFORT = os.environ.get("DESK_EFFORT", "medium")
 BUDGET_INR = float(os.environ.get("DESK_BUDGET_INR", "100"))
-BRIEF_SHARE = 0.7                       # briefs stop at 70 % of the budget; verdicts may use the rest
+BRIEF_SHARE = 0.7                       # briefs stop at 70 % of the budget
+ALERT_SHARE = 0.6                       # rule-alert verdicts stop at 60 %: pattern triggers and the review keep the rest
+VERDICT_SHARE = 0.95                    # verdicts stop at 95 %: the review always has ₹5
+ALERT_MIN_RR = float(os.environ.get("DESK_ALERT_MIN_RR", "1.5"))
+MAX_AGE_MIN = int(os.environ.get("DESK_MAX_AGE_MIN", "10"))     # a trigger older than this gets no verdict (restart backlog)
 ASK_CAP_INR = float(os.environ.get("DESK_ASK_INR", "3"))
 USDINR = float(os.environ.get("DESK_USDINR", "88"))
 MIN_SCORE = int(os.environ.get("DESK_MIN_SCORE", "0"))
@@ -56,6 +60,10 @@ def budget_allows(kind: str, spent: float, budget: float = BUDGET_INR) -> bool:
         return False
     if kind == "brief":
         return spent < budget * BRIEF_SHARE
+    if kind == "alert":
+        return spent < budget * ALERT_SHARE
+    if kind == "verdict":
+        return spent < budget * VERDICT_SHARE
     if kind == "ask":
         return spent + ASK_CAP_INR <= budget
     return spent < budget
@@ -176,7 +184,8 @@ def size_for(entry: float, stop: float, lot: int, risk: float = RISK_INR) -> dic
     if not lot or not dist:
         return {"qty": 0, "lots": 0, "risk_inr": risk}
     lots = int(risk // (dist * lot))
-    return {"qty": lots * lot, "lots": lots, "lot": lot, "risk_inr": risk, "rupees_at_stop": round(lots * lot * dist, 0)}
+    return {"qty": lots * lot, "lots": lots, "lot": lot, "risk_inr": risk, "rupees_at_stop": round(lots * lot * dist, 0),
+            "one_lot_risk": round(lot * dist, 0)}
 
 
 def verdict_context(trigger: dict, *, snap, sector_pct, bars, ref, lot, setup_stats, now_hhmm) -> dict:
@@ -208,12 +217,17 @@ def brief_context(snap: dict | None, patterns: list[dict], verdicts: list[dict],
     pats = [{"symbol": p["symbol"], "kind": p["kind"], "side": p["side"], "state": p["state"], "score": p.get("score"),
              "entry": _r(p.get("entry")), "target": _r(p.get("target")), "at": _hhmm(p.get("triggered_at") or p.get("formed_at"))}
             for p in patterns]
+    judged = [v for v in verdicts if v.get("output")]
+    counts = {"take": 0, "wait": 0, "skip": 0}
+    for v in judged:
+        counts[v["output"]["call"]] = counts.get(v["output"]["call"], 0) + 1
+    recent = [v for v in judged if since_hhmm is None or _hhmm(v["ts"]) > since_hhmm][-20:]
     vds = [{"symbol": v["symbol"], "call": v["output"]["call"], "confidence": v["output"]["confidence"], "at": _hhmm(v["ts"]),
-            "side": v["context"].get("side"), "outcome": v.get("outcome")} for v in verdicts if v.get("output")]
+            "side": v["context"].get("side"), "trigger": (v["context"].get("trigger") or {}).get("label"), "outcome": v.get("outcome")} for v in recent]
     return {"now": now_hhmm, "since": since_hhmm, "breadth": {"bulls": (snap or {}).get("n_bull"), "bears": (snap or {}).get("n_bear")},
             "sectors": {k: _r(v) for k, v in sorted(((snap or {}).get("sectors") or {}).items(), key=lambda kv: -kv[1])},
-            "top_bulls": top("bulls"), "top_bears": top("bears"), "patterns_since_last": pats, "verdicts_today": vds,
-            "previous_brief": prev_brief, "blind_to": BLIND_TO}
+            "top_bulls": top("bulls"), "top_bears": top("bears"), "patterns_since_last": pats[:30], "verdicts_since_last": vds,
+            "verdicts_today_counts": counts, "previous_brief": prev_brief, "blind_to": BLIND_TO}
 
 
 def _hhmm(ts) -> str | None:
@@ -363,7 +377,8 @@ def run_job(cur, R, *, day, kind, ts, ref, symbol, system, context, schema, mode
 def day_view(rows: list[dict], at_iso: str | None = None) -> dict:
     """Split stored rows into what the tab shows; nothing after `at` leaks in."""
     sel = [r for r in rows if at_iso is None or r["ts"] <= at_iso]
-    verdicts = [r for r in sel if r["kind"] == "verdict"]
+    skipped = [r for r in sel if r["kind"] == "verdict" and (r.get("error") or "").startswith(("skipped", "stale"))]
+    verdicts = [r for r in sel if r["kind"] == "verdict" and r not in skipped]
     briefs = [r for r in sel if r["kind"] == "brief"]
     asks = [r for r in sel if r["kind"] == "ask"]
     review = next((r for r in rows if r["kind"] == "review"), None)
@@ -373,7 +388,7 @@ def day_view(rows: list[dict], at_iso: str | None = None) -> dict:
         if v.get("output"):
             calls[v["output"]["call"]] = calls.get(v["output"]["call"], 0) + 1
     return {"verdicts": list(reversed(verdicts)), "briefs": briefs[-3:], "asks": asks[-5:], "review": review,
-            "spend": spend, "calls": calls}
+            "spend": spend, "calls": calls, "skipped": len(skipped)}
 
 
 # ---------- review maths (pure) ----------
@@ -403,11 +418,12 @@ def pnl_for(outcome: dict | None, side: str, entry: float, stop: float, target: 
 
 def review_context(day, *, alerts: list[dict], patterns: list[dict], verdicts: list[dict], lots: dict,
                    candles: dict, spend: float, budget: float = BUDGET_INR) -> dict:
-    """What the model sees for the end-of-day review. Every P&L is at size_for() with the configured risk."""
+    """What the model sees for the end-of-day review. Every P&L is for ONE LOT, before costs
+    (the risk-based size is often zero lots, which would hide the information)."""
     def pl(side, entry, stop, target, sym, outcome):
         if entry is None or stop is None or target is None:
             return None
-        return pnl_for(outcome, side, entry, stop, target, size_for(entry, stop, lots.get(sym, 0))["qty"])
+        return pnl_for(outcome, side, entry, stop, target, lots.get(sym, 0))
 
     pats = []
     for p in patterns:
@@ -427,11 +443,12 @@ def review_context(day, *, alerts: list[dict], patterns: list[dict], verdicts: l
         t = c["ticket"]
         vds.append({"symbol": c["symbol"], "side": c["side"], "trigger": c["trigger"].get("label"), "at": _hhmm(v["ts"]),
                     "call": o["call"], "confidence": o["confidence"], "reasons": [r["text"] for r in o["reasons"]],
-                    "hit": (v.get("outcome") or {}).get("hit"), "pnl": pnl_for(v.get("outcome"), c["side"], t["entry"], t["stop"], t["target"], t["size"].get("qty", 0))})
+                    "hit": (v.get("outcome") or {}).get("hit"), "pnl": pnl_for(v.get("outcome"), c["side"], t["entry"], t["stop"], t["target"], lots.get(c["symbol"], 0))})
     tot = lambda rows: round(sum(r["pnl"] for r in rows if r.get("pnl") is not None), 0)   # noqa: E731
     return {"day": str(day), "patterns_triggered": pats, "rule_alerts": als, "verdicts": vds,
             "pnl_summary": {"all_pattern_triggers": tot(pats), "patterns_score_ge3": tot([p for p in pats if (p.get("score") or 0) >= 3]),
                             "all_rule_alerts": tot(als), "verdict_take": tot([v for v in vds if v["call"] == "take"]),
                             "verdict_skip_if_taken": tot([v for v in vds if v["call"] == "skip"]),
                             "verdict_wait_if_taken": tot([v for v in vds if v["call"] == "wait"])},
+            "pnl_basis": "one lot per trade, before costs; target = full move, stop = full risk, open = 60-min return",
             "data_health": candles, "desk_spend_inr": round(spend, 2), "desk_budget_inr": budget, "blind_to": BLIND_TO}
