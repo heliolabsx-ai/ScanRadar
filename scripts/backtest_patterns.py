@@ -2,7 +2,7 @@
 """Backtest the pattern detector over stored days, persist rows with outcomes, print
 per-kind statistics and write a markdown note.
 
-    docker compose run --rm -T api python scripts/backtest_patterns.py --days 60 --note /app/scripts/out/patterns-backtest-2026-10-18.md
+    docker compose run --rm -T api python scripts/backtest_patterns.py --days 60 --note /app/notes/patterns-backtest-2026-10-18.md
     docker compose run --rm -T api python scripts/backtest_patterns.py --days 5 --no-write
 
 Runs inside the api image (core/ + replay.py on the path). Idempotent: rows are keyed

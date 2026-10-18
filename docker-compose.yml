@@ -47,7 +47,7 @@ services:
     volumes:
       - ./scans:/app/scans:ro
       - ./scripts:/app/scripts:ro
-      - ./docs/superpowers/notes:/app/scripts/out
+      - ./docs/superpowers/notes:/app/notes
     ports:
       - "127.0.0.1:8000:8000"
     depends_on:
