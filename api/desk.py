@@ -435,6 +435,15 @@ def review_context(day, *, alerts: list[dict], patterns: list[dict], verdicts: l
     als = [{"scan": a["scan"], "symbol": a["symbol"], "side": a.get("side"), "at": _hhmm(a["ts"]), "hit": (a.get("outcome") or {}).get("hit"),
             "r30": _r((a.get("outcome") or {}).get("r30")),
             "pnl": pl(a.get("side"), a.get("price"), a.get("stop"), a.get("target"), a["symbol"], a.get("outcome"))} for a in alerts]
+    by_scan: dict = {}
+    for a in als:                                   # hundreds of rule alerts a day: the model gets the per-scan tally + the 30 largest
+        t = by_scan.setdefault(a["scan"], {"fires": 0, "target": 0, "stop": 0, "pnl_one_lot": 0.0})
+        t["fires"] += 1
+        if a["hit"] in ("target", "stop"):
+            t[a["hit"]] += 1
+        if a["pnl"] is not None:
+            t["pnl_one_lot"] += a["pnl"]
+    biggest = sorted([a for a in als if a["pnl"] is not None], key=lambda a: -abs(a["pnl"]))[:30]
     vds = []
     for v in verdicts:
         if not v.get("output"):
@@ -445,7 +454,7 @@ def review_context(day, *, alerts: list[dict], patterns: list[dict], verdicts: l
                     "call": o["call"], "confidence": o["confidence"], "reasons": [r["text"] for r in o["reasons"]],
                     "hit": (v.get("outcome") or {}).get("hit"), "pnl": pnl_for(v.get("outcome"), c["side"], t["entry"], t["stop"], t["target"], lots.get(c["symbol"], 0))})
     tot = lambda rows: round(sum(r["pnl"] for r in rows if r.get("pnl") is not None), 0)   # noqa: E731
-    return {"day": str(day), "patterns_triggered": pats, "rule_alerts": als, "verdicts": vds,
+    return {"day": str(day), "patterns_triggered": pats[:60], "rule_alerts_by_scan": by_scan, "rule_alerts_largest": biggest, "verdicts": vds,
             "pnl_summary": {"all_pattern_triggers": tot(pats), "patterns_score_ge3": tot([p for p in pats if (p.get("score") or 0) >= 3]),
                             "all_rule_alerts": tot(als), "verdict_take": tot([v for v in vds if v["call"] == "take"]),
                             "verdict_skip_if_taken": tot([v for v in vds if v["call"] == "skip"]),

@@ -107,8 +107,11 @@ def test_review_context_sums_pnl_by_bucket():
             {"symbol": "C", "kind": "double_top", "side": "short", "score": 5, "triggered_at": None}]
     vds = [{"ts": "2026-10-19T10:00:00+05:30", "context": {"symbol": "A", "side": "long", "trigger": {"label": "double bottom"}, "ticket": {"entry": 100, "stop": 98, "target": 104, "size": {"qty": 500}}},
             "output": {"call": "skip", "confidence": 6, "reasons": [{"mark": "no", "text": "x"}]}, "outcome": {"hit": "target"}}]
-    ctx = desk.review_context(dt.date(2026, 10, 19), alerts=[], patterns=pats, verdicts=vds, lots={"A": 500, "B": 500}, candles={"minutes_with_candles": 360}, spend=41.2)
+    als = [{"ts": "2026-10-19T10:10:00+05:30", "scan": "s1", "symbol": "A", "side": "long", "price": 100, "stop": 98, "target": 104, "outcome": {"hit": "target", "r30": 1}},
+           {"ts": "2026-10-19T10:20:00+05:30", "scan": "s1", "symbol": "A", "side": "long", "price": 100, "stop": 98, "target": 104, "outcome": {"hit": "stop", "r30": -1}}]
+    ctx = desk.review_context(dt.date(2026, 10, 19), alerts=als, patterns=pats, verdicts=vds, lots={"A": 500, "B": 500}, candles={"minutes_with_candles": 360}, spend=41.2)
     assert len(ctx["patterns_triggered"]) == 2
+    assert ctx["rule_alerts_by_scan"] == {"s1": {"fires": 2, "target": 1, "stop": 1, "pnl_one_lot": 1000.0}} and len(ctx["rule_alerts_largest"]) == 2
     assert ctx["pnl_summary"]["all_pattern_triggers"] == 2000 - 1000 and ctx["pnl_summary"]["patterns_score_ge3"] == 2000   # one lot each
     assert ctx["pnl_summary"]["verdict_skip_if_taken"] == 2000 and ctx["verdicts"][0]["hit"] == "target" and "one lot" in ctx["pnl_basis"]
 
