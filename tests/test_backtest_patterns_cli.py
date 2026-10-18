@@ -25,8 +25,8 @@ def test_summarise_per_kind_with_median_and_score_split():
     assert s["double_top"]["hit_rate"] is None and s["double_top"]["triggers"] == 1
 
 
-def test_upsert_sql_is_idempotent_on_the_unique_key():
-    assert "ON CONFLICT (day, symbol, kind, formed_at) DO NOTHING" in UPSERT_SQL
+def test_upsert_sql_is_keyed_on_the_unique_key_and_updates_lifecycle():
+    assert "ON CONFLICT (day, symbol, kind, formed_at) DO UPDATE SET" in UPSERT_SQL
 
 
 def test_row_to_record_serialises_timestamps_and_points():

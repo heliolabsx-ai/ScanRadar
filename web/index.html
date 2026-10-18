@@ -181,10 +181,10 @@ $('theme').onclick = () => {
   const next = cur === 'dark' ? 'light' : 'dark';
   document.documentElement.dataset.theme = next;
   try{ localStorage.setItem('theme', next); }catch(e){}
-  renderDetail();
+  if(S.view === 'patterns') renderPatternDetail(); else renderDetail();
 };
 try{ const r = +localStorage.getItem('risk'); if(r>0){ S.risk = r; $('risk').value = r; } }catch(e){}
-$('risk').onchange = () => { S.risk = Math.max(100, +$('risk').value || 2000); $('risk').value = S.risk; try{ localStorage.setItem('risk', S.risk); }catch(e){} renderDetail(); };
+$('risk').onchange = () => { S.risk = Math.max(100, +$('risk').value || 2000); $('risk').value = S.risk; try{ localStorage.setItem('risk', S.risk); }catch(e){} if(S.view === 'patterns') renderPatternDetail(); else renderDetail(); };
 
 // ---------- status ----------
 function setStatus(text, cls){ $('statusText').textContent = text; $('status').className = 'st ' + (cls||''); }
@@ -611,7 +611,7 @@ function renderPatterns(err){
   if(S.psel && !rows.some(r => r.symbol === S.psel.symbol && r.kind === S.psel.kind && r.formed_at === S.psel.formed_at)) S.psel = null;
   if(!S.psel && rows.length) S.psel = rows[0];
   $('prows').innerHTML = rows.map(r => `<tr class="prow ${S.psel && S.psel.symbol===r.symbol && S.psel.kind===r.kind && S.psel.formed_at===r.formed_at ? 'sel':''}" data-key="${r.symbol}|${r.kind}|${r.formed_at}">
-    <td class="mono" style="font-weight:700">${r.symbol}</td><td>${PK.kindLabel(r.kind)}</td><td>${stateChip(r.state)}</td>
+    <td class="mono" style="font-weight:700">${r.symbol}</td><td>${PK.kindLabel(r.kind)}</td><td>${stateChip(r.state)}${r.outcome && r.outcome.hit && r.outcome.hit!=='none' ? `<div class="mut" style="font-size:10px;margin-top:2px">${r.outcome.hit==='target'?'<span class=up>target hit</span>':'<span class=dn>stop hit</span>'}</div>` : ''}</td>
     <td><span class="chip ${r.side==='long'?'buy':'sell'}">${r.side==='long'?'BUY':'SELL'}</span></td>
     <td class="mono">${fmt(r.entry!=null?r.entry:r.neckline)}</td><td class="mono dn">${fmt(r.stop)}</td><td class="mono up">${fmt(r.target)}</td><td class="mono">1:${fmt(r.rr,1)}</td>
     <td><span class="score ${r.side==='long'?'up':'dn'}">${[1,2,3,4,5].map(k=>`<i class="${r.score>=k?'on':''}"></i>`).join('')}</span></td>
@@ -650,10 +650,12 @@ document.addEventListener('click', e => {
   const pill = e.target.closest('.pill'); if(pill){ S.pquick = pill.dataset.q; renderPatterns(); }
 });
 function notifyPatterns(rows){
+  const live = S.following && (!S.day || S.day === todayIST());
+  if(!live){ rows.forEach(r => { if(r.triggered_at) S.pseen.add(`${r.symbol}|${r.kind}|${r.formed_at}`); }); return; }
   const seed = !S.pseeded; S.pseeded = true;
   const fresh = [];
   for(const r of rows){ if(!r.triggered_at) continue; const k = `${r.symbol}|${r.kind}|${r.formed_at}`; if(!S.pseen.has(k)){ S.pseen.add(k); if(!seed) fresh.push(r); } }
-  if(!S.notify || !S.following) return;
+  if(!S.notify) return;
   fresh.slice(0,5).forEach(r => ScanNotify.show({title: `ScanRadar · ${PK.kindLabel(r.kind)}`, body: `${r.symbol}  ${r.side==='long'?'BUY':'SELL'}  ₹${fmt(r.entry)}  ·  ${String(r.triggered_at).slice(11,16)}`, symbol: r.symbol, at: String(r.triggered_at).slice(11,16)},
     m => { setView('patterns'); S.psel = r; renderPatterns(); }));
 }
@@ -675,14 +677,14 @@ document.addEventListener('click', e => {
   const c = e.target.closest('.card'); if(c){ S.selected = c.dataset.sym; renderCards(); renderDetail(); return; }
   const r = e.target.closest('.alert'); if(r){ S.selected = r.dataset.sym; enterReplay(S.day || todayIST(), r.dataset.at); }
 });
-matchMedia('(prefers-color-scheme: dark)').addEventListener('change', renderDetail);
+matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => { if(S.view === 'patterns') renderPatternDetail(); else renderDetail(); });
 
 (async () => {
   try{ const ins = await api('/api/instruments'); ins.forEach(i => { S.lots[i.symbol] = i.lot_size; S.sectorsOf[i.symbol] = i.sector; }); }catch(e){}
   populateSectors();
   try{ const d = await api('/api/days'); S.days = d.days; S.live = d.live; S.expiry = d.expiry; }catch(e){ S.days = []; }
   populateDays(); loadStats(); setInterval(loadStats, 300000);
-  if(S.view === 'patterns') setView('patterns');
+  if(S.view === 'patterns'){ document.querySelectorAll('.tab').forEach(b => b.classList.toggle('on', b.dataset.view === 'patterns')); $('scannerView').hidden = true; $('patternsView').hidden = false; loadPatternStats(); }
   connect();
   let liveSnap = null;
   try{ liveSnap = await api('/api/scan'); }catch(e){}

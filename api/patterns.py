@@ -1,16 +1,21 @@
-"""Patterns for the API: stored rows → view at a minute, today's rows on demand,
-persistence shared with the backtest CLI, and per-kind statistics."""
-import json, datetime as dt
+"""Patterns for the API: detection over a day's frames (shared by the backtest CLI,
+the day preparation job and the live loop), stored rows → view at a minute,
+today's rows on demand, and per-kind statistics."""
+import os, json, datetime as dt
 import pandas as pd
-from core.patterns import detect_day, as_of, bars5m, DEFAULTS, detector_hash, summarise
+from core.patterns import detect_day, as_of, bars5m, DEFAULTS, detector_hash, summarise, checks_for
 from core.backtest import grade_pattern
 from replay import IST, load_day, load_refs
 
 COLS = ["day", "symbol", "kind", "tf", "side", "formed_at", "triggered_at", "failed_at", "abandoned_at", "superseded_at",
-        "neckline", "entry", "stop", "target", "points", "checks", "score", "outcome", "source", "detector"]
+        "neckline", "entry", "stop", "target", "points", "checks", "score", "outcome", "facts", "source", "detector"]
+MUTABLE = ["triggered_at", "entry", "failed_at", "abandoned_at", "superseded_at", "checks", "score", "facts"]
 UPSERT_SQL = (f"INSERT INTO patterns({','.join(COLS)}) VALUES({','.join(['%s'] * len(COLS))}) "
-              "ON CONFLICT (day, symbol, kind, formed_at) DO NOTHING")
+              "ON CONFLICT (day, symbol, kind, formed_at) DO UPDATE SET "
+              + ", ".join(f"{c}=EXCLUDED.{c}" for c in MUTABLE)
+              + ", outcome=COALESCE(EXCLUDED.outcome, patterns.outcome)")
 SELECT_COLS = ["id"] + COLS
+_iso = lambda o: o.isoformat() if hasattr(o, "isoformat") else str(o)   # noqa: E731
 
 
 def _py(ts):
@@ -18,22 +23,28 @@ def _py(ts):
 
 
 def row_to_record(day, symbol: str, p: dict, source: str, detector: str) -> tuple:
-    points = [{**q, "ts": q["ts"].isoformat() if hasattr(q["ts"], "isoformat") else q["ts"]} for q in p["points"]]
+    points = [{**q, "ts": _iso(q["ts"])} for q in p["points"]]
     return (day, symbol, p["kind"], "5m", p["side"], _py(p["formed_at"]), _py(p.get("triggered_at")), _py(p.get("failed_at")),
             _py(p.get("abandoned_at")), _py(p.get("superseded_at")), p["neckline"], p.get("entry"), p["stop"], p["target"],
             json.dumps(points, default=float), json.dumps(p.get("checks")), p.get("score"),
-            json.dumps(p.get("outcome"), default=float) if p.get("outcome") is not None else None, source, detector)
+            json.dumps(p.get("outcome"), default=float) if p.get("outcome") is not None else None,
+            json.dumps(p.get("facts"), default=float) if p.get("facts") is not None else None, source, detector)
+
+
+def to_json_rows(rows: list[dict]) -> list[dict]:
+    """JSON-safe rows with ISO timestamps in every path (today and stored must match)."""
+    return json.loads(json.dumps(rows, default=_iso))
 
 
 # ---------- detection over a day's frames ----------
 def sector_pct_map(frames: dict, refs: dict, at) -> dict:
-    """sector -> mean % change vs prev close of the last close at or before `at`."""
+    """sector -> mean % change vs prev close of the last complete minute before `at`."""
     acc: dict = {}
     for s, df in frames.items():
         ref = refs.get(s)
         if not ref or not ref.get("prev_close"):
             continue
-        n = int(df.ts.searchsorted(at, side="right"))
+        n = int(df.ts.searchsorted(at, side="left"))
         if not n:
             continue
         acc.setdefault(ref.get("sector", "OTHERS"), []).append((float(df.close.iloc[n - 1]) / float(ref["prev_close"]) - 1) * 100)
@@ -41,38 +52,57 @@ def sector_pct_map(frames: dict, refs: dict, at) -> dict:
 
 
 def _clean(p: dict) -> dict:
-    return {k: v for k, v in p.items() if k not in ("facts", "target_touched", "formed_idx", "trigger_idx")}
+    return {k: v for k, v in p.items() if k not in ("target_touched", "formed_idx", "trigger_idx")}
+
+
+def detect_frames(frames: dict, refs: dict, at=None, params: dict | None = None) -> tuple[list[dict], list[dict]]:
+    """Run the detector over every symbol. Returns (records, rows):
+    records = every pattern (incl. abandoned/superseded) with checks/score as at its
+    knowable minute, facts and outcome, for persistence; rows = the as-of view at `at`
+    (when given). Frames must already be cut to ts < at for the live view."""
+    params = params or DEFAULTS
+    sec_cache: dict = {}
+
+    def sector_at(minute):
+        minute = pd.Timestamp(minute)
+        if minute not in sec_cache:
+            sec_cache[minute] = sector_pct_map(frames, refs, minute)
+        return sec_cache[minute]
+
+    records, rows = [], []
+    for sym, df in frames.items():
+        ref = refs.get(sym)
+        if not ref or not ref.get("prev_close") or df.empty:
+            continue
+        pats = detect_day(df, float(ref["prev_close"]), params, at=at)
+        if not pats:
+            continue
+        sector = ref.get("sector", "OTHERS")
+        ctx = {"sector_at": lambda m, s=sector: sector_at(m).get(s)}
+        for p in pats:
+            know = p["triggered_at"] or p["formed_at"]
+            v = as_of([p], know, ctx)
+            rec = _clean(p)
+            if v:
+                rec["facts"], rec["checks"], rec["score"] = v[0]["facts"], v[0]["checks"], v[0]["score"]
+            rec["symbol"], rec["outcome"] = sym, grade_pattern(df, p)
+            records.append(rec)
+        if at is not None:
+            for r in as_of(pats, at, ctx):
+                r["symbol"] = sym
+                r["outcome"] = grade_pattern(df, r) if r["state"] != "forming" else None
+                rows.append(r)
+    return records, rows
 
 
 def patterns_for_day(con, day, params: dict | None = None) -> list[dict]:
-    """Detect, score at the knowable minute (trigger, else formation) and grade every
-    pattern of a stored day. Used by the backtest CLI and the day preparation job."""
-    params = params or DEFAULTS
     frames, refs = load_day(con, day), load_refs(con, day)
-    out = []
-    sec_cache: dict = {}
-    for sym, df in frames.items():
-        ref = refs.get(sym)
-        if not ref or not ref.get("prev_close"):
-            continue
-        pats = detect_day(df, float(ref["prev_close"]), params)
-        if not pats:
-            continue
-        bars = bars5m(df, float(ref["prev_close"]))
-        for p in pats:
-            at = p["triggered_at"] or p["formed_at"]
-            if at not in sec_cache:
-                sec_cache[at] = sector_pct_map(frames, refs, at)
-            rows = as_of([p], at, {"sector_pct": sec_cache[at].get(ref.get("sector", "OTHERS")), "bars": bars})
-            r = rows[0] if rows else None
-            out.append({**_clean(p), "symbol": sym, "checks": r["checks"] if r else None, "score": r["score"] if r else None,
-                        "outcome": grade_pattern(df, p)})
-    return out
+    return detect_frames(frames, refs, None, params)[0]
 
 
 def upsert_patterns(cur, day, rows: list[dict], source: str, detector: str) -> int:
     if source == "replay":
-        cur.execute("DELETE FROM patterns WHERE day=%s AND source='replay' AND detector<>%s", (day, detector))
+        cur.execute("DELETE FROM patterns WHERE day=%s AND detector<>%s", (day, detector))
     recs = [row_to_record(day, r["symbol"], r, source, detector) for r in rows]
     if not recs:
         return 0
@@ -81,9 +111,14 @@ def upsert_patterns(cur, day, rows: list[dict], source: str, detector: str) -> i
 
 
 def patterns_needed(con, day, detector: str) -> bool:
+    """A settled day needs preparation when it has no replay rows under this detector,
+    or when a (live) triggered row is still ungraded."""
     with con.cursor() as cur:
-        cur.execute("SELECT 1 FROM patterns WHERE day=%s AND detector=%s LIMIT 1", (day, detector))
-        return cur.fetchone() is None
+        cur.execute("SELECT 1 FROM patterns WHERE day=%s AND detector=%s AND source='replay' LIMIT 1", (day, detector))
+        has_replay = cur.fetchone() is not None
+        cur.execute("SELECT 1 FROM patterns WHERE day=%s AND triggered_at IS NOT NULL AND outcome IS NULL LIMIT 1", (day,))
+        ungraded = cur.fetchone() is not None
+    return (not has_replay) or ungraded
 
 
 # ---------- views ----------
@@ -107,8 +142,10 @@ def rows_at(stored: list[dict], at) -> list[dict]:
             continue
         state = pattern_state(r, at)
         trig = state != "forming"
-        checks = list(r.get("checks") or [False] * 6)
-        checks[5] = trig
+        if r.get("facts"):
+            checks = checks_for(r["facts"], r["side"], state)
+        else:
+            checks = list(r.get("checks") or [False] * 6); checks[5] = trig
         ref = r["entry"] if trig and r.get("entry") is not None else r["neckline"]
         risk = abs(ref - r["stop"])
         since = r["triggered_at"] if trig else r["formed_at"]
@@ -137,23 +174,12 @@ def stored_rows(con, day) -> list[dict]:
 
 
 def today_rows_from_frames(frames: dict, refs: dict, at, params: dict | None = None) -> list[dict]:
-    params = params or DEFAULTS
     at = pd.Timestamp(at)
-    secs = sector_pct_map(frames, refs, at)
-    out = []
-    for sym, df in frames.items():
-        ref = refs.get(sym)
-        if not ref or not ref.get("prev_close"):
-            continue
-        df = df[df.ts < at]
-        if len(df) < 5 * (2 * params["k"] + 1):
-            continue
-        pats = detect_day(df, float(ref["prev_close"]), params)
-        if not pats:
-            continue
-        rows = as_of(pats, at, {"sector_pct": secs.get(ref.get("sector", "OTHERS")), "bars": bars5m(df, float(ref["prev_close"]))})
-        out += [{**r, "symbol": sym, "source": "live"} for r in rows]
-    return out
+    cut = {s: df[df.ts < at] for s, df in frames.items()}
+    cut = {s: df for s, df in cut.items() if len(df) >= 5 * (2 * (params or DEFAULTS)["k"] + 1)}
+    if not cut:
+        return []
+    return [{**r, "source": "live"} for r in detect_frames(cut, refs, at, params)[1]]
 
 
 def today_rows(con, at: dt.datetime) -> list[dict]:
@@ -161,6 +187,14 @@ def today_rows(con, at: dt.datetime) -> list[dict]:
     if not frames:
         return []
     return today_rows_from_frames(frames, load_refs(con, at.date()), pd.Timestamp(at))
+
+
+def today_rows_json(at_iso: str) -> list[dict]:
+    """Process-pool entry point: own connection, JSON-safe result."""
+    import psycopg
+    at = dt.datetime.fromisoformat(at_iso)
+    with psycopg.connect(os.environ["DATABASE_URL"]) as con:
+        return to_json_rows(today_rows(con, at))
 
 
 def stats(con, days: int) -> dict:

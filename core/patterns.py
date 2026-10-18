@@ -9,7 +9,7 @@ import hashlib, json, statistics
 import numpy as np, pandas as pd
 from .rules import resample
 
-VERSION = "patterns-v2"   # v2: a later second point supersedes the earlier double on the same first point
+VERSION = "patterns-v3"   # v2: later second point supersedes the earlier double; v3: clock-based bar completeness, frozen forming checks (facts)
 # Tuned on 10 stored days (18 Oct 2026, docs/superpowers/notes/patterns-backtest-2026-10-18.md):
 # a 0.8% bounce between the points, >= 6 bars apart, on a day already moved >= 1%.
 DEFAULTS = {"tol": 0.004, "min_sep": 6, "max_sep": 36, "min_retrace": 0.008, "k": 2, "fail_bars": 3,
@@ -22,15 +22,22 @@ def detector_hash(params: dict = DEFAULTS) -> str:
     return hashlib.sha256((VERSION + json.dumps(params, sort_keys=True)).encode()).hexdigest()[:12]
 
 
-def bars5m(df1m: pd.DataFrame, prev_close: float | None = None) -> pd.DataFrame:
-    """Complete 5m bars only (the window's last minute <= the last 1m bar), with
-    close_at, running avg_vol and day_pct."""
+def bars5m(df1m: pd.DataFrame, prev_close: float | None = None, at=None) -> pd.DataFrame:
+    """Complete 5m bars only, with close_at, running avg_vol and day_pct.
+
+    Completeness is clock-based when `at` is given (a bar is complete once its close
+    minute `ts + 5 min` <= at, whether or not its last minute traded), which is the
+    live view; without `at` (a stored, finished day) a bar is complete once a minute
+    at or after its fifth minute exists in the frame."""
     cols = ["ts", "open", "high", "low", "close", "volume", "oi", "vwap", "close_at", "avg_vol", "day_pct"]
     if df1m is None or df1m.empty:
         return pd.DataFrame(columns=cols)
     b = resample(df1m, "5m")
-    last = df1m.ts.iloc[-1]
-    b = b[b.ts + pd.Timedelta(minutes=4) <= last].reset_index(drop=True)
+    if at is not None:
+        b = b[b.ts + FIVE <= pd.Timestamp(at)].reset_index(drop=True)
+    else:
+        last = df1m.ts.iloc[-1]
+        b = b[b.ts + pd.Timedelta(minutes=4) <= last].reset_index(drop=True)
     b["close_at"] = b.ts + FIVE
     b["avg_vol"] = b.volume.expanding().mean()
     b["day_pct"] = (b.close / prev_close - 1) * 100 if prev_close else np.nan
@@ -66,7 +73,9 @@ def _new_pattern(side, pts, b, i, params):
             "facts": {"day_pct_p2": float(b.day_pct.iloc[last]) if not np.isnan(b.day_pct.iloc[last]) else None,
                       "oi_p1": float(oi[first]), "oi_p2": float(oi[last]),
                       "vol_ratio_p2": float(b.volume.iloc[last] / b.avg_vol.iloc[last]) if b.avg_vol.iloc[last] else 0.0,
-                      "vol_ratio_trigger": None, "vwap_ok_trigger": None}}
+                      "vol_ratio_trigger": None,
+                      "vwap_ok_formed": bool(b.close.iloc[i] > b.vwap.iloc[i]) if side == "long" else bool(b.close.iloc[i] < b.vwap.iloc[i]),
+                      "vwap_ok_trigger": None, "sector_formed": None, "sector_trigger": None}}
 
 
 def _partner(side, j, confirmed, b, params):
@@ -93,8 +102,8 @@ def _partner(side, j, confirmed, b, params):
     return None
 
 
-def detect_day(df1m: pd.DataFrame, prev_close: float, params: dict = DEFAULTS) -> list[dict]:
-    b = bars5m(df1m, prev_close)
+def detect_day(df1m: pd.DataFrame, prev_close: float, params: dict = DEFAULTS, at=None) -> list[dict]:
+    b = bars5m(df1m, prev_close, at=at)
     n = len(b)
     if n < 2 * params["k"] + 1:
         return []
@@ -158,22 +167,33 @@ def detect_day(df1m: pd.DataFrame, prev_close: float, params: dict = DEFAULTS) -
     return pats
 
 
+def checks_for(f: dict, side: str, state: str) -> list[bool]:
+    """The six checks from a pattern's facts alone, so live, replay and stored rows agree.
+    Forming rows use the facts frozen at formation; triggered/failed rows those at the trigger."""
+    long = side == "long"
+    trig = state != "forming"
+    dp = f.get("day_pct_p2")
+    extended = dp is not None and (dp <= -1.0 if long else dp >= 1.0)
+    oi_ok = bool(f.get("oi_p1") and f.get("oi_p2") and f["oi_p2"] < f["oi_p1"])
+    vol = f.get("vol_ratio_trigger") if trig else f.get("vol_ratio_p2")
+    vol_ok = vol is not None and vol >= 1.5
+    sec = f.get("sector_trigger") if trig else f.get("sector_formed")
+    sec_ok = sec is not None and (sec >= 0 if long else sec <= 0)
+    vwap_ok = bool(f.get("vwap_ok_trigger")) if trig else bool(f.get("vwap_ok_formed"))
+    return [bool(extended), oi_ok, bool(vol_ok), bool(sec_ok), vwap_ok, trig]
+
+
 def as_of(patterns: list[dict], at, ctx: dict) -> list[dict]:
-    """Rows visible at `at` with state, checks (6), score (first 5), age and R:R."""
+    """Rows visible at `at` with state, checks (6), score (first 5), age and R:R.
+    ctx: {"sector_pct": float|None} or {"sector_at": callable(minute) -> float|None}."""
     at = pd.Timestamp(at)
-    bars = ctx.get("bars")
-    sector_pct = ctx.get("sector_pct")
-    last_bar = None
-    if bars is not None and len(bars):
-        vis = bars[bars.close_at <= at]
-        last_bar = vis.iloc[-1] if len(vis) else None
+    sector_at = ctx.get("sector_at")
+    const = ctx.get("sector_pct")
     rows = []
     for p in patterns:
         if p["formed_at"] > at or (p["abandoned_at"] is not None and p["abandoned_at"] <= at) \
            or (p["superseded_at"] is not None and p["superseded_at"] <= at):
             continue
-        long = p["side"] == "long"
-        f = p["facts"]
         if p["failed_at"] is not None and p["failed_at"] <= at:
             state = "failed"
         elif p["triggered_at"] is not None and p["triggered_at"] <= at:
@@ -181,24 +201,20 @@ def as_of(patterns: list[dict], at, ctx: dict) -> list[dict]:
         else:
             state = "forming"
         trig = state != "forming"
-        extended = f["day_pct_p2"] is not None and (f["day_pct_p2"] <= -1.0 if long else f["day_pct_p2"] >= 1.0)
-        oi_ok = bool(f["oi_p1"] and f["oi_p2"] and f["oi_p2"] < f["oi_p1"])
-        vol_ok = (f["vol_ratio_trigger"] if trig else f["vol_ratio_p2"]) is not None and \
-                 (f["vol_ratio_trigger"] if trig else f["vol_ratio_p2"]) >= 1.5
-        sec_ok = sector_pct is not None and (sector_pct >= 0 if long else sector_pct <= 0)
-        if trig:
-            vwap_ok = bool(f["vwap_ok_trigger"])
-        elif last_bar is not None:
-            vwap_ok = bool(last_bar.close > last_bar.vwap) if long else bool(last_bar.close < last_bar.vwap)
-        else:
-            vwap_ok = False
-        checks = [bool(extended), oi_ok, bool(vol_ok), bool(sec_ok), vwap_ok, trig]
+        f = dict(p["facts"])
+        if f.get("sector_formed") is None:
+            f["sector_formed"] = sector_at(p["formed_at"]) if sector_at else const
+        if trig and f.get("sector_trigger") is None:
+            f["sector_trigger"] = sector_at(p["triggered_at"]) if sector_at else const
+        checks = checks_for(f, p["side"], state)
         ref = p["entry"] if trig else p["neckline"]
         risk = abs(ref - p["stop"])
-        rr = abs(p["target"] - ref) / risk if risk else 0.0
         since = p["triggered_at"] if trig else p["formed_at"]
         rows.append({**{k: v for k, v in p.items() if k not in ("facts", "target_touched", "formed_idx", "trigger_idx")},
-                     "state": state, "checks": checks, "score": sum(checks[:5]), "rr": rr,
+                     "facts": f, "state": state, "checks": checks, "score": sum(checks[:5]),
+                     "rr": abs(p["target"] - ref) / risk if risk else 0.0,
+                     "entry": p["entry"] if trig else None, "triggered_at": p["triggered_at"] if trig else None,
+                     "failed_at": p["failed_at"] if state == "failed" else None,
                      "age_min": int((at - since).total_seconds() // 60)})
     return rows
 

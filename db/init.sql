@@ -90,3 +90,6 @@ CREATE TABLE IF NOT EXISTS patterns (
 );
 CREATE INDEX IF NOT EXISTS patterns_day ON patterns (day);
 CREATE INDEX IF NOT EXISTS patterns_symbol_day ON patterns (symbol, day);
+
+-- 003_patterns_facts
+ALTER TABLE patterns ADD COLUMN IF NOT EXISTS facts JSONB;

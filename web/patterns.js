@@ -7,7 +7,7 @@
   function actionLabel(r) {
     const side = r.side === 'long' ? 'BUY' : 'SELL';
     if (r.state === 'failed') return '(failed)';
-    if (r.state === 'triggered') return side + ' NOW';
+    if (r.state === 'triggered') return r.age_min === 0 ? side + ' NOW' : `${side} · triggered ${String(r.triggered_at).slice(11, 16)}`;
     return `${side} if ${fmt2(r.neckline)} closes`;
   }
 

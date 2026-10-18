@@ -44,23 +44,42 @@ def message(r: dict) -> str:
             f"R:R 1:{r['rr']:.1f} · score {r['score']}/5\n{hhmm} · scanradar.tech")
 
 
+_R = None
+
+
+def _redis():
+    global _R
+    if _R is None:
+        import redis
+        _R = redis.from_url(os.environ["REDIS_URL"], decode_responses=True)
+    return _R
+
+
 def tick(connect, now: dt.datetime, send) -> tuple[int, int]:
     """One iteration, run in a worker process: returns (rows, new triggers)."""
-    import redis
     import patterns as pt
+    from replay import load_day, load_refs
     from core.patterns import detector_hash
-    R = redis.from_url(os.environ["REDIS_URL"], decode_responses=True)
+    R = _redis()
     at = now.astimezone(IST).replace(second=0, microsecond=0)
     day = at.date()
     with connect() as con:
-        rows = pt.today_rows(con, at)
-        if rows:
-            with con.cursor() as cur:
-                pt.upsert_patterns(cur, day, rows, "live", detector_hash())
-            con.commit()
+        frames = load_day(con, day, upto=at)
+        rows: list = []
+        if frames:
+            refs = load_refs(con, day)
+            cut = {s: df[df.ts < at] for s, df in frames.items()}
+            records, rows = pt.detect_frames(cut, refs, pd.Timestamp(at))
+            rows = [{**r, "source": "live"} for r in rows]
+            if records:
+                with con.cursor() as cur:
+                    pt.upsert_patterns(cur, day, records, "live", detector_hash())     # full lifecycle, DO UPDATE
+                con.commit()
+    js = pt.to_json_rows(rows)
+    R.set("patterns:today:latest", json.dumps({"at": at.strftime("%H:%M"), "rows": js}), ex=300)
     seen_key = f"pseen:{day}"
     seen = set(R.smembers(seen_key))
-    fresh = new_triggers(seen, rows)
+    fresh = new_triggers(seen, js)
     for r in fresh:
         R.sadd(seen_key, _key(r)); R.expire(seen_key, 86400)
         if R.set(f"pcool:{day}:{r['symbol']}:{r['kind']}", "1", ex=86400, nx=True):

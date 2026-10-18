@@ -19,6 +19,7 @@ IST = dt.timezone(dt.timedelta(hours=5, minutes=30))
 _background: set = set()
 _prep_pool = ProcessPoolExecutor(max_workers=1)      # keeps 2–4 min of pandas out of the API's GIL
 _live_pool = ProcessPoolExecutor(max_workers=1)      # the live pattern loop never waits behind a day preparation
+_today_locks: dict = {}
 _tl_mem: dict = {}                                    # day -> (expires_at, timeline); parsed once per process
 
 
@@ -121,6 +122,8 @@ def _prepare_day(day: dt.date) -> None:
             with con.cursor() as cur:
                 pt.upsert_patterns(cur, day, rows, "replay", detector_hash())
             con.commit()
+        import redis as _redis
+        _redis.from_url(os.environ["REDIS_URL"], decode_responses=True).set(f"patdone:{day}:{detector_hash()}", "1", ex=30 * 86400)
         if hs.rank_timeline(con, day) is None:
             hs.build_timeline(connect, day)
         # warm the frames a viewer lands on: the close and every half hour
@@ -265,26 +268,34 @@ async def patterns(day: str, at: str):
     loop = asyncio.get_running_loop()
     settled = rp.day_is_settled(d, now)
     if settled:
+        done = await R.exists(f"patdone:{d}:{detector_hash()}")
         def q():
             with connect() as con:
-                need = pt.patterns_needed(con, d, detector_hash())
-                return need, pt.rows_at(pt.stored_rows(con, d), at_dt)
+                return (pt.patterns_needed(con, d, detector_hash()) if not done else False), pt.rows_at(pt.stored_rows(con, d), at_dt)
         need, rows = await loop.run_in_executor(None, q)
+        rows = pt.to_json_rows(rows)
         if need:
             await _kick_prepare(d)
     else:
-        key = f"patterns:today:{at}"
-        raw = await R.get(key)
-        if raw:
-            rows, need = json.loads(raw), False
+        need = False
+        latest = await R.get("patterns:today:latest")
+        latest = json.loads(latest) if latest else None
+        if latest and latest.get("at") == at:
+            rows = latest["rows"]                      # the live loop computed this minute already
         else:
-            def q_today():
-                with connect() as con:
-                    return pt.today_rows(con, at_dt)
-            rows = await loop.run_in_executor(None, q_today)
-            rows = json.loads(json.dumps(rows, default=str))
-            await R.set(key, json.dumps(rows), ex=60)
-            need = False
+            key = f"patterns:today:{at}"
+            raw = await R.get(key)
+            if raw:
+                rows = json.loads(raw)
+            else:
+                lock = _today_locks.setdefault(at, asyncio.Lock())
+                async with lock:                           # coalesce slider steps on the same minute
+                    raw = await R.get(key)
+                    if raw:
+                        rows = json.loads(raw)
+                    else:
+                        rows = await loop.run_in_executor(_live_pool, pt.today_rows_json, at_dt.isoformat())
+                        await R.set(key, json.dumps(rows), ex=60)
     counts = {k: sum(1 for r in rows if r["state"] == k) for k in ("forming", "triggered", "failed")}
     return {"day": d.isoformat(), "at": at, "pending": bool(need), "rows": rows, "counts": counts}
 

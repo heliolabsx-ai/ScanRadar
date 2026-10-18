@@ -55,3 +55,47 @@ def test_today_rows_from_frames_returns_rows_with_symbol():
     rows = today_rows_from_frames({"X": d}, refs, d.ts.iloc[-1] + pd.Timedelta(minutes=1),
                                   params={"tol": 0.004, "min_sep": 4, "max_sep": 36, "min_retrace": 0.0035, "k": 2, "fail_bars": 3, "min_extension": 0.0})
     assert rows and all(r["symbol"] == "X" and r["state"] in ("forming", "triggered", "failed") for r in rows)
+
+
+def test_upsert_sql_updates_lifecycle_on_conflict():
+    from patterns import UPSERT_SQL
+    assert "ON CONFLICT (day, symbol, kind, formed_at) DO UPDATE SET" in UPSERT_SQL
+    for col in ("triggered_at", "entry", "failed_at", "abandoned_at", "superseded_at", "checks", "score", "facts"):
+        assert f"{col}=EXCLUDED.{col}" in UPSERT_SQL
+    assert "outcome=COALESCE(EXCLUDED.outcome, patterns.outcome)" in UPSERT_SQL
+
+
+def test_rows_at_forming_checks_come_from_facts_not_trigger_time():
+    from patterns import rows_at
+    facts = {"day_pct_p2": -1.5, "oi_p1": 100, "oi_p2": 90, "vol_ratio_p2": 1.0, "vol_ratio_trigger": 3.0,
+             "vwap_ok_formed": False, "vwap_ok_trigger": True, "sector_formed": -0.2, "sector_trigger": 0.4}
+    r = stored(facts=facts, checks=[True, True, True, True, True, True], score=5)
+    forming = rows_at([r], T("10:05"))[0]
+    assert forming["checks"] == [True, True, False, False, False, False] and forming["score"] == 2
+    trig = rows_at([r], T("10:10"))[0]
+    assert trig["checks"] == [True, True, True, True, True, True] and trig["score"] == 5
+
+
+def test_json_rows_use_iso_timestamps_in_both_paths():
+    from patterns import to_json_rows
+    d = synthetic_day()
+    refs = {"X": {"prev_close": float(d.open.iloc[0]) * 1.03, "sector": "IT"}}
+    import math
+    d["close"] = d.close * (1 + 0.01 * pd.Series(range(len(d))).mul(0.09).apply(math.sin))
+    d["high"] = d[["open", "close"]].max(axis=1) + 0.05; d["low"] = d[["open", "close"]].min(axis=1) - 0.05
+    rows = today_rows_from_frames({"X": d}, refs, d.ts.iloc[-1] + pd.Timedelta(minutes=1),
+                                  params={"tol": 0.004, "min_sep": 4, "max_sep": 36, "min_retrace": 0.0035, "k": 2, "fail_bars": 3, "min_extension": 0.0})
+    js = to_json_rows(rows)
+    assert js and "T" in js[0]["formed_at"] and "T" in js[0]["points"][0]["ts"] and "+05:30" in js[0]["formed_at"]
+
+
+def test_today_rows_are_graded_as_of_at():
+    import math
+    d = synthetic_day(seed=3, base_price=500.0)
+    d["close"] = d.close * (1 + 0.01 * pd.Series(range(len(d))).mul(0.09).apply(math.sin))
+    d["high"] = d[["open", "close"]].max(axis=1) + 0.05; d["low"] = d[["open", "close"]].min(axis=1) - 0.05
+    refs = {"X": {"prev_close": float(d.open.iloc[0]) * 1.03, "sector": "IT"}}
+    params = {"tol": 0.004, "min_sep": 4, "max_sep": 36, "min_retrace": 0.0035, "k": 2, "fail_bars": 3, "min_extension": 0.0}
+    rows = today_rows_from_frames({"X": d}, refs, d.ts.iloc[-1] + pd.Timedelta(minutes=1), params=params)
+    trig = [r for r in rows if r["state"] != "forming"]
+    assert trig and all("outcome" in r and r["outcome"] is not None for r in trig)

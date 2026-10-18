@@ -43,7 +43,8 @@ test('ordering: triggered newest first, then forming by score, failed last', () 
 
 test('labels', () => {
   assert.equal(P.kindLabel('triple_top'), 'Triple top');
-  assert.equal(P.actionLabel(row({ state: 'triggered', side: 'long' })), 'BUY NOW');
+  assert.equal(P.actionLabel(row({ state: 'triggered', side: 'long', age_min: 0 })), 'BUY NOW');
+  assert.equal(P.actionLabel(row({ state: 'triggered', side: 'long', age_min: 12, triggered_at: '2026-10-16T10:25:00+05:30' })), 'BUY · triggered 10:25');
   assert.equal(P.actionLabel(row({ state: 'forming', side: 'short', neckline: 2412 })), 'SELL if 2,412.00 closes');
   assert.equal(P.actionLabel(row({ state: 'failed' })), '(failed)');
 });

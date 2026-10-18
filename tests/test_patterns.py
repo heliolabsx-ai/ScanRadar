@@ -125,22 +125,44 @@ def test_as_of_state_transitions():
 
 
 def key(r):
-    return (r["kind"], tuple(q["ts"] for q in r["points"]), round(r["neckline"], 6), r["state"])
+    return (r["kind"], tuple(str(q["ts"]) for q in r["points"]), round(r["neckline"], 6), r["state"], r["score"],
+            None if r["entry"] is None else round(r["entry"], 6), round(r["stop"], 6), round(r["target"], 6), str(r["failed_at"]))
 
 
 @pytest.mark.parametrize("seed", range(5))
 def test_as_of_never_uses_future(seed):
+    import math
     d = synthetic_day(seed=seed, base_price=500.0)
-    d["close"] = d.close * (1 + 0.004 * pd.Series(range(len(d))).mul(0.03).apply(lambda x: __import__("math").sin(x)))  # waves → swings
+    d["close"] = d.close * (1 + 0.01 * pd.Series(range(len(d))).mul(0.09).apply(math.sin))
     d["high"] = d[["open", "close"]].max(axis=1) + 0.05; d["low"] = d[["open", "close"]].min(axis=1) - 0.05
+    rng = __import__("numpy").random.default_rng(seed)
+    d = d.drop(index=rng.choice(d.index[5:-5], size=8, replace=False)).reset_index(drop=True)   # thin names skip minutes
     pc = float(d.open.iloc[0])
     full = detect_day(d, pc, P)
     for m in range(20, 360, 5):
-        at = d.ts.iloc[0] + pd.Timedelta(minutes=m)
+        at = pd.Timestamp("2026-10-16 09:15", tz=IST) + pd.Timedelta(minutes=m)
         cut = d[d.ts < at]
         a = sorted(key(r) for r in as_of(full, at, {"sector_pct": 0, "bars": bars5m(d, pc)}))
-        b = sorted(key(r) for r in as_of(detect_day(cut, pc, P), at, {"sector_pct": 0, "bars": bars5m(cut, pc)}))
+        b = sorted(key(r) for r in as_of(detect_day(cut, pc, P, at=at), at, {"sector_pct": 0, "bars": bars5m(cut, pc, at=at)}))
         assert a == b, m
+
+
+def test_bars5m_clock_rule_with_at():
+    d = synthetic_day(with_gap_at=["10:04"])                     # the 10:00 bar's last minute is missing
+    at = pd.Timestamp("2026-10-16 10:05", tz=IST)
+    cut = d[d.ts < at]
+    assert bars5m(cut, 100.0).ts.iloc[-1] < pd.Timestamp("2026-10-16 10:00", tz=IST)     # data rule: not complete yet
+    b = bars5m(cut, 100.0, at=at)
+    assert b.ts.iloc[-1] == pd.Timestamp("2026-10-16 10:00", tz=IST) and b.close_at.iloc[-1] == at   # clock rule: complete at 10:05
+
+
+def test_forming_checks_frozen_at_formation():
+    d, pc = shaped_day(BOTTOM[:10] + [-1.3, -1.2, -1.1], oi=FALLING_OI + [975_000] * 3, vol=VOL + [5000] * 3)
+    p = one(detect_day(d, pc, P), "double_bottom")
+    ctx = {"sector_pct": 0.5, "bars": bars5m(d, pc)}
+    first = as_of([p], p["formed_at"], ctx)[0]["checks"][:5]
+    later = as_of([p], p["formed_at"] + pd.Timedelta(minutes=15), ctx)[0]["checks"][:5]
+    assert first == later
 
 
 def test_score_without_oi():
