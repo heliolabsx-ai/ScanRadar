@@ -234,7 +234,7 @@ its context, output, usage and rupee cost.
 
 ## 10. Adding a scan
 
-Create `scans/my_scan.json` (see the two examples). Sides are `{"number": x}`, `{"series": "prev_day_close|prev_day_high|prev_day_low"}`, or `{"off": N, "field": "open|high|low|close|volume|vwap|oi"}` where `off` 0 = forming candle, 1 = last closed, etc. Timeframes: 1m, 3m, 5m, 15m, 30m, 60m. The engine reloads the folder every minute.
+Create `scans/my_scan.json` (see the two examples). Sides are `{"number": x}`, `{"series": "prev_day_close|prev_day_high|prev_day_low"}`, or `{"off": N, "field": "open|high|low|close|volume|vwap|oi"}` where `off` 0 = forming candle, 1 = last closed, etc. Add `"sma": 13` or `"ema": 20` to an `off` side for a moving average of that field ending at that bar (Chartink's `Sma(Close, 13)`). Timeframes: 1m, 3m, 5m, 15m, 30m, 60m. The engine reloads the folder every minute.
 
 ## 11. Known limits / to-do
 

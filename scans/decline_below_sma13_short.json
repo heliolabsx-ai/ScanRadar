@@ -1,0 +1,13 @@
+{
+  "name": "Decline below SMA13 short",
+  "side": "short",
+  "timeframe": "5m",
+  "match": "all",
+  "rules": [
+    {"lhs": {"off": 1, "field": "close"}, "op": "<=", "rhs": {"off": 1, "field": "close", "sma": 13}},
+    {"lhs": {"off": 2, "field": "close"}, "op": ">=", "rhs": {"off": 1, "field": "close"}},
+    {"lhs": {"off": 3, "field": "close"}, "op": ">=", "rhs": {"off": 2, "field": "close"}},
+    {"lhs": {"off": 0, "field": "close"}, "op": ">",  "rhs": {"number": 2000}}
+  ],
+  "alert": {"telegram": true, "cooldown_min": 30}
+}

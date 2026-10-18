@@ -11,6 +11,8 @@ SIDE is one of:
   {"number": 1000}
   {"series": "prev_day_close"}          (prev_day_close/high/low, vwap)
   {"off": N, "field": "close"}          N candles back (0 = forming), field open/high/low/close/volume/vwap/oi
+  {"off": N, "field": "close", "sma": 13}   simple moving average of the field over 13 bars ending at that bar
+  {"off": N, "field": "close", "ema": 20}   exponential moving average (standard 2/(n+1) smoothing) ending at that bar
 """
 import operator as op
 import pandas as pd
@@ -40,6 +42,14 @@ def _resolve(side: dict, bars: pd.DataFrame, ctx: dict):
     i = -1 - int(side.get("off", 0))
     if abs(i) > len(bars):
         raise IndexError
+    if "sma" in side or "ema" in side:
+        n = int(side.get("sma") or side.get("ema"))
+        series = bars[side["field"]].iloc[: len(bars) + i + 1]
+        if len(series) < n:
+            raise IndexError
+        if "sma" in side:
+            return float(series.iloc[-n:].mean())
+        return float(series.ewm(span=n, adjust=False).mean().iloc[-1])
     return float(bars.iloc[i][side["field"]])
 
 
