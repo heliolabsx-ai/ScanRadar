@@ -94,90 +94,96 @@ def _verdict(cur, R, con, *, day, at, trigger, ref, snap, refs, lots, record, mo
                         context=ctx, schema=desk.VERDICT_SCHEMA, model=model, max_tokens=1200)
 
 
-def new_pattern_triggers(con, day, at) -> list[dict]:
+def new_pattern_triggers(con, day, at, include_replay: bool = False) -> list[dict]:
     """Live, triggered, not superseded pattern rows as the dashboard shows them at `at`."""
-    stored = [r for r in pt.stored_rows(con, day) if r["source"] == "live" and r.get("triggered_at")]
+    stored = [r for r in pt.stored_rows(con, day) if (include_replay or r["source"] == "live") and r.get("triggered_at")]
     return [r for r in pt.rows_at(stored, at) if r["state"] != "forming" and r["triggered_at"] is not None]
 
 
-def new_alerts(con, day, at) -> list[dict]:
+def new_alerts(con, day, at, include_replay: bool = False) -> list[dict]:
     start, _ = session_bounds(day)
+    src = ("live", "replay") if include_replay else ("live",)
     with con.cursor() as cur:
-        cur.execute("SELECT id, ts, scan, symbol, price, payload FROM alerts WHERE source='live' AND ts>=%s AND ts<=%s ORDER BY id", (start, at))
+        cur.execute("SELECT id, ts, scan, symbol, price, payload FROM alerts WHERE source = ANY(%s) AND ts>=%s AND ts<=%s ORDER BY id", (list(src), start, at))
         return [{"id": i, "ts": ts.astimezone(IST), "scan": sc, "symbol": sym, "price": float(pr), "payload": p or {}} for i, ts, sc, sym, pr, p in cur.fetchall()]
 
 
+def process_minute(con, R, day, at: dt.datetime, snap: dict | None, *, prepare=None, include_replay: bool = False) -> tuple[dict, list[dict]]:
+    """The desk's work for one minute of `day`: verdicts for new triggers, the brief when
+    due, the review after 15:40. Returns (counts, verdict records to send)."""
+    done = {"verdicts": 0, "brief": 0, "review": 0}
+    sent: list[dict] = []
+    refs = load_refs(con, day)
+    lots = lots_map(con)
+    pat_stats, scan_stats = setup_stats(con, at)
+    scans = {s["name"]: s for s, _ in al.scan_files()}
+    with con.cursor() as cur:
+        for r in new_pattern_triggers(con, day, at, include_replay):
+            ref = pattern_ref(r)
+            if r["state"] == "failed" or desk.exists(cur, day, "verdict", ref) or not gate(r.get("score"), r.get("rr")):
+                continue                                      # a trigger that already failed gets no verdict
+            trig = {"source": "pattern", "kind": r["kind"], "label": desk.LABEL.get(r["kind"], r["kind"]), "at": desk._hhmm(r["triggered_at"]),
+                    "score": r.get("score"), "checks": r.get("checks"), "tf": "5m", "symbol": r["symbol"], "side": r["side"],
+                    "entry": r["entry"], "stop": r["stop"], "target": r["target"], "state": r["state"]}
+            rec = _verdict(cur, R, con, day=day, at=at, trigger=trig, ref=ref, snap=snap, refs=refs, lots=lots, record=pattern_record(r, pat_stats))
+            con.commit(); done["verdicts"] += 1
+            if rec.get("output"):
+                sent.append(rec)
+        for a in new_alerts(con, day, at, include_replay):
+            ref = f"alert:{a['id']}"
+            if desk.exists(cur, day, "verdict", ref):
+                continue
+            sc = scans.get(a["scan"]) or {}
+            side = sc.get("side") or a["payload"].get("side")
+            row = desk.raw_row(snap, a["symbol"])
+            if row is None:
+                df = load_symbol(con, day, a["symbol"], at)
+                row = analyse(a["symbol"], df, refs[a["symbol"]]) if not df.empty and refs.get(a["symbol"]) else None
+            if not side or row is None:
+                desk.store(cur, {"day": day, "kind": "verdict", "ts": at, "ref": ref, "symbol": a["symbol"], "context": {"alert": a["scan"]},
+                                 "error": "no side or analysis for this alert"}); con.commit()
+                continue
+            stop, target = al.side_levels(row, side)
+            rr = abs(target - a["price"]) / abs(a["price"] - stop) if a["price"] != stop else 0
+            if not gate(None if desk.MIN_SCORE == 0 else 5, rr):
+                continue
+            st = scan_stats.get(a["scan"]) or {}
+            trig = {"source": "alert", "kind": a["scan"], "label": a["scan"], "at": a["ts"].strftime("%H:%M"), "tf": a["payload"].get("tf") or sc.get("timeframe"),
+                    "scan_rules": sc.get("rules"), "symbol": a["symbol"], "side": side, "entry": a["price"], "stop": stop, "target": target}
+            record = {"hit_rate_pct": desk._r(st.get("hit_rate")), "fires_20d": st.get("fires"), "avg_r30_pct": desk._r(st.get("avg_r30")), "avg_r60_pct": desk._r(st.get("avg_r60"))}
+            rec = _verdict(cur, R, con, day=day, at=at, trigger=trig, ref=ref, snap=snap, refs=refs, lots=lots, record=record)
+            con.commit(); done["verdicts"] += 1
+            if rec.get("output"):
+                sent.append(rec)
+        if brief_due(at):
+            ref = f"brief:{at.strftime('%H:%M')}"
+            if not desk.exists(cur, day, "brief", ref):
+                rows = desk.rows_for_day(cur, day)
+                briefs = [r for r in rows if r["kind"] == "brief" and r.get("output")]
+                prev = briefs[-1] if briefs else None
+                since = prev["ts"][11:16] if prev else None
+                since_dt = at - dt.timedelta(minutes=desk.BRIEF_EVERY_MIN)
+                live = [r for r in pt.stored_rows(con, day) if include_replay or r["source"] == "live"]
+                recent = [r for r in pt.rows_at(live, at) if (r.get("triggered_at") or r.get("failed_at") or r["formed_at"]) >= since_dt]
+                verdicts = [r for r in rows if r["kind"] == "verdict"]
+                ctx = desk.brief_context(snap, recent, verdicts, prev["output"] if prev else None, at.strftime("%H:%M"), since)
+                desk.run_job(cur, R, day=day, kind="brief", ts=at, ref=ref, symbol=None, system=desk.BRIEF_SYSTEM, context=ctx,
+                             schema=desk.BRIEF_SCHEMA, model=desk.BRIEF_MODEL, max_tokens=1500)
+                con.commit(); done["brief"] = 1
+        if at.time() >= REVIEW_AT and not desk.exists(cur, day, "review", "review"):
+            run_review(con, cur, R, day, at, prepare)
+            con.commit(); done["review"] = 1
+    return done, sent
+
+
 def tick(connect, now: dt.datetime, send, prepare=None) -> dict:
-    """One minute of desk work. Returns counts."""
+    """One live minute (today, now). Telegram per verdict, then `desk:updated`."""
     R = desk_redis()
     at = now.astimezone(IST).replace(second=0, microsecond=0)
     day = at.date()
-    done = {"verdicts": 0, "brief": 0, "review": 0}
     snap = json.loads(R.get("scan:latest") or "null")
-    sent: list[dict] = []
     with connect() as con:
-        refs = load_refs(con, day)
-        lots = lots_map(con)
-        pat_stats, scan_stats = setup_stats(con, at)
-        scans = {s["name"]: s for s, _ in al.scan_files()}
-        with con.cursor() as cur:
-            for r in new_pattern_triggers(con, day, at):
-                ref = pattern_ref(r)
-                if desk.exists(cur, day, "verdict", ref) or not gate(r.get("score"), r.get("rr")):
-                    continue
-                trig = {"source": "pattern", "kind": r["kind"], "label": desk.LABEL.get(r["kind"], r["kind"]), "at": desk._hhmm(r["triggered_at"]),
-                        "score": r.get("score"), "checks": r.get("checks"), "tf": "5m", "symbol": r["symbol"], "side": r["side"],
-                        "entry": r["entry"], "stop": r["stop"], "target": r["target"], "state": r["state"]}
-                if r["state"] == "failed":
-                    continue                                  # a trigger that already failed gets no verdict
-                rec = _verdict(cur, R, con, day=day, at=at, trigger=trig, ref=ref, snap=snap, refs=refs, lots=lots, record=pattern_record(r, pat_stats))
-                con.commit(); done["verdicts"] += 1
-                if rec.get("output"):
-                    sent.append(rec)
-            for a in new_alerts(con, day, at):
-                ref = f"alert:{a['id']}"
-                if desk.exists(cur, day, "verdict", ref):
-                    continue
-                sc = scans.get(a["scan"]) or {}
-                side = sc.get("side") or a["payload"].get("side")
-                row = desk.raw_row(snap, a["symbol"])
-                if row is None:
-                    df = load_symbol(con, day, a["symbol"], at)
-                    row = analyse(a["symbol"], df, refs[a["symbol"]]) if not df.empty and refs.get(a["symbol"]) else None
-                if not side or row is None:
-                    desk.store(cur, {"day": day, "kind": "verdict", "ts": at, "ref": ref, "symbol": a["symbol"], "context": {"alert": a["scan"]},
-                                     "error": "no side or analysis for this alert"}); con.commit()
-                    continue
-                stop, target = al.side_levels(row, side)
-                rr = abs(target - a["price"]) / abs(a["price"] - stop) if a["price"] != stop else 0
-                if not gate(None if desk.MIN_SCORE == 0 else 5, rr):
-                    continue
-                st = scan_stats.get(a["scan"]) or {}
-                trig = {"source": "alert", "kind": a["scan"], "label": a["scan"], "at": a["ts"].strftime("%H:%M"), "tf": a["payload"].get("tf") or sc.get("timeframe"),
-                        "scan_rules": sc.get("rules"), "symbol": a["symbol"], "side": side, "entry": a["price"], "stop": stop, "target": target}
-                record = {"hit_rate_pct": desk._r(st.get("hit_rate")), "fires_20d": st.get("fires"), "avg_r30_pct": desk._r(st.get("avg_r30")), "avg_r60_pct": desk._r(st.get("avg_r60"))}
-                rec = _verdict(cur, R, con, day=day, at=at, trigger=trig, ref=ref, snap=snap, refs=refs, lots=lots, record=record)
-                con.commit(); done["verdicts"] += 1
-                if rec.get("output"):
-                    sent.append(rec)
-            if brief_due(at):
-                ref = f"brief:{at.strftime('%H:%M')}"
-                if not desk.exists(cur, day, "brief", ref):
-                    rows = desk.rows_for_day(cur, day)
-                    briefs = [r for r in rows if r["kind"] == "brief" and r.get("output")]
-                    prev = briefs[-1] if briefs else None
-                    since = prev["ts"][11:16] if prev else None
-                    since_dt = at - dt.timedelta(minutes=desk.BRIEF_EVERY_MIN)
-                    live = [r for r in pt.stored_rows(con, day) if r["source"] == "live"]
-                    recent = [r for r in pt.rows_at(live, at) if (r.get("triggered_at") or r.get("failed_at") or r["formed_at"]) >= since_dt]
-                    verdicts = [r for r in rows if r["kind"] == "verdict"]
-                    ctx = desk.brief_context(snap, recent, verdicts, prev["output"] if prev else None, at.strftime("%H:%M"), since)
-                    desk.run_job(cur, R, day=day, kind="brief", ts=at, ref=ref, symbol=None, system=desk.BRIEF_SYSTEM, context=ctx,
-                                 schema=desk.BRIEF_SCHEMA, model=desk.BRIEF_MODEL, max_tokens=1500)
-                    con.commit(); done["brief"] = 1
-            if at.time() >= REVIEW_AT and not desk.exists(cur, day, "review", "review"):
-                run_review(con, cur, R, day, at, prepare)
-                con.commit(); done["review"] = 1
+        done, sent = process_minute(con, R, day, at, snap, prepare=prepare)
     for rec in sent:
         if os.environ.get("DESK_TELEGRAM", "1") != "0":
             try:
