@@ -5,6 +5,7 @@
 <script src="filter.js"></script>
 <script src="notify.js"></script>
 <script src="patterns.js"></script>
+<script src="desk.js"></script>
 <style>
 /* Layout: control strip → sector/breadth rail → bull/bear card grid → detail panel with canvas chart. Terminal-style data UI. */
 :root{
@@ -102,6 +103,23 @@ canvas{display:block;width:100%;max-width:100%;margin-top:10px;border-radius:4px
 table.pt{width:100%;border-collapse:collapse;font-size:12px}.pt th{font:600 10px var(--sans);letter-spacing:.08em;text-transform:uppercase;color:var(--muted);text-align:left;padding:4px 6px;border-bottom:1px solid var(--line)}
 .pt td{padding:7px 6px;border-bottom:1px solid var(--line);vertical-align:middle}tr.prow{cursor:pointer}tr.prow:hover td{background:var(--bg)}tr.prow.sel td{background:var(--bg)}
 .chip.buy{background:var(--bull-soft);color:var(--bull)}.chip.sell{background:var(--bear-soft);color:var(--bear)}.chip.form{background:var(--line);color:var(--muted)}.chip.trig{background:var(--fg);color:var(--bg)}.chip.fail{background:var(--bear-soft);color:var(--bear)}
+.am{color:var(--amber)}
+.dgrid{display:grid;grid-template-columns:1fr 420px;gap:12px;align-items:start}.dgrid .eyebrow{display:flex;justify-content:space-between;gap:8px;align-items:center}@media (max-width:1000px){.dgrid{grid-template-columns:1fr}}
+.budget{font:500 11px var(--mono);color:var(--muted);display:inline-flex;align-items:center;gap:8px;text-transform:none;letter-spacing:0}.budget .bar{width:110px;height:6px;background:var(--line);border-radius:3px;overflow:hidden}.budget .bar i{display:block;height:100%;width:0;background:var(--accent)}.budget.stop .bar i{background:var(--bear)}
+.vc{border:1px solid var(--line);border-left-width:4px;border-radius:6px;margin-bottom:10px;background:var(--panel)}.vc.take{border-left-color:var(--bull)}.vc.skip{border-left-color:var(--bear)}.vc.wait{border-left-color:var(--amber)}.vc.off{border-left-color:var(--line)}
+.vc .hd{display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:center;padding:8px 10px;border-bottom:1px solid var(--line)}
+.vc .call{font:700 12.5px var(--mono);padding:3px 10px;border-radius:4px;letter-spacing:.04em}.call.take{background:var(--bull);color:#0b1a10}.call.wait{background:var(--amber);color:#1a1300}.call.skip{background:var(--bear);color:#fff}.call.off{background:var(--line);color:var(--muted)}
+.vc .who{font:700 13px var(--mono);cursor:pointer}.vc .who small{font:500 11px var(--sans);color:var(--muted);margin-left:6px}.vc .conf{font:500 10.5px var(--mono);color:var(--muted);text-align:right}
+.vc .ticket{display:grid;grid-template-columns:repeat(5,1fr);border-bottom:1px solid var(--line)}.vc .ticket div{padding:6px 10px;border-right:1px solid var(--line);min-width:0}.vc .ticket div:last-child{border-right:0}
+.vc .ticket b{display:block;font:500 9.5px var(--sans);letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin-bottom:2px}.vc .ticket span{font:600 12.5px var(--mono)}
+.vc .rs{padding:8px 10px 4px;font-size:12px;line-height:1.5}.vc .rs div{display:grid;grid-template-columns:14px 1fr;gap:6px}.vc .rs i{font-style:normal;font-weight:700;font-family:var(--mono)}
+.vc .exit{margin:4px 10px 8px;padding:6px 8px;border-radius:4px;background:var(--bg);border-left:3px solid var(--amber);font:500 12px var(--sans)}.vc .exit b{font-family:var(--mono)}
+.vc .ft{display:flex;justify-content:space-between;padding:4px 10px 6px;font:500 10px var(--mono);color:var(--muted)}
+.vc .err{padding:8px 10px;font-size:12px;color:var(--muted)}
+.brief{font-size:12.5px;line-height:1.55}.brief p{margin:0 0 8px}.brief .t{font:600 10.5px var(--mono);color:var(--accent);margin-right:6px}.brief ul{margin:4px 0 8px;padding-left:16px}.brief .meta{font:500 10px var(--mono);color:var(--muted)}
+.ask{display:flex;gap:6px;margin-top:8px}.ask input{flex:1;font:12px var(--sans);background:var(--bg);color:var(--fg);border:1px solid var(--line);border-radius:4px;padding:6px 8px}
+.answer{font-size:12.5px;line-height:1.55;margin-top:8px;padding:8px;border-radius:4px;background:var(--bg);border:1px solid var(--line)}.answer .meta{display:block;font:500 10px var(--mono);color:var(--muted);margin-top:4px}
+.review h3{font:600 10.5px var(--sans);letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin:12px 0 4px}.review p{margin:0;font-size:12.5px;line-height:1.55}.review ul{margin:4px 0;padding-left:16px;font-size:12px}
 .score{display:inline-flex;gap:2px;vertical-align:middle}.score i{width:6px;height:6px;border-radius:50%;background:var(--line);display:block}.score i.on{background:currentColor}
 .why{margin-top:10px;font-size:11.5px;padding:8px;border-radius:4px;background:var(--bg);border:1px solid var(--line);line-height:1.6}.why ul{margin:4px 0 0;padding:0;list-style:none}.why b{font-family:var(--mono)}.ok::before{content:"✓ ";color:var(--bull)}.no::before{content:"· ";color:var(--muted)}
 .alerts{margin-top:12px}.alerts .list{max-height:460px;overflow:auto}
@@ -116,7 +134,7 @@ table.pt{width:100%;border-collapse:collapse;font-size:12px}.pt th{font:600 10px
 </style></head><body>
 <div class="top">
   <h1>ScanRadar</h1>
-  <span class="tabs"><button class="tab on" data-view="scanner">Scanner</button><button class="tab" data-view="patterns">Patterns</button></span>
+  <span class="tabs"><button class="tab on" data-view="scanner">Scanner</button><button class="tab" data-view="patterns">Patterns</button><button class="tab" data-view="desk">Desk</button></span>
   <select id="day" title="Session"></select>
   <span class="clock mono" id="clock">--:--</span>
   <span class="st" id="status"><i class="dot"></i><span id="statusText">WAITING</span></span>
@@ -164,6 +182,23 @@ table.pt{width:100%;border-collapse:collapse;font-size:12px}.pt th{font:600 10px
     <p class="note mut" style="font-size:11px;line-height:1.5;margin-top:8px"><b>Forming</b> = shape complete, waiting for the confirming 5m close through the neckline. <b>Triggered</b> = that close happened; entry is its close, stop the pattern's extreme, target the measured move. <b>Failed</b> = closed back through the neckline within 3 bars. Score = confirmations ticked on the right.</p>
   </div>
   <div class="panel" id="pdetail"></div>
+</div>
+<div class="dgrid" id="deskView" hidden>
+  <div class="panel">
+    <p class="eyebrow"><span id="deyebrow">Desk · verdicts</span><span class="budget" id="dbudget" title="Rupees spent on Claude today against the daily hard stop"><span class="bar"><i></i></span><span id="dbudgetText">—</span></span></p>
+    <div id="dverdicts"></div>
+    <div class="empty" id="dempty"></div>
+    <p class="note mut" style="font-size:11px;line-height:1.5;margin-top:8px">Every pattern trigger and rule alert gets one verdict within about 20 seconds of its minute. <b>TAKE</b> = enter now at the entry shown. <b>WAIT</b> = re-check at the stated condition. <b>SKIP</b> = pass. Entry, stop, target and size are the system's; Claude only judges. It sees candles, OI, the ranking row, sector, breadth and the setup's record, and nothing else.</p>
+  </div>
+  <div class="panel">
+    <p class="eyebrow"><span>Market brief · every 15 min</span><span class="mono" id="dbriefAt"></span></p>
+    <div class="brief" id="dbrief"><span class="mut">no brief yet</span></div>
+    <p class="eyebrow" style="margin-top:14px"><span>Ask the desk</span><span class="mut" id="daskCost">about ₹1–3 per question</span></p>
+    <div class="ask"><input id="dq" maxlength="400" placeholder="e.g. why is the top bull ranked above the second one?"><button id="dask">Ask</button></div>
+    <div id="danswer"></div>
+    <p class="eyebrow" style="margin-top:14px"><span>End-of-day review</span><button id="dreviewBtn" title="Run or re-run the review for this day (after 15:35)">Run review</button></p>
+    <div class="review" id="dreview"><span class="mut">runs at 15:40 on a trading day</span></div>
+  </div>
 </div>
 <script>
 // ---------- state ----------
@@ -442,7 +477,7 @@ function renderAll(){
   $('clock').textContent = S.at || S.snap.ts.slice(11,16);
   renderCards(); renderAlerts(); renderFoot();
   if(!S.selected && S.snap.bulls[0]) S.selected = S.snap.bulls[0].symbol;
-  if(S.view === 'patterns') loadPatterns(); else renderDetail();
+  if(S.view === 'patterns') loadPatterns(); else if(S.view === 'desk') loadDesk(); else renderDetail();
 }
 function outcomeLabel(o){
   if(o === null) return '<span class="mut">—</span>';
@@ -567,14 +602,14 @@ function notifyFromLive(snap, alerts){
 }
 
 // ---------- Patterns tab ----------
-S.view = location.hash === '#patterns' ? 'patterns' : 'scanner';
+S.view = location.hash === '#patterns' ? 'patterns' : location.hash === '#desk' ? 'desk' : 'scanner';
 S.prows = []; S.pcounts = {}; S.ppending = false; S.psel = null; S.pquick = 'all'; S.pstats = null; S.pseen = new Set(); S.pseeded = false;
 const PK = ScanPatterns;
 function setView(v){
-  S.view = v; location.hash = v === 'patterns' ? '#patterns' : '';
+  S.view = v; location.hash = v === 'patterns' ? '#patterns' : v === 'desk' ? '#desk' : '';
   document.querySelectorAll('.tab').forEach(b => b.classList.toggle('on', b.dataset.view === v));
-  $('scannerView').hidden = v !== 'scanner'; $('patternsView').hidden = v !== 'patterns';
-  if(v === 'patterns'){ loadPatterns(); loadPatternStats(); } else { renderDetail(); }
+  $('scannerView').hidden = v !== 'scanner'; $('patternsView').hidden = v !== 'patterns'; $('deskView').hidden = v !== 'desk';
+  if(v === 'patterns'){ loadPatterns(); loadPatternStats(); } else if(v === 'desk'){ loadDesk(); } else { renderDetail(); }
 }
 document.querySelectorAll('.tab').forEach(b => b.onclick = () => setView(b.dataset.view));
 function panelEl(){ return S.view === 'patterns' ? $('pdetail') : $('detail'); }
@@ -660,6 +695,77 @@ function notifyPatterns(rows){
     m => { setView('patterns'); S.psel = r; renderPatterns(); }));
 }
 
+// ---------- Desk tab ----------
+S.desk = null; S.dseen = new Set(); S.dseeded = false; S.dsel = null;
+const DK = ScanDesk;
+const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+async function loadDesk(){
+  const day = S.day || todayIST(), at = S.at || '15:30';
+  try{
+    const res = await api(`/api/desk?day=${day}&at=${at}`);
+    if((S.day || todayIST()) !== day || (S.at || '15:30') !== at) return;
+    S.desk = res;
+    if(S.view === 'desk') renderDesk();
+    notifyDesk(res.verdicts);
+  }catch(e){ S.desk = null; if(S.view === 'desk') renderDesk(e.message); }
+}
+function verdictCard(v){
+  const h = DK.headline(v), t = DK.ticket(v, S.risk), f = DK.footer(v), o = v.output;
+  return `<div class="vc ${h.cls}" data-sym="${esc(h.symbol)}" data-at="${esc(String(v.ts).slice(11,16))}">
+    <div class="hd"><span class="call ${h.cls}">${h.call}</span><span class="who" title="Jump to this minute in the Scanner">${esc(h.symbol)} <span class="chip ${h.side==='BUY'?'buy':'sell'}">${h.side}</span><small>${esc(h.label)}</small></span><span class="conf">${esc(DK.confidenceLine(v))}</span></div>
+    <div class="ticket"><div><b>Entry</b><span>${t.entry}</span></div><div><b>Stop</b><span class="dn">${t.stop}</span></div><div><b>Target</b><span class="up">${t.target}</span></div><div><b>${esc(t.riskLabel)}</b><span>${t.size}</span></div><div><b>R:R</b><span>${t.rr}</span></div></div>
+    ${o ? `<div class="rs">${DK.reasons(v).map(r => `<div><i class="${r.cls}">${r.mark}</i><span>${esc(r.text)}</span></div>`).join('')}</div>
+    <div class="exit">Exit: ${esc(o.exit_rule)}${o.book_half_at ? ` · book half at <b>${fmt(o.book_half_at)}</b>` : ''}</div>` : `<div class="err">${esc(v.error || 'no verdict')}</div>`}
+    <div class="ft"><span>${esc(f.left)}</span><span>${esc(f.right)}</span></div></div>`;
+}
+function renderDesk(err){
+  const d = S.desk, at = S.at || '15:30';
+  if(!d){ $('dverdicts').innerHTML = ''; $('dempty').textContent = err ? `could not load the desk: ${err}` : 'loading…'; return; }
+  const b = DK.budget(d.spend, d.budget);
+  $('dbudget').classList.toggle('stop', b.stopped); $('dbudget').querySelector('.bar i').style.width = b.pct + '%';
+  $('dbudgetText').textContent = d.enabled ? `${b.text} · ${String(d.model).replace('claude-','')}` : 'desk off (no API key)';
+  const c = d.calls || {};
+  $('deyebrow').textContent = `Desk · verdicts as of ${at} · ${c.take||0} take · ${c.wait||0} wait · ${c.skip||0} skip`;
+  const rows = d.verdicts.filter(v => !ScanFilter.isActive(S.filter) || ScanFilter.passAlert({symbol: v.symbol, price: (v.context&&v.context.ticket||{}).entry}, {}, S.sectorsOf, S.filter));
+  $('dverdicts').innerHTML = rows.map(verdictCard).join('');
+  $('dempty').textContent = rows.length ? '' : d.enabled ? `no verdicts by ${at}${b.stopped ? ' · budget reached' : ''}` : 'Set ANTHROPIC_API_KEY on the VPS (bash configure-env.sh --set ANTHROPIC_API_KEY) and restart the api service.';
+  const br = d.briefs && d.briefs[d.briefs.length-1];
+  $('dbriefAt').textContent = br ? String(br.ts).slice(11,16) : '';
+  $('dbrief').innerHTML = br && br.output ? br.output.paragraphs.map((p,i) => `<p>${i===0?`<span class="t">${String(br.ts).slice(11,16)}</span>`:''}${esc(p)}</p>`).join('') + (br.output.watch && br.output.watch.length ? `<ul>${br.output.watch.map(w=>`<li>${esc(w)}</li>`).join('')}</ul>` : '') + `<span class="meta">${esc(String(br.model||'').replace('claude-',''))} · ₹${Number(br.cost_inr||0).toFixed(2)}</span>`
+    : br && br.error ? `<span class="mut">${esc(br.error)}</span>` : `<span class="mut">${b.briefsStopped ? 'briefs paused: 70% of the budget is spent' : 'no brief yet (first at 09:30)'}</span>`;
+  const rv = d.review;
+  $('dreview').innerHTML = rv && rv.output ? `<h3>What the rules said</h3><p>${esc(rv.output.rules_said)}</p><h3>Where the desk was wrong</h3><p>${esc(rv.output.desk_wrong)}</p><h3>One thing for tomorrow</h3><p>${esc(rv.output.tomorrow)}</p><h3>Health</h3><ul>${(rv.output.health||[]).map(h=>`<li>${esc(h)}</li>`).join('')}</ul><span class="meta mut" style="font:500 10px var(--mono)">${String(rv.ts).slice(11,16)} · ₹${Number(rv.cost_inr||0).toFixed(2)}</span>`
+    : rv && rv.error ? `<span class="mut">${esc(rv.error)}</span>` : '<span class="mut">runs at 15:40 on a trading day</span>';
+  const lastAsk = d.asks && d.asks[d.asks.length-1];
+  if(lastAsk && !$('danswer').dataset.live) $('danswer').innerHTML = answerHtml(lastAsk);
+}
+const answerHtml = a => a.output ? `<div class="answer"><span class="mut">Q: ${esc((a.context||{}).question||'')}</span><br>${esc(a.output.answer)}<span class="meta">used: ${esc((a.output.used||[]).join(', '))} · ₹${Number(a.cost_inr||0).toFixed(2)} · ${((a.latency_ms||0)/1000).toFixed(1)} s</span></div>` : `<div class="answer mut">${esc(a.error||'no answer')}</div>`;
+$('dask').onclick = async () => {
+  const q = $('dq').value.trim(); if(!q) return;
+  $('dask').disabled = true; $('danswer').dataset.live = '1'; $('danswer').innerHTML = '<div class="answer mut">asking…</div>';
+  try{ const r = await fetch('/api/desk/ask', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({q, day: S.day || todayIST(), at: S.at || undefined})}); const a = await r.json(); $('danswer').innerHTML = r.ok ? answerHtml({...a, context:{question:q}}) : `<div class="answer mut">${esc(a.detail||r.status)}</div>`; }
+  catch(e){ $('danswer').innerHTML = `<div class="answer mut">${esc(e.message)}</div>`; }
+  $('dask').disabled = false; loadDesk();
+};
+$('dq').onkeydown = e => { if(e.key === 'Enter') $('dask').click(); };
+$('dreviewBtn').onclick = async () => {
+  $('dreviewBtn').disabled = true; $('dreview').innerHTML = '<span class="mut">running the review (30–60 s)…</span>';
+  try{ const r = await fetch(`/api/desk/review?day=${S.day || todayIST()}`, {method:'POST'}); const a = await r.json(); if(!r.ok) $('dreview').innerHTML = `<span class="mut">${esc(a.detail||r.status)}</span>`; }
+  catch(e){ $('dreview').innerHTML = `<span class="mut">${esc(e.message)}</span>`; }
+  $('dreviewBtn').disabled = false; loadDesk();
+};
+document.addEventListener('click', e => {
+  const who = e.target.closest('.vc .who'); if(who){ const card = who.closest('.vc'); S.selected = card.dataset.sym; setView('scanner'); enterReplay(S.day || todayIST(), card.dataset.at); }
+});
+function notifyDesk(verdicts){
+  const live = S.following && (!S.day || S.day === todayIST());
+  if(!live){ DK.newVerdicts(S.dseen, verdicts, {seed: true}); return; }
+  const seed = !S.dseeded; S.dseeded = true;
+  const fresh = DK.newVerdicts(S.dseen, verdicts, {seed});
+  if(!S.notify) return;
+  fresh.slice(0,5).forEach(v => ScanNotify.show(DK.notification(v), () => { setView('desk'); }));
+}
+
 // ---------- live feed ----------
 function onLiveSnapshot(snap){
   const wasLive = S.live; S.liveSnap = snap; S.live = true;
@@ -670,7 +776,7 @@ function onLiveSnapshot(snap){
 }
 function connect(){
   const ws = new WebSocket((location.protocol==='https:'?'wss://':'ws://')+location.host+'/ws/scan');
-  ws.onmessage = e => { const m = JSON.parse(e.data); if(m && m.type === 'patterns'){ loadPatterns(); return; } onLiveSnapshot(m); };
+  ws.onmessage = e => { const m = JSON.parse(e.data); if(m && m.type === 'patterns'){ loadPatterns(); return; } if(m && m.type === 'desk'){ loadDesk(); return; } onLiveSnapshot(m); };
   ws.onclose = () => { if(S.following && S.liveSnap) setStatus('RECONNECTING','warn'); setTimeout(connect, 3000); };
 }
 document.addEventListener('click', e => {
@@ -684,7 +790,7 @@ matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => { if
   populateSectors();
   try{ const d = await api('/api/days'); S.days = d.days; S.live = d.live; S.expiry = d.expiry; }catch(e){ S.days = []; }
   populateDays(); loadStats(); setInterval(loadStats, 300000);
-  if(S.view === 'patterns'){ document.querySelectorAll('.tab').forEach(b => b.classList.toggle('on', b.dataset.view === 'patterns')); $('scannerView').hidden = true; $('patternsView').hidden = false; loadPatternStats(); }
+  if(S.view !== 'scanner'){ document.querySelectorAll('.tab').forEach(b => b.classList.toggle('on', b.dataset.view === S.view)); $('scannerView').hidden = true; $('patternsView').hidden = S.view !== 'patterns'; $('deskView').hidden = S.view !== 'desk'; if(S.view === 'patterns') loadPatternStats(); else loadDesk(); }
   connect();
   let liveSnap = null;
   try{ liveSnap = await api('/api/scan'); }catch(e){}

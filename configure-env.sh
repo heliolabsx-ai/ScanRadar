@@ -52,8 +52,8 @@ set_one() {        # set_one VAR : re-enter a single value (hidden) and rewrite 
 
 if [ "${1:-}" = "--set" ]; then
     case "${2:-}" in
-        KITE_API_SECRET|KITE_PASSWORD|KITE_TOTP_SECRET|TELEGRAM_BOT_TOKEN|POSTGRES_PASSWORD) set_one "$2"; exit 0;;
-        *) echo "usage: bash configure-env.sh --set KITE_PASSWORD|KITE_API_SECRET|KITE_TOTP_SECRET|TELEGRAM_BOT_TOKEN|POSTGRES_PASSWORD"; exit 1;;
+        KITE_API_SECRET|KITE_PASSWORD|KITE_TOTP_SECRET|TELEGRAM_BOT_TOKEN|POSTGRES_PASSWORD|ANTHROPIC_API_KEY) set_one "$2"; exit 0;;
+        *) echo "usage: bash configure-env.sh --set KITE_PASSWORD|KITE_API_SECRET|KITE_TOTP_SECRET|TELEGRAM_BOT_TOKEN|POSTGRES_PASSWORD|ANTHROPIC_API_KEY"; exit 1;;
     esac
 fi
 
@@ -105,6 +105,7 @@ for k in KITE_API_KEY KITE_API_SECRET KITE_USER_ID KITE_PASSWORD KITE_TOTP_SECRE
     check_quote "$k" "${!k}"
 done
 
+DESK_MODEL_CUR=$(cur DESK_MODEL); DESK_BUDGET_CUR=$(cur DESK_BUDGET_INR)
 umask 077
 cat > "$ENV_FILE" <<EOF
 # Written by configure-env.sh on $(date '+%Y-%m-%d %H:%M %Z'). Values are single-quoted so docker compose takes them literally.
@@ -124,6 +125,11 @@ TZ='Asia/Kolkata'
 
 DASH_USER='$DASH_USER'
 DASH_HASH='$DASH_HASH'
+
+# Desk (Claude): set the key with  bash configure-env.sh --set ANTHROPIC_API_KEY
+ANTHROPIC_API_KEY='$(cur ANTHROPIC_API_KEY)'
+DESK_MODEL='${DESK_MODEL_CUR:-claude-opus-5-5}'
+DESK_BUDGET_INR='${DESK_BUDGET_CUR:-100}'
 EOF
 chmod 600 "$ENV_FILE"
 

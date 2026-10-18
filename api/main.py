@@ -8,6 +8,8 @@ import history as hs
 import alerts as al
 import patterns as pt
 import live_patterns as lp
+import desk
+import live_desk as ld
 from core.patterns import detector_hash
 from core.notify import telegram
 
@@ -35,6 +37,7 @@ def _today() -> dt.date:
 async def _start_live_patterns():
     if os.environ.get("PATTERNS_LIVE", "1") != "0":
         _background.add(asyncio.create_task(lp.run(connect, _live_pool, telegram)))
+    _background.add(asyncio.create_task(ld.run(connect, telegram, _prepare_day)))
 
 
 @app.get("/api/health")
@@ -316,10 +319,110 @@ async def scan_stats(days: int = 20):
     return await asyncio.get_running_loop().run_in_executor(None, q)
 
 
+# ---------- Desk (Claude) ----------
+def _desk_status(day: dt.date, spend: float) -> dict:
+    return {"enabled": desk.enabled(), "model": desk.MODEL, "budget": desk.BUDGET_INR, "spend": round(spend, 2),
+            "min_score": desk.MIN_SCORE, "blind_to": desk.BLIND_TO}
+
+
+@app.get("/api/desk")
+async def desk_day(day: str, at: str | None = None):
+    try:
+        d = dt.date.fromisoformat(day)
+    except ValueError:
+        raise HTTPException(400, "day must be YYYY-MM-DD")
+    at_iso = None
+    if at:
+        try:
+            at_iso = dt.datetime.combine(d, dt.time.fromisoformat(at), IST).isoformat()
+        except ValueError:
+            raise HTTPException(400, "at must be HH:MM")
+
+    def q():
+        with connect() as con, con.cursor() as cur:
+            return desk.rows_for_day(cur, d)
+    rows = await asyncio.get_running_loop().run_in_executor(None, q)
+    view = desk.day_view(rows, at_iso)
+    spend = view["spend"]
+    if d == _today():
+        try:
+            spend = max(spend, float(await R.get(desk.spend_key(d)) or 0))
+        except (TypeError, ValueError):
+            pass
+    return {"day": day, "at": at, **_desk_status(d, spend), **view, "spend": round(spend, 2)}
+
+
+@app.post("/api/desk/ask")
+async def desk_ask(body: dict):
+    q = (body.get("q") or "").strip()
+    if not q or len(q) > 400:
+        raise HTTPException(400, "q must be 1-400 characters")
+    if not desk.enabled():
+        raise HTTPException(503, "desk off (no API key)")
+    day = body.get("day") or str(_today())
+    at = body.get("at") or dt.datetime.now(IST).strftime("%H:%M")
+    try:
+        d, at_dt = rp.parse_replay_args(day, at)
+    except rp.ReplayError as e:
+        raise HTTPException(400, str(e))
+    now = dt.datetime.now(IST)
+
+    def work():
+        with connect() as con:
+            snap = None
+            if d == now.date() and at_dt >= now - dt.timedelta(minutes=2):
+                import redis as _redis
+                snap = json.loads(_redis.from_url(os.environ["REDIS_URL"], decode_responses=True).get("scan:latest") or "null")
+            if snap is None:
+                try:
+                    snap = rp.snapshot_at(con, d, at_dt)
+                except rp.ReplayError:
+                    snap = None
+            stored = pt.stored_rows(con, d)
+            prow = pt.to_json_rows([{k: v for k, v in r.items() if k in ("symbol", "kind", "side", "state", "score", "entry", "stop", "target", "rr", "triggered_at", "formed_at")}
+                                    for r in pt.rows_at(stored, at_dt)])
+            als = [a for a in al.alerts_for_day(con, d) if a["ts"] <= at_dt.isoformat()]
+            with con.cursor() as cur:
+                rows = desk.rows_for_day(cur, d, at_dt)
+                ctx = {"question": q, "day": day, "as_of": at, "ranking_top": {s: [desk.rank_row(snap, a["symbol"]) for a in (snap or {}).get(s, [])[:10]] for s in ("bulls", "bears")} if snap else None,
+                       "breadth": {"bulls": (snap or {}).get("n_bull"), "bears": (snap or {}).get("n_bear")} if snap else None,
+                       "sectors": (snap or {}).get("sectors"), "patterns": prow[:40], "rule_alerts": [{k: a[k] for k in ("ts", "scan", "symbol", "price", "side", "outcome")} for a in als[:40]],
+                       "desk_verdicts": [{"symbol": r["symbol"], "at": r["ts"][11:16], "call": r["output"]["call"], "confidence": r["output"]["confidence"]} for r in rows if r["kind"] == "verdict" and r.get("output")],
+                       "blind_to": desk.BLIND_TO}
+                rec = desk.run_job(cur, ld.desk_redis(), day=d, kind="ask", ts=at_dt, ref=f"ask:{now.strftime('%H:%M:%S')}", symbol=None,
+                                   system=desk.ASK_SYSTEM, context=ctx, schema=desk.ASK_SCHEMA, model=desk.MODEL, max_tokens=800)
+                con.commit()
+                return rec
+    rec = await asyncio.get_running_loop().run_in_executor(None, work)
+    return {k: rec.get(k) for k in ("id", "ts", "output", "error", "cost_inr", "latency_ms", "model")}
+
+
+@app.post("/api/desk/review")
+async def desk_review(day: str):
+    if not desk.enabled():
+        raise HTTPException(503, "desk off (no API key)")
+    try:
+        d = dt.date.fromisoformat(day)
+    except ValueError:
+        raise HTTPException(400, "day must be YYYY-MM-DD")
+    now = dt.datetime.now(IST)
+    if not rp.day_is_settled(d, now):
+        raise HTTPException(409, "the review runs after 15:35")
+
+    def work():
+        with connect() as con, con.cursor() as cur:
+            cur.execute("DELETE FROM desk_calls WHERE day=%s AND kind='review'", (d,))
+            rec = ld.run_review(con, cur, ld.desk_redis(), d, dt.datetime.combine(d, dt.time(15, 40), IST) if d != now.date() else now, _prepare_day)
+            con.commit()
+            return rec
+    rec = await asyncio.get_running_loop().run_in_executor(None, work)
+    return {k: rec.get(k) for k in ("id", "ts", "output", "error", "cost_inr", "latency_ms", "model")}
+
+
 @app.websocket("/ws/scan")
 async def ws_scan(ws: WebSocket):
     await ws.accept()
-    ps = R.pubsub(); await ps.subscribe("scan:updated", "patterns:updated")
+    ps = R.pubsub(); await ps.subscribe("scan:updated", "patterns:updated", "desk:updated")
     try:
         raw = await R.get("scan:latest")
         if raw:
@@ -330,10 +433,13 @@ async def ws_scan(ws: WebSocket):
             if msg["channel"] == "patterns:updated":
                 await ws.send_text(json.dumps({"type": "patterns", "data": json.loads(msg["data"])}))
                 continue
+            if msg["channel"] == "desk:updated":
+                await ws.send_text(json.dumps({"type": "desk", "data": json.loads(msg["data"])}))
+                continue
             raw = await R.get("scan:latest")
             if raw:
                 await ws.send_text(raw)
     except WebSocketDisconnect:
         pass
     finally:
-        await ps.unsubscribe("scan:updated", "patterns:updated")
+        await ps.unsubscribe("scan:updated", "patterns:updated", "desk:updated")

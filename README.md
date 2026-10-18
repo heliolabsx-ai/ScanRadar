@@ -194,11 +194,49 @@ check; OI before the previous expiry is thin; mean returns 30 minutes after a
 trigger are flat in the backtest even where the hit rate is high, so the target
 is a take-profit, not a hold.
 
-## 9. Adding a scan
+## 9. Desk tab (Claude as the intraday desk)
+
+The **Desk** tab puts Claude on top of the scanner. It never trades and never sets
+levels: entry, stop, target and size are the system's, Claude only judges.
+
+| Job | When | What you get |
+|---|---|---|
+| Verdict | every pattern trigger and rule alert, ~20 s after its minute | TAKE / WAIT / SKIP, confidence 1–10, three one-line reasons (✓ ✗ !), an exit rule, optional "book half at"; the same text on Telegram and as a Mac notification |
+| Brief | 09:30 and every 15 min to 15:15 | two or three paragraphs on breadth, sectors, top ranks, what the pattern desk did, and a watch list |
+| Ask | any time, from the tab | an answer about the session as the slider shows it, ≤120 words |
+| Review | 15:40 on a trading day, or the **Run review** button for any stored day | what the rules made at the shown size, where the desk was wrong, one thing for tomorrow, data health |
+
+Claude sees only: the symbol's last twelve 5-minute bars with volume and OI, its
+ranking row, sector average, breadth, previous-day levels, the setup's recorded
+hit rate and the ticket. Every card says so (`blind to: news · index level · order book`).
+
+Setup (once):
+
+```bash
+docker compose exec -T postgres psql -U scanner -d scanner -f /migrations/004_desk.sql
+bash configure-env.sh --set ANTHROPIC_API_KEY
+docker compose up -d --build api
+```
+
+Get the key at console.anthropic.com with **prepaid credit and auto-reload off**:
+the credit is the outer ceiling. Inside it, `DESK_BUDGET_INR` (default ₹100 a day)
+is a hard stop: briefs pause at 70 % of it, verdicts at 100 %, and the tab's meter
+shows the spend. `DESK_MODEL` (default `claude-opus-5-5`; `claude-sonnet-5-5` is
+about half the cost, `claude-haiku-5-5` a tenth), `DESK_MIN_SCORE` / `DESK_MIN_RR`
+(default 0: every trigger gets a verdict), `DESK_RISK_INR` (sizing, default 2000),
+`DESK_TELEGRAM=0` to keep verdicts off Telegram, `DESK=0` to switch the desk off.
+Without a key the tab reads "desk off" and nothing else changes.
+
+Logs: `docker compose logs -f api | grep desk` shows `desk HH:MM: {'verdicts': n, ...}`
+and any API error (a wrong key shows as `AuthenticationError`, no credit as
+`BadRequestError ... credit balance`). Each call is stored in `desk_calls` with
+its context, output, usage and rupee cost.
+
+## 10. Adding a scan
 
 Create `scans/my_scan.json` (see the two examples). Sides are `{"number": x}`, `{"series": "prev_day_close|prev_day_high|prev_day_low"}`, or `{"off": N, "field": "open|high|low|close|volume|vwap|oi"}` where `off` 0 = forming candle, 1 = last closed, etc. Timeframes: 1m, 3m, 5m, 15m, 30m, 60m. The engine reloads the folder every minute.
 
-## 10. Known limits / to-do
+## 11. Known limits / to-do
 
 - Auto-login replays Kite's browser flow; if Zerodha changes the login page, fix `ingest/kite_auth.py`.
 - Volume delta uses the tick rule (uptick = buy); it is an approximation.
