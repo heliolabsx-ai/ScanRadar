@@ -4,10 +4,55 @@
   "timeframe": "5m",
   "match": "all",
   "rules": [
-    {"lhs": {"off": 1, "field": "close"}, "op": "<=", "rhs": {"off": 1, "field": "close", "sma": 13}},
-    {"lhs": {"off": 2, "field": "close"}, "op": ">=", "rhs": {"off": 1, "field": "close"}},
-    {"lhs": {"off": 3, "field": "close"}, "op": ">=", "rhs": {"off": 2, "field": "close"}},
-    {"lhs": {"off": 0, "field": "close"}, "op": ">",  "rhs": {"number": 2000}}
+    {
+      "lhs": {
+        "off": 1,
+        "field": "close"
+      },
+      "op": "<=",
+      "rhs": {
+        "off": 1,
+        "field": "close",
+        "sma": 13
+      }
+    },
+    {
+      "lhs": {
+        "off": 2,
+        "field": "close"
+      },
+      "op": ">=",
+      "rhs": {
+        "off": 1,
+        "field": "close"
+      }
+    },
+    {
+      "lhs": {
+        "off": 3,
+        "field": "close"
+      },
+      "op": ">=",
+      "rhs": {
+        "off": 2,
+        "field": "close"
+      }
+    },
+    {
+      "lhs": {
+        "off": 0,
+        "field": "close"
+      },
+      "op": ">",
+      "rhs": {
+        "number": 2000
+      }
+    }
   ],
-  "alert": {"telegram": true, "cooldown_min": 30}
+  "alert": {
+    "telegram": false,
+    "cooldown_min": 30
+  },
+  "desk": false,
+  "note": "Chartink translation, 19 Oct 2026. Backtest 20 sessions: 316 fires/day, 51% target-first, +0.03% at 30 min — a filter, not a signal. Telegram and desk verdicts off until it is tightened."
 }

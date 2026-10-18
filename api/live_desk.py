@@ -147,6 +147,8 @@ def process_minute(con, R, day, at: dt.datetime, snap: dict | None, *, prepare=N
             if desk.exists(cur, day, "verdict", ref):
                 continue
             sc = scans.get(a["scan"]) or {}
+            if sc.get("desk") is False:
+                continue                                      # scan opted out of desk verdicts ("desk": false in its JSON)
             side = sc.get("side") or a["payload"].get("side")
             if stale(a["ts"], at):
                 skip_row(cur, day, at, ref, a["symbol"], f"stale: fired {a['ts'].strftime('%H:%M')}, judged only within {desk.MAX_AGE_MIN} min", {"label": a["scan"]}); con.commit(); continue
