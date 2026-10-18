@@ -126,7 +126,7 @@ def main(argv=None) -> int:
     ap.add_argument("--days", type=int, default=60)
     ap.add_argument("--no-write", action="store_true")
     ap.add_argument("--note", default="")
-    ap.add_argument("--params", default="", help="JSON overriding DEFAULTS, e.g. '{"min_retrace": 0.008}'")
+    ap.add_argument("--params", default="", help="JSON overriding DEFAULTS, for example {\"min_retrace\": 0.008}")
     args = ap.parse_args(argv)
     import psycopg
     from core.patterns import DEFAULTS, detector_hash
