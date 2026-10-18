@@ -5,7 +5,7 @@ made it knowable (`close_at = bar.ts + 5 min`), and `as_of(at)` only shows facts
 with minute <= at. That is what makes replay, today's view and the live loop
 agree, and makes repainting impossible by construction.
 """
-import hashlib, json
+import hashlib, json, statistics
 import numpy as np, pandas as pd
 from .rules import resample
 
@@ -192,3 +192,25 @@ def as_of(patterns: list[dict], at, ctx: dict) -> list[dict]:
                      "state": state, "checks": checks, "score": sum(checks[:5]), "rr": rr,
                      "age_min": int((at - since).total_seconds() // 60)})
     return rows
+
+
+def summarise(rows: list[dict]) -> dict:
+    """Per kind: triggers, forming_only, hit_rate, fail_rate, avg_r30/r60, median_tt_min, by_score."""
+    def agg(rs):
+        trig = [r for r in rs if r.get("triggered_at")]
+        outs = [r["outcome"] for r in trig if r.get("outcome")]
+        hits = sum(1 for o in outs if o.get("hit") == "target"); stops = sum(1 for o in outs if o.get("hit") == "stop")
+        r30 = [o["r30"] for o in outs if o.get("r30") is not None]; r60 = [o["r60"] for o in outs if o.get("r60") is not None]
+        tts = [o["tt_min"] for o in outs if o.get("tt_min") is not None]
+        return {"triggers": len(trig), "forming_only": len(rs) - len(trig),
+                "hit_rate": hits / (hits + stops) * 100 if hits + stops else None,
+                "fail_rate": sum(1 for r in trig if r.get("failed_at")) / len(trig) * 100 if trig else None,
+                "avg_r30": sum(r30) / len(r30) if r30 else None, "avg_r60": sum(r60) / len(r60) if r60 else None,
+                "median_tt_min": statistics.median(tts) if tts else None}
+    out = {}
+    for kind in sorted({r["kind"] for r in rows}):
+        rs = [r for r in rows if r["kind"] == kind]
+        s = agg(rs)
+        s["by_score"] = {">=3": agg([r for r in rs if (r.get("score") or 0) >= 3]), "<3": agg([r for r in rs if (r.get("score") or 0) < 3])}
+        out[kind] = s
+    return out

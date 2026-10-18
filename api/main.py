@@ -6,6 +6,8 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
 import replay as rp
 import history as hs
 import alerts as al
+import patterns as pt
+from core.patterns import detector_hash
 
 logging.basicConfig(level=logging.INFO)
 app = FastAPI(title="ScanRadar API")
@@ -105,6 +107,11 @@ def _prepare_day(day: dt.date) -> None:
             refs = rp.load_refs(con, day)
             al.ensure_replay_alerts(con, day, frames, refs, scans, now)
             al.ensure_outcomes(con, day, frames, refs, scans, now)
+        if pt.patterns_needed(con, day, detector_hash()):
+            rows = pt.patterns_for_day(con, day)
+            with con.cursor() as cur:
+                pt.upsert_patterns(cur, day, rows, "replay", detector_hash())
+            con.commit()
         if hs.rank_timeline(con, day) is None:
             hs.build_timeline(connect, day)
         # warm the frames a viewer lands on: the close and every half hour
@@ -235,6 +242,50 @@ async def alerts(limit: int = 100, day: str | None = None):
     if need:
         await _kick_prepare(d)
     return {"day": d.isoformat(), "pending": bool(need), "alerts": rows}
+
+
+@app.get("/api/patterns")
+async def patterns(day: str, at: str):
+    try:
+        d, at_dt = rp.parse_replay_args(day, at)
+        now = dt.datetime.now(IST)
+        rp.assert_not_future(at_dt, now)
+    except rp.ReplayError as e:
+        raise HTTPException(e.status_code, e.detail)
+    at = at_dt.strftime("%H:%M")
+    loop = asyncio.get_running_loop()
+    settled = rp.day_is_settled(d, now)
+    if settled:
+        def q():
+            with connect() as con:
+                need = pt.patterns_needed(con, d, detector_hash())
+                return need, pt.rows_at(pt.stored_rows(con, d), at_dt)
+        need, rows = await loop.run_in_executor(None, q)
+        if need:
+            await _kick_prepare(d)
+    else:
+        key = f"patterns:today:{at}"
+        raw = await R.get(key)
+        if raw:
+            rows, need = json.loads(raw), False
+        else:
+            def q_today():
+                with connect() as con:
+                    return pt.today_rows(con, at_dt)
+            rows = await loop.run_in_executor(None, q_today)
+            rows = json.loads(json.dumps(rows, default=str))
+            await R.set(key, json.dumps(rows), ex=60)
+            need = False
+    counts = {k: sum(1 for r in rows if r["state"] == k) for k in ("forming", "triggered", "failed")}
+    return {"day": d.isoformat(), "at": at, "pending": bool(need), "rows": rows, "counts": counts}
+
+
+@app.get("/api/pattern-stats")
+async def pattern_stats(days: int = 20):
+    def q():
+        with connect() as con:
+            return pt.stats(con, days)
+    return await asyncio.get_running_loop().run_in_executor(None, q)
 
 
 @app.get("/api/scan-stats")
