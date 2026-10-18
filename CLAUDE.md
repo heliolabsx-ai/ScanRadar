@@ -99,7 +99,7 @@ Verify: `https://scanradar.tech/api/health` → `{"ingest":"ready","ws":"connect
 - Kite login facts learned live: the account needed **External 2FA TOTP enabled and verified** (the login response's `twofa_types` must contain `totp`; the Kite-app `app_code` mode cannot be automated); Zerodha locks after 5 wrong codes, so `kite_auth` never retries a 4xx; the Connect flow shows `/connect/authorize` once per app until the user clicks Authorize in a browser (done for this api_key); the redirect chain is `/connect/login` → `/connect/finish` → callback URL with `request_token`.
 - A browser-only demo of the dashboard on simulated data exists as a Claude artifact (reference for look & behaviour).
 
-- **18 Oct 2026:** Patterns tab and the Claude Desk built on `feat/patterns`, deployed on the VPS from that branch (merge to `main` pending Saurabh's call). Desk needs `ANTHROPIC_API_KEY` in `.env` (prepaid credit, auto-reload off) — first live test planned for Mon 19 Oct 2026.
+- **18 Oct 2026:** Patterns tab and the Claude Desk built on `feat/patterns`, deployed on the VPS from that branch (merge to `main` pending Saurabh's call). `ANTHROPIC_API_KEY` set on the VPS by Saurabh (rotate the key after the first live day). First real verdict on 16 Oct data: Opus 5.5, 9 s, ₹2.16 (cache write; reads are cheaper). Facts learned: structured-output schemas accept only a subset (no `minimum`/`maximum`/`maxLength`/`minItems`; keep lengths in the prompt); `fallbacks: "default"` goes through `extra_body` with the `server-side-fallback-2026-07-01` header; at ₹2,000 risk most F&O lots size to 0, so the cards show the one-lot risk.
 
 ## To-do / roadmap (in priority order)
 
