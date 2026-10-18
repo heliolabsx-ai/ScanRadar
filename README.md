@@ -157,11 +157,48 @@ parks on the last real bar.
 Replay and live use the same analytics code (`core/`). The engine switches to
 `core/` after the first clean live day (Phase 2 in the design doc).
 
-## 8. Adding a scan
+## 8. Patterns tab (double and triple bottoms and tops)
+
+The **Patterns** tab detects double and triple bottoms and tops on 5-minute bars
+for every stock, obeying the same date and time slider as the Scanner. A row is
+**forming** once its second (or third) swing point is confirmed, **triggered**
+on the first 5-minute close through the neckline (entry = that close, stop =
+the pattern's extreme, target = the measured move), and **failed** if a close
+comes back through the neckline within three bars. The score counts five
+confirmations: the day already moved at least 1 % by the second point, OI lower
+at the second point than the first, volume at least 1.5× the day's 5-minute
+average, the sector agreeing with the direction, and the trigger close on the
+right side of VWAP. Clicking a row draws the points, neckline, trigger bar and
+stop/target zones on the chart, and the panel lists the checks.
+
+Rows for stored days come from the `patterns` table. Populate it (and print the
+hit rates) with:
+
+```bash
+docker compose run --rm -T api python scripts/backtest_patterns.py --days 60 --note /app/notes/patterns-backtest.md
+```
+
+Detector parameters live in `core/patterns.py` (`DEFAULTS`); the tuning and the
+numbers behind them are in `docs/superpowers/notes/patterns-backtest-2026-10-18.md`.
+Changing the parameters changes the detector hash and the next run replaces the
+stored replay rows.
+
+During the session the API process runs a live loop (every minute from 09:20
+to 15:20 on trading days, `PATTERNS_LIVE=1`) that writes today's rows, sends one
+Telegram per trigger per symbol and kind (`<b>Double bottom · BUY</b>` /
+`SELL`, entry, stop, target, R:R, score) and pushes the page to refresh. The
+Mac notification fires for new triggers when the bell is on.
+
+Limits: 5-minute bars only; backfilled days use total volume for the volume
+check; OI before the previous expiry is thin; mean returns 30 minutes after a
+trigger are flat in the backtest even where the hit rate is high, so the target
+is a take-profit, not a hold.
+
+## 9. Adding a scan
 
 Create `scans/my_scan.json` (see the two examples). Sides are `{"number": x}`, `{"series": "prev_day_close|prev_day_high|prev_day_low"}`, or `{"off": N, "field": "open|high|low|close|volume|vwap|oi"}` where `off` 0 = forming candle, 1 = last closed, etc. Timeframes: 1m, 3m, 5m, 15m, 30m, 60m. The engine reloads the folder every minute.
 
-## 9. Known limits / to-do
+## 10. Known limits / to-do
 
 - Auto-login replays Kite's browser flow; if Zerodha changes the login page, fix `ingest/kite_auth.py`.
 - Volume delta uses the tick rule (uptick = buy); it is an approximation.
