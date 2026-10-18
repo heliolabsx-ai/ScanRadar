@@ -261,6 +261,7 @@ const TFS = ['1m','3m','5m','15m','30m','60m','1D'];
 const TFMIN = {'1m':1,'3m':3,'5m':5,'15m':15,'30m':30,'60m':60};
 try{ const t = localStorage.getItem('tf'); if(TFS.includes(t)) S.tf = t; }catch(e){}
 const chartCache = {key:null, data:null, ref:null, delta:false};
+const curTf = () => (S.view === 'patterns' && S.tf === '1D') ? '5m' : S.tf;
 const dailyCache = {sym:null, bars:null};
 let hoverIdx = null;
 const minIdx = c => hhmmToMin(c.ts.slice(11,16));
@@ -328,7 +329,7 @@ function wireChart(a){
 async function loadAndDraw(a){
   const day = S.day || todayIST();
   try{
-    if(S.tf === '1D'){
+    if(curTf() === '1D'){
       if(dailyCache.sym !== a.symbol){ const r = await api(`/api/candles/${a.symbol}?tf=1d&days=250`); dailyCache.sym = a.symbol; dailyCache.bars = r.bars; }
     }else{
       const key = a.symbol + '|' + day;
@@ -345,12 +346,12 @@ function drawChart(a){
   const yv0 = pT+Hp+gap, yo0 = yv0+Hv+gap;
   ctx.clearRect(0,0,W,H); ctx.font='10px JetBrains Mono, monospace'; ctx.lineWidth=1;
   const readout = panelEl().querySelector('.readout');
-  const daily = S.tf === '1D';
-  const bars = daily ? (dailyCache.bars||[]) : (chartCache.data ? resampleBrowser(cutAt(chartCache.data, S.at||'15:30'), TFMIN[S.tf]) : []);
+  const daily = curTf() === '1D';
+  const bars = daily ? (dailyCache.bars||[]) : (chartCache.data ? resampleBrowser(cutAt(chartCache.data, S.at||'15:30'), TFMIN[curTf()]) : []);
   if(!bars.length){ ctx.fillStyle=C('--muted'); ctx.fillText(daily?'no daily bars':'no data for '+a.symbol+' on '+(S.day||todayIST()), pL+4, pT+14); if(readout) readout.textContent=''; return; }
   const n = daily ? bars.length : 375;
   const xi = i => pL + i/n*(W-pL-pR);
-  const tfm = daily ? 1 : TFMIN[S.tf];
+  const tfm = daily ? 1 : TFMIN[curTf()];
   const bw = Math.max(1, (W-pL-pR)/n*tfm*0.7);
   const bx = b => daily ? xi(b.k) : xi(b.i0);
   if(daily) bars.forEach((b,k)=>b.k=k);
@@ -385,7 +386,7 @@ function drawChart(a){
     const base = ois[0]; ctx.strokeStyle=C('--line'); ctx.setLineDash([2,2]); ctx.beginPath(); ctx.moveTo(pL,yo(base)); ctx.lineTo(W-pR,yo(base)); ctx.stroke(); ctx.setLineDash([]);
     ctx.strokeStyle=C('--accent'); ctx.lineWidth=1.4; ctx.beginPath(); let started=false;
     bars.forEach(b=>{ if(!b.oi) return; const xx=bx(b)+bw/2, yy=yo(b.oi); started?ctx.lineTo(xx,yy):ctx.moveTo(xx,yy); started=true; }); ctx.stroke(); ctx.lineWidth=1;
-    const last = ois[ois.length-1], chg=(last/base-1)*100; ctx.fillStyle=chg>=0?C('--bull'):C('--bear'); ctx.fillText(`OI ${sg(chg,1)}%`, W-pR+4, yo(last)+3);
+    const last = ois[ois.length-1], chg=(last/base-1)*100; ctx.fillStyle=chg>=0?C('--bull'):C('--bear'); ctx.fillText(Math.abs(chg) < 500 ? `OI ${sg(chg,1)}%` : `OI ${K(last)}`, W-pR+4, yo(last)+3);
   }
   ctx.fillStyle=C('--muted'); ctx.fillText('VOL', pL+2, yv0+9); ctx.fillText('OI', pL+2, yo0+9);
   // ---- markers: alerts for this symbol up to the as-of minute
@@ -639,7 +640,7 @@ function renderPatternDetail(){
     <dt>Target</dt><dd class="up">${fmt(r.target)}</dd><dt>R:R</dt><dd>1:${fmt(r.rr,1)}</dd>
     <dt>Qty @ ₹${fmt(S.risk,0)}</dt><dd>${qty?qty.toLocaleString('en-IN')+' <span class="mut">('+qty/lot+' × '+lot+')</span>':'<span class="mut">'+(lot?'lot too large':'lot unknown')+'</span>'}</dd><dt>Hit rate</dt><dd>${hitRateFor(r.kind)}</dd>
     ${r.outcome?`<dt>Outcome</dt><dd>${outcomeLabel(r.outcome)}</dd>`:''}</dl>
-   <div class="tfrow">${TFS.filter(t=>t!=='1D').map(t=>`<button class="tf ${S.tf===t?'on':''}" data-tf="${t}">${t}</button>`).join('')}<span class="readout mono"></span></div>
+   <div class="tfrow">${TFS.filter(t=>t!=='1D').map(t=>`<button class="tf ${curTf()===t?'on':''}" data-tf="${t}">${t}</button>`).join('')}<span class="readout mono"></span></div>
    <canvas class="chart" width="620" height="430"></canvas>
    <div class="why"><b>Why this row</b><ul>${r.checks.map((ok,i)=>`<li class="${ok?'ok':'no'}">${checksText[i]}</li>`).join('')}</ul></div>`;
   wireChart({symbol: r.symbol, minimal: true, pattern: r});
