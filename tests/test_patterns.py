@@ -176,3 +176,16 @@ def test_min_extension_filters_shallow_days():
     assert one(detect_day(d, pc, {**P, "min_extension": 1.0}), "double_bottom")
     assert not [p for p in detect_day(d, pc, {**P, "min_extension": 3.0}) if p["kind"] == "double_bottom"]
     assert "min_extension" in DEFAULTS
+
+
+def test_successive_second_lows_supersede_instead_of_duplicating():
+    # L1 at bar 3; L2 at bar 7 slightly above L1; a later low at bar 13 slightly below L1 (within TOL of L1,
+    # not of L2). The (L1, L2) double must be superseded by (L1, L3); only one live double remains.
+    shape = [0.0, -0.6, -1.3, -2.0, -1.5, -0.9, -1.4, -1.7, -1.3, -1.0, -1.4, -1.7, -1.9, -2.3, -1.8, -1.4, -1.0, -0.7, -0.3]
+    shape[7] = -1.7            # L2 = L1 + 0.3%
+    shape[13] = -2.3           # L3 = L1 - 0.3%  (0.6% below L2 → not a triple)
+    pats = [p for p in detect_day(*shaped_day(shape), P) if p["side"] == "long"]
+    live = [p for p in pats if p["superseded_at"] is None]
+    assert len(live) == 1 and [q["idx"] for q in live[0]["points"]] == [3, 13]
+    old = [p for p in pats if p["superseded_at"] is not None]
+    assert len(old) == 1 and [q["idx"] for q in old[0]["points"]] == [3, 7] and old[0]["superseded_at"] == live[0]["formed_at"]

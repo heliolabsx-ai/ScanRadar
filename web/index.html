@@ -4,6 +4,7 @@
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&display=swap">
 <script src="filter.js"></script>
 <script src="notify.js"></script>
+<script src="patterns.js"></script>
 <style>
 /* Layout: control strip → sector/breadth rail → bull/bear card grid → detail panel with canvas chart. Terminal-style data UI. */
 :root{
@@ -22,6 +23,7 @@
   --bull:#4cc47f; --bull-soft:#15301f; --bear:#f06a6c; --bear-soft:#3a1a1b;
   --amber:#e0a63a; --accent:#8aa6e8; --vwap:#8fa6ea; color-scheme:dark}
 *{box-sizing:border-box}
+[hidden]{display:none!important}
 body{margin:0;background:var(--bg);color:var(--fg);font-family:var(--sans);font-size:13px;
   padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:14px}
 .mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
@@ -93,6 +95,15 @@ canvas{display:block;width:100%;max-width:100%;margin-top:10px;border-radius:4px
 .filters .eyebrow{margin:0}.filters label{gap:4px}.filters input[type=number]{width:64px}.filters select{max-width:150px}
 .filters .chk{display:inline-flex;align-items:center;gap:4px;cursor:pointer}.filters.on{border-color:var(--accent)}
 .filters .count{font:600 10.5px var(--mono);color:var(--accent);margin-left:auto}
+.tabs{display:inline-flex;border:1px solid var(--line);border-radius:4px;overflow:hidden}.tabs .tab{border:0;border-radius:0;padding:4px 12px;color:var(--muted)}.tabs .tab.on{background:var(--fg);color:var(--bg)}
+.pgrid{display:grid;grid-template-columns:1fr 440px;gap:12px;align-items:start}.pgrid .eyebrow{display:flex;justify-content:space-between;gap:8px}@media (max-width:1000px){.pgrid{grid-template-columns:1fr}}
+.pstats{font:500 10.5px var(--mono);color:var(--muted);line-height:1.7;margin-bottom:8px}.pstats b{color:var(--fg)}
+.pills{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px}.pill{font:600 10px var(--mono);padding:3px 8px;border:1px solid var(--line);border-radius:12px;color:var(--muted);cursor:pointer;background:var(--panel)}.pill.on{border-color:var(--fg);color:var(--fg)}
+table.pt{width:100%;border-collapse:collapse;font-size:12px}.pt th{font:600 10px var(--sans);letter-spacing:.08em;text-transform:uppercase;color:var(--muted);text-align:left;padding:4px 6px;border-bottom:1px solid var(--line)}
+.pt td{padding:7px 6px;border-bottom:1px solid var(--line);vertical-align:middle}tr.prow{cursor:pointer}tr.prow:hover td{background:var(--bg)}tr.prow.sel td{background:var(--bg)}
+.chip.buy{background:var(--bull-soft);color:var(--bull)}.chip.sell{background:var(--bear-soft);color:var(--bear)}.chip.form{background:var(--line);color:var(--muted)}.chip.trig{background:var(--fg);color:var(--bg)}.chip.fail{background:var(--bear-soft);color:var(--bear)}
+.score{display:inline-flex;gap:2px;vertical-align:middle}.score i{width:6px;height:6px;border-radius:50%;background:var(--line);display:block}.score i.on{background:currentColor}
+.why{margin-top:10px;font-size:11.5px;padding:8px;border-radius:4px;background:var(--bg);border:1px solid var(--line);line-height:1.6}.why ul{margin:4px 0 0;padding:0;list-style:none}.why b{font-family:var(--mono)}.ok::before{content:"✓ ";color:var(--bull)}.no::before{content:"· ";color:var(--muted)}
 .alerts{margin-top:12px}.alerts .list{max-height:460px;overflow:auto}
 .alert{display:grid;grid-template-columns:38px 1fr auto;gap:2px 6px;font-size:11.5px;padding:5px 0;border-bottom:1px solid var(--line);align-items:center;cursor:pointer}
 .alert:hover{background:var(--bg)}.alert .oc{grid-column:2/-1;font:500 10.5px var(--mono);color:var(--muted)}.alert .oc b{font-weight:600}
@@ -105,6 +116,7 @@ canvas{display:block;width:100%;max-width:100%;margin-top:10px;border-radius:4px
 </style></head><body>
 <div class="top">
   <h1>ScanRadar</h1>
+  <span class="tabs"><button class="tab on" data-view="scanner">Scanner</button><button class="tab" data-view="patterns">Patterns</button></span>
   <select id="day" title="Session"></select>
   <span class="clock mono" id="clock">--:--</span>
   <span class="st" id="status"><i class="dot"></i><span id="statusText">WAITING</span></span>
@@ -131,7 +143,7 @@ canvas{display:block;width:100%;max-width:100%;margin-top:10px;border-radius:4px
   <button id="fClear" title="Reset all filters">Clear</button>
   <span class="count" id="fCount"></span>
 </div>
-<div class="grid">
+<div class="grid" id="scannerView">
   <div class="panel rail">
     <p class="eyebrow">Breadth &amp; sectors</p>
     <div class="breadth"><span>▲ Bullish <b class="up" id="nbull">0</b></span><span>▼ Bearish <b class="dn" id="nbear">0</b></span></div>
@@ -141,6 +153,17 @@ canvas{display:block;width:100%;max-width:100%;margin-top:10px;border-radius:4px
   <div class="panel col"><h2><span class="up">Bulls</span><span class="mono" id="bullhdr"></span></h2><div id="bulls"></div></div>
   <div class="panel col"><h2><span class="dn">Bears</span><span class="mono" id="bearhdr"></span></h2><div id="bears"></div></div>
   <div class="panel detail" id="detail"><p class="eyebrow">Select a stock</p><div class="empty" id="detailEmpty">Waiting for the first ranking. Cards appear from 09:15 on a trading day.</div></div>
+</div>
+<div class="pgrid" id="patternsView" hidden>
+  <div class="panel">
+    <p class="eyebrow"><span id="peyebrow">Pattern setups · 5m</span><span class="mono" id="pcounts"></span></p>
+    <div class="pstats" id="pstats"></div>
+    <div class="pills"><span class="pill on" data-q="all">All</span><span class="pill" data-q="bottoms">Bottoms (BUY)</span><span class="pill" data-q="tops">Tops (SELL)</span><span class="pill" data-q="triggered">Triggered only</span><span class="pill" data-q="oi">OI confirmed</span><span class="pill" data-q="rr15">Min R:R 1.5</span></div>
+    <table class="pt"><thead><tr><th>Stock</th><th>Pattern</th><th>State</th><th>Side</th><th>Entry</th><th>Stop</th><th>Target</th><th>R:R</th><th>Score</th><th>Age</th></tr></thead><tbody id="prows"></tbody></table>
+    <div class="empty" id="pempty"></div>
+    <p class="note mut" style="font-size:11px;line-height:1.5;margin-top:8px"><b>Forming</b> = shape complete, waiting for the confirming 5m close through the neckline. <b>Triggered</b> = that close happened; entry is its close, stop the pattern's extreme, target the measured move. <b>Failed</b> = closed back through the neckline within 3 bars. Score = confirmations ticked on the right.</p>
+  </div>
+  <div class="panel" id="pdetail"></div>
 </div>
 <script>
 // ---------- state ----------
@@ -270,8 +293,8 @@ async function renderDetail(){
     const m = {symbol: S.selected, minimal: true};
     d.innerHTML = `<p class="eyebrow">${S.sectorsOf[S.selected]||''} · not in the top 40 of either side at ${S.at||''} · chart only</p>
      <div class="head"><div class="mono" style="font-weight:700;font-size:15px">${S.selected}</div></div>
-     <div class="tfrow">${TFS.map(t=>`<button class="tf ${S.tf===t?'on':''}" data-tf="${t}">${t}</button>`).join('')}<span class="readout mono" id="readout"></span></div>
-     <canvas id="chart" width="620" height="430"></canvas>`;
+     <div class="tfrow">${TFS.map(t=>`<button class="tf ${S.tf===t?'on':''}" data-tf="${t}">${t}</button>`).join('')}<span class="readout mono"></span></div>
+     <canvas class="chart" width="620" height="430"></canvas>`;
     wireChart(m); return;
   }
   const side = a.dir>0?'bull':'bear', sec = S.snap.sectors[a.sector], lst = side==='bull'?S.snap.bulls:S.snap.bears;
@@ -289,15 +312,15 @@ async function renderDetail(){
     <dt>Risk</dt><dd>${fmt(a.risk_pct)}%</dd><dt>R:R</dt><dd>1:${fmt(a.rr,1)}</dd>
    </dl>
    <dl class="size">${sizing(a)}</dl>
-   <div class="tfrow">${TFS.map(t=>`<button class="tf ${S.tf===t?'on':''}" data-tf="${t}">${t}</button>`).join('')}<span class="readout mono" id="readout"></span></div>
-   <canvas id="chart" width="620" height="430"></canvas>
+   <div class="tfrow">${TFS.map(t=>`<button class="tf ${S.tf===t?'on':''}" data-tf="${t}">${t}</button>`).join('')}<span class="readout mono"></span></div>
+   <canvas class="chart" width="620" height="430"></canvas>
    <div class="rule">RULE · ${a.picked?`<b>PICKED</b> — #${bIdx+1} among ${side}s (top 3 taken).`:`<b>NOT PICKED</b> — #${bIdx+1} among ${side}s.`} ${a.rr<1.5?'R:R below 1.5 vetoes a pick.':''}</div>`;
   wireChart(a);
 }
 function wireChart(a){
-  const d = $('detail');
+  const d = panelEl();
   d.querySelectorAll('.tf').forEach(b => b.onclick = () => { S.tf = b.dataset.tf; try{ localStorage.setItem('tf', S.tf); }catch(e){} d.querySelectorAll('.tf').forEach(x=>x.classList.toggle('on', x.dataset.tf===S.tf)); hoverIdx = null; loadAndDraw(a); });
-  const cv = $('chart');
+  const cv = d.querySelector('canvas');
   cv.onpointermove = e => { const r = cv.getBoundingClientRect(); const px = (e.clientX - r.left) / r.width * cv.width; hoverIdx = px; drawChart(a); };
   cv.onpointerleave = () => { hoverIdx = null; drawChart(a); };
   loadAndDraw(a);
@@ -312,15 +335,16 @@ async function loadAndDraw(a){
       if(chartCache.key !== key || S.following){ const r = await api(`/api/candles/${a.symbol}?day=${day}`); chartCache.key = key; chartCache.data = r.candles; chartCache.ref = r.ref || {}; chartCache.delta = r.delta_available; }
     }
   }catch(e){ return; }
-  if(S.selected === a.symbol) drawChart(a);
+  const stillCurrent = S.view === 'patterns' ? (S.psel && S.psel.symbol === a.symbol) : S.selected === a.symbol;
+  if(stillCurrent) drawChart(a);
 }
 function drawChart(a){
-  const cv = $('chart'); if(!cv) return; const ctx = cv.getContext('2d');
+  const cv = panelEl().querySelector('canvas'); if(!cv) return; const ctx = cv.getContext('2d');
   const C = k => getComputedStyle(document.documentElement).getPropertyValue(k).trim();
   const W=cv.width, H=cv.height, pL=8, pR=70, pT=10, pB=18, gap=6, Hv=64, Ho=64, Hp=H-pT-pB-Hv-Ho-2*gap;
   const yv0 = pT+Hp+gap, yo0 = yv0+Hv+gap;
   ctx.clearRect(0,0,W,H); ctx.font='10px JetBrains Mono, monospace'; ctx.lineWidth=1;
-  const readout = $('readout');
+  const readout = panelEl().querySelector('.readout');
   const daily = S.tf === '1D';
   const bars = daily ? (dailyCache.bars||[]) : (chartCache.data ? resampleBrowser(cutAt(chartCache.data, S.at||'15:30'), TFMIN[S.tf]) : []);
   if(!bars.length){ ctx.fillStyle=C('--muted'); ctx.fillText(daily?'no daily bars':'no data for '+a.symbol+' on '+(S.day||todayIST()), pL+4, pT+14); if(readout) readout.textContent=''; return; }
@@ -333,6 +357,7 @@ function drawChart(a){
   // ---- price scale
   const mins = chartCache.data && !daily ? cutAt(chartCache.data, S.at||'15:30') : [];
   const lv = (daily || a.minimal) ? [] : [a.R2,a.R1,a.S1,a.S2];
+  if(a.pattern && !daily) lv.push(a.pattern.stop, a.pattern.target, a.pattern.neckline);
   let lo = Math.min(...bars.map(b=>b.l), ...lv), hi = Math.max(...bars.map(b=>b.h), ...lv); const pd=(hi-lo)*.05||1; lo-=pd; hi+=pd;
   const y = p => pT + (1-(p-lo)/(hi-lo))*Hp;
   // ---- overlays (intraday only, from 1-minute data)
@@ -375,6 +400,20 @@ function drawChart(a){
       ctx.closePath(); ctx.fill();
     });
   }
+  // ---- pattern overlay (Patterns tab)
+  if(a.pattern && !daily){
+    const pat = a.pattern, mi = ts => hhmmToMin(String(ts).slice(11,16)), long = pat.side==='long', half = (W-pL-pR)/375*2.5;
+    const x0n = xi(mi(pat.points[0].ts));
+    ctx.strokeStyle=C('--accent'); ctx.setLineDash([5,3]); ctx.lineWidth=1.4; ctx.beginPath(); ctx.moveTo(x0n,y(pat.neckline)); ctx.lineTo(W-pR,y(pat.neckline)); ctx.stroke(); ctx.setLineDash([]); ctx.lineWidth=1;
+    ctx.fillStyle=C('--accent'); ctx.fillText('NECK '+fmt(pat.neckline), W-pR+4, y(pat.neckline)+3);
+    [['STOP',pat.stop,'--bear'],['TGT',pat.target,'--bull']].forEach(([nm,p,c])=>{ ctx.strokeStyle=C(c); ctx.setLineDash([2,3]); ctx.beginPath(); ctx.moveTo(x0n,y(p)); ctx.lineTo(W-pR,y(p)); ctx.stroke(); ctx.setLineDash([]); ctx.fillStyle=C(c); ctx.fillText(nm+' '+fmt(p), W-pR+4, y(p)+3); });
+    pat.points.forEach((q,k)=>{ const xx = xi(mi(q.ts))+half; ctx.strokeStyle=C('--amber'); ctx.lineWidth=1.5; ctx.beginPath(); ctx.arc(xx, y(q.price), 7, 0, Math.PI*2); ctx.stroke(); ctx.lineWidth=1; ctx.fillStyle=C('--amber'); ctx.fillText(`${['1st','2nd','3rd'][k]||(k+1)+'th'} ${long?'low':'high'} ${String(q.ts).slice(11,16)}`, xx-16, long? y(q.price)+19 : y(q.price)-12); });
+    if(pat.triggered_at){ const tm = mi(pat.triggered_at)-5, xa = xi(tm), xb = xi(tm+5);
+      ctx.strokeStyle=C('--fg'); ctx.strokeRect(xa-1, pT, xb-xa+2, Hp); ctx.fillStyle=C('--fg'); ctx.fillText(pat.state==='failed'?'TRIGGER → FAILED':'TRIGGER '+String(pat.triggered_at).slice(11,16), xa-28, pT+10);
+      const ref = pat.entry!=null?pat.entry:pat.neckline; const zone=(p1,p2,col)=>{ ctx.fillStyle=C(col); ctx.globalAlpha=.35; ctx.fillRect(xb, Math.min(y(p1),y(p2)), W-pR-xb, Math.abs(y(p1)-y(p2))); ctx.globalAlpha=1; };
+      zone(ref, pat.target, '--bull-soft'); zone(ref, pat.stop, '--bear-soft'); }
+    else { ctx.fillStyle=C('--muted'); ctx.fillText(`waiting for a 5m close ${long?'above':'below'} the neckline`, x0n+4, pT+10); }
+  }
   // ---- last price tag, as-of marker, axis
   const lastB = bars[bars.length-1]; ctx.fillStyle=C('--fg'); ctx.fillRect(W-pR,y(lastB.c)-7,66,14); ctx.fillStyle=C('--bg'); ctx.fillText(fmt(lastB.c),W-pR+4,y(lastB.c)+3);
   if(!daily && S.at){ const xa = xi(hhmmToMin(S.at)); ctx.strokeStyle=C('--muted'); ctx.setLineDash([1,2]); ctx.beginPath(); ctx.moveTo(xa,pT); ctx.lineTo(xa,yo0+Ho); ctx.stroke(); ctx.setLineDash([]); }
@@ -402,7 +441,7 @@ function renderAll(){
   $('clock').textContent = S.at || S.snap.ts.slice(11,16);
   renderCards(); renderAlerts(); renderFoot();
   if(!S.selected && S.snap.bulls[0]) S.selected = S.snap.bulls[0].symbol;
-  renderDetail();
+  if(S.view === 'patterns') loadPatterns(); else renderDetail();
 }
 function outcomeLabel(o){
   if(o === null) return '<span class="mut">—</span>';
@@ -526,6 +565,98 @@ function notifyFromLive(snap, alerts){
   freshPicks.slice(0, 5).forEach(p => ScanNotify.show(ScanNotify.pickMessage(p, snap.ts.slice(11,16)), jump));
 }
 
+// ---------- Patterns tab ----------
+S.view = location.hash === '#patterns' ? 'patterns' : 'scanner';
+S.prows = []; S.pcounts = {}; S.ppending = false; S.psel = null; S.pquick = 'all'; S.pstats = null; S.pseen = new Set(); S.pseeded = false;
+const PK = ScanPatterns;
+function setView(v){
+  S.view = v; location.hash = v === 'patterns' ? '#patterns' : '';
+  document.querySelectorAll('.tab').forEach(b => b.classList.toggle('on', b.dataset.view === v));
+  $('scannerView').hidden = v !== 'scanner'; $('patternsView').hidden = v !== 'patterns';
+  if(v === 'patterns'){ loadPatterns(); loadPatternStats(); } else { renderDetail(); }
+}
+document.querySelectorAll('.tab').forEach(b => b.onclick = () => setView(b.dataset.view));
+function panelEl(){ return S.view === 'patterns' ? $('pdetail') : $('detail'); }
+
+async function loadPatterns(){
+  const day = S.day || todayIST(), at = S.at || '15:30';
+  try{
+    const res = await api(`/api/patterns?day=${day}&at=${at}`);
+    if((S.day || todayIST()) !== day || (S.at || '15:30') !== at) return;
+    S.prows = res.rows; S.pcounts = res.counts; S.ppending = res.pending;
+    if(S.view === 'patterns') renderPatterns();
+    notifyPatterns(res.rows);
+    if(S.ppending){ clearTimeout(S.ptimer); S.ptimer = setTimeout(loadPatterns, 10000); }
+  }catch(e){ S.prows = []; S.pcounts = {}; if(S.view === 'patterns') renderPatterns(e.message); }
+}
+async function loadPatternStats(){
+  try{ S.pstats = await api('/api/pattern-stats?days=20'); if(S.view === 'patterns') renderPatternStats(); }catch(e){}
+}
+function hitRateFor(kind){ const s = S.pstats && S.pstats[kind]; return s && s.hit_rate != null ? `${fmt(s.hit_rate,0)}% · 20d` : '—'; }
+function renderPatternStats(){
+  const st = S.pstats || {};
+  $('pstats').innerHTML = Object.entries(st).map(([k, s]) => {
+    const hi = s.by_score['>=3'];
+    return `<div><b>${PK.kindLabel(k)}</b> · ${s.triggers} triggers · ${s.hit_rate!=null?fmt(s.hit_rate,0)+'% hit':'no hits'} · ${s.avg_r30!=null?sg(s.avg_r30)+'% @30m':'—'}${s.median_tt_min!=null?` · median ${fmt(s.median_tt_min,0)} min to target`:''}${hi.triggers?` · score≥3: ${fmt(hi.hit_rate||0,0)}% of ${hi.triggers}`:''}</div>`;
+  }).join('') || '<span class="mut">no graded triggers yet</span>';
+}
+function renderPatterns(err){
+  const at = S.at || '15:30';
+  $('peyebrow').textContent = `Pattern setups · 5m · as of ${at}`;
+  const c = S.pcounts || {};
+  $('pcounts').textContent = `${c.forming||0} forming · ${c.triggered||0} triggered · ${c.failed||0} failed`;
+  document.querySelectorAll('.pill').forEach(p => p.classList.toggle('on', p.dataset.q === S.pquick));
+  const rows = PK.sortRows(PK.filterRows(S.prows, S.pquick, S.filter, S.sectorsOf));
+  if(S.psel && !rows.some(r => r.symbol === S.psel.symbol && r.kind === S.psel.kind && r.formed_at === S.psel.formed_at)) S.psel = null;
+  if(!S.psel && rows.length) S.psel = rows[0];
+  $('prows').innerHTML = rows.map(r => `<tr class="prow ${S.psel && S.psel.symbol===r.symbol && S.psel.kind===r.kind && S.psel.formed_at===r.formed_at ? 'sel':''}" data-key="${r.symbol}|${r.kind}|${r.formed_at}">
+    <td class="mono" style="font-weight:700">${r.symbol}</td><td>${PK.kindLabel(r.kind)}</td><td>${stateChip(r.state)}</td>
+    <td><span class="chip ${r.side==='long'?'buy':'sell'}">${r.side==='long'?'BUY':'SELL'}</span></td>
+    <td class="mono">${fmt(r.entry!=null?r.entry:r.neckline)}</td><td class="mono dn">${fmt(r.stop)}</td><td class="mono up">${fmt(r.target)}</td><td class="mono">1:${fmt(r.rr,1)}</td>
+    <td><span class="score ${r.side==='long'?'up':'dn'}">${[1,2,3,4,5].map(k=>`<i class="${r.score>=k?'on':''}"></i>`).join('')}</span></td>
+    <td class="mono mut">${PK.ageLabel(r.age_min, r.triggered_at)}</td></tr>`).join('');
+  $('pempty').textContent = err ? `could not load patterns: ${err}` : S.ppending ? 'preparing this day (patterns, outcomes, history)… refreshing' : rows.length ? '' : `no patterns formed by ${at}${S.pquick!=='all'||ScanFilter.isActive(S.filter)?' that pass the filters':''}`;
+  renderPatternDetail();
+}
+const stateChip = s => s==='triggered' ? '<span class="chip trig">TRIGGERED</span>' : s==='failed' ? '<span class="chip fail">FAILED</span>' : '<span class="chip form">FORMING</span>';
+function renderPatternDetail(){
+  const r = S.psel, d = $('pdetail');
+  if(!r){ d.innerHTML = '<p class="eyebrow">Select a setup</p><div class="empty">Click a row to see the pattern on the chart.</div>'; return; }
+  const long = r.side === 'long', ref = r.entry != null ? r.entry : r.neckline, dist = Math.abs(ref - r.stop);
+  const lot = S.lots[r.symbol] || 0; const qty = lot && dist ? Math.floor(S.risk / dist / lot) * lot : 0;
+  const sector = S.sectorsOf[r.symbol] || ''; const sec = S.snap && S.snap.sectors ? S.snap.sectors[sector] : null;
+  const row = rowFor(r.symbol); const dayPct = row ? sg(row.pct)+'%' : '';
+  const checksText = [
+    `Day already moved ${long?'down':'up'} at least 1% at the ${long?'second low':'second high'}`,
+    `OI lower at the ${long?'second low (shorts covering)':'second high (longs unwinding)'}`,
+    `Volume at least 1.5× the day's 5m average on the ${r.state==='forming'?'second point':'trigger bar'}`,
+    `Sector ${sector}${sec!=null?' '+sg(sec)+'%':''} agrees with the direction`,
+    `${r.state==='forming'?'Last close':'Trigger close'} ${long?'above':'below'} VWAP`,
+    `Confirming 5m close ${long?'above':'below'} the neckline ${fmt(r.neckline)}`];
+  d.innerHTML = `<p class="eyebrow"><span>${PK.kindLabel(r.kind)} · ${sector} ${dayPct?'· day '+dayPct:''}</span>${stateChip(r.state)}</p>
+   <div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px"><div class="mono" style="font-weight:700;font-size:15px">${r.symbol}</div><span class="chip ${long?'buy':'sell'}" style="font-size:12px">${PK.actionLabel(r)}</span></div>
+   <dl class="kv"><dt>Entry</dt><dd>${fmt(ref)}${r.entry==null?' <span class="mut">(neckline)</span>':''}</dd><dt>Stop</dt><dd class="dn">${fmt(r.stop)} <span class="mut">(${fmt(dist/ref*100)}%)</span></dd>
+    <dt>Target</dt><dd class="up">${fmt(r.target)}</dd><dt>R:R</dt><dd>1:${fmt(r.rr,1)}</dd>
+    <dt>Qty @ ₹${fmt(S.risk,0)}</dt><dd>${qty?qty.toLocaleString('en-IN')+' <span class="mut">('+qty/lot+' × '+lot+')</span>':'<span class="mut">'+(lot?'lot too large':'lot unknown')+'</span>'}</dd><dt>Hit rate</dt><dd>${hitRateFor(r.kind)}</dd>
+    ${r.outcome?`<dt>Outcome</dt><dd>${outcomeLabel(r.outcome)}</dd>`:''}</dl>
+   <div class="tfrow">${TFS.filter(t=>t!=='1D').map(t=>`<button class="tf ${S.tf===t?'on':''}" data-tf="${t}">${t}</button>`).join('')}<span class="readout mono"></span></div>
+   <canvas class="chart" width="620" height="430"></canvas>
+   <div class="why"><b>Why this row</b><ul>${r.checks.map((ok,i)=>`<li class="${ok?'ok':'no'}">${checksText[i]}</li>`).join('')}</ul></div>`;
+  wireChart({symbol: r.symbol, minimal: true, pattern: r});
+}
+document.addEventListener('click', e => {
+  const tr = e.target.closest('tr.prow'); if(tr){ const [sym, kind, formed] = tr.dataset.key.split('|'); S.psel = S.prows.find(r => r.symbol===sym && r.kind===kind && String(r.formed_at)===formed) || null; renderPatterns(); return; }
+  const pill = e.target.closest('.pill'); if(pill){ S.pquick = pill.dataset.q; renderPatterns(); }
+});
+function notifyPatterns(rows){
+  const seed = !S.pseeded; S.pseeded = true;
+  const fresh = [];
+  for(const r of rows){ if(!r.triggered_at) continue; const k = `${r.symbol}|${r.kind}|${r.formed_at}`; if(!S.pseen.has(k)){ S.pseen.add(k); if(!seed) fresh.push(r); } }
+  if(!S.notify || !S.following) return;
+  fresh.slice(0,5).forEach(r => ScanNotify.show({title: `ScanRadar · ${PK.kindLabel(r.kind)}`, body: `${r.symbol}  ${r.side==='long'?'BUY':'SELL'}  ₹${fmt(r.entry)}  ·  ${String(r.triggered_at).slice(11,16)}`, symbol: r.symbol, at: String(r.triggered_at).slice(11,16)},
+    m => { setView('patterns'); S.psel = r; renderPatterns(); }));
+}
+
 // ---------- live feed ----------
 function onLiveSnapshot(snap){
   const wasLive = S.live; S.liveSnap = snap; S.live = true;
@@ -536,7 +667,7 @@ function onLiveSnapshot(snap){
 }
 function connect(){
   const ws = new WebSocket((location.protocol==='https:'?'wss://':'ws://')+location.host+'/ws/scan');
-  ws.onmessage = e => onLiveSnapshot(JSON.parse(e.data));
+  ws.onmessage = e => { const m = JSON.parse(e.data); if(m && m.type === 'patterns'){ loadPatterns(); return; } onLiveSnapshot(m); };
   ws.onclose = () => { if(S.following && S.liveSnap) setStatus('RECONNECTING','warn'); setTimeout(connect, 3000); };
 }
 document.addEventListener('click', e => {
@@ -550,6 +681,7 @@ matchMedia('(prefers-color-scheme: dark)').addEventListener('change', renderDeta
   populateSectors();
   try{ const d = await api('/api/days'); S.days = d.days; S.live = d.live; S.expiry = d.expiry; }catch(e){ S.days = []; }
   populateDays(); loadStats(); setInterval(loadStats, 300000);
+  if(S.view === 'patterns') setView('patterns');
   connect();
   let liveSnap = null;
   try{ liveSnap = await api('/api/scan'); }catch(e){}

@@ -9,7 +9,7 @@ import hashlib, json, statistics
 import numpy as np, pandas as pd
 from .rules import resample
 
-VERSION = "patterns-v1"
+VERSION = "patterns-v2"   # v2: a later second point supersedes the earlier double on the same first point
 # Tuned on 10 stored days (18 Oct 2026, docs/superpowers/notes/patterns-backtest-2026-10-18.md):
 # a 0.8% bounce between the points, >= 6 bars apart, on a day already moved >= 1%.
 DEFAULTS = {"tol": 0.004, "min_sep": 6, "max_sep": 36, "min_retrace": 0.008, "k": 2, "fail_bars": 3,
@@ -79,9 +79,9 @@ def _partner(side, j, confirmed, b, params):
         if sep > params["max_sep"]:
             return None
         if side == "long" and close[jp + 1:j + 1].min() < px[jp] * (1 - params["tol"]):
-            return None          # structure broke below the earlier low: it cannot anchor a bottom
+            continue             # price closed below this low since: it cannot anchor a bottom (older lows may)
         if side == "short" and close[jp + 1:j + 1].max() > px[jp] * (1 + params["tol"]):
-            return None
+            continue
         if sep < params["min_sep"] or abs(px[j] - px[jp]) / px[jp] > params["tol"]:
             continue
         if not any(jp < h < j for h, _, _ in opp):
@@ -138,12 +138,21 @@ def detect_day(df1m: pd.DataFrame, prev_close: float, params: dict = DEFAULTS) -
             if ext_req and (np.isnan(dp) or (dp > -ext_req if side == "long" else dp < ext_req)):
                 continue
             px = lo if side == "long" else hi
-            ext = next((p for p in pats if p["side"] == side and len(p["points"]) == 2 and p["points"][-1]["idx"] == jp
-                        and p["triggered_at"] is None and p["abandoned_at"] is None and p["superseded_at"] is None
-                        and all(abs(px[j] - q["price"]) / q["price"] <= params["tol"] for q in p["points"])), None)
+            open_same = [p for p in pats if p["side"] == side and p["triggered_at"] is None and p["abandoned_at"] is None
+                         and p["superseded_at"] is None]
+            within = lambda p: all(abs(px[j] - q["price"]) / q["price"] <= params["tol"] for q in p["points"])
+            # (a) the new swing extends an open double whose last point is the partner → triple
+            ext = next((p for p in open_same if len(p["points"]) == 2 and p["points"][-1]["idx"] == jp and within(p)), None)
             if ext is not None:
                 ext["superseded_at"] = t
                 pats.append(_new_pattern(side, [q["idx"] for q in ext["points"]] + [j], b, i, params))
+                continue
+            # (b) an open pattern already starts at this partner: the later second point is the current shape
+            same_first = next((p for p in open_same if p["points"][0]["idx"] == jp), None)
+            if same_first is not None:
+                same_first["superseded_at"] = t
+                pts = [q["idx"] for q in same_first["points"]] + [j] if (len(same_first["points"]) == 2 and within(same_first)) else [jp, j]
+                pats.append(_new_pattern(side, pts, b, i, params))
             else:
                 pats.append(_new_pattern(side, [jp, j], b, i, params))
     return pats
