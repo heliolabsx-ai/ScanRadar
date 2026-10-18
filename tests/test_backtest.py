@@ -80,3 +80,24 @@ def test_outcome_short_return_sign_is_favourable_when_price_falls():
     at = d.ts.iloc[100]
     o = outcome(d, at, "short", 100.0, stop=1000.0, target=0.0)
     assert o["r15"] > 0
+
+
+def test_time_to_target_min():
+    from core.backtest import time_to_target_min
+    d = synthetic_day()
+    d["high"] = d.close + 0.01
+    at = d.ts.iloc[100]
+    d.loc[d.index == 112, "high"] = 10_000.0                       # target touched 12 minutes later
+    assert time_to_target_min(d, at, "long", 9_000.0) == 12
+    assert time_to_target_min(d, at, "long", 20_000.0) is None
+    d.loc[d.index == 105, "low"] = 0.5                              # short: low <= target
+    assert time_to_target_min(d, at, "short", 1.0) == 5
+
+
+def test_grade_pattern_untriggered_is_none_and_triggered_has_tt():
+    from core.backtest import grade_pattern
+    d = synthetic_day()
+    assert grade_pattern(d, {"triggered_at": None}) is None
+    at = d.ts.iloc[100]; entry = float(d.close.iloc[100])
+    g = grade_pattern(d, {"triggered_at": at, "side": "long", "entry": entry, "stop": entry * 0.5, "target": float(d.high.iloc[101:].max())})
+    assert g["hit"] == "target" and isinstance(g["tt_min"], int) and g["tt_min"] >= 1

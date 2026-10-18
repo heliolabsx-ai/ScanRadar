@@ -106,3 +106,23 @@ def outcome(df1m: pd.DataFrame, at: pd.Timestamp, side: str, entry: float, stop:
         if hit_target:
             hit = "target"; break
     return {"r15": ret(15), "r30": ret(30), "r60": ret(60), "hit": hit}
+
+
+def time_to_target_min(df1m: pd.DataFrame, at: pd.Timestamp, side: str, target: float) -> int | None:
+    """Minutes from `at` to the first later bar that touches `target`; None if never."""
+    after = df1m[df1m.ts > at]
+    touched = after.high >= target if side == "long" else after.low <= target
+    if not touched.any():
+        return None
+    first = after.ts[touched].iloc[0]
+    return int((first - at).total_seconds() // 60)
+
+
+def grade_pattern(df1m: pd.DataFrame, p: dict) -> dict | None:
+    """outcome() for a triggered pattern plus minutes to target; None when not triggered."""
+    if not p.get("triggered_at"):
+        return None
+    at = pd.Timestamp(p["triggered_at"])
+    o = outcome(df1m, at, p["side"], float(p["entry"]), float(p["stop"]), float(p["target"]))
+    o["tt_min"] = time_to_target_min(df1m, at, p["side"], float(p["target"]))
+    return o
