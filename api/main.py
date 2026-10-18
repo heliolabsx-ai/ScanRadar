@@ -7,7 +7,9 @@ import replay as rp
 import history as hs
 import alerts as al
 import patterns as pt
+import live_patterns as lp
 from core.patterns import detector_hash
+from core.notify import telegram
 
 logging.basicConfig(level=logging.INFO)
 app = FastAPI(title="ScanRadar API")
@@ -16,6 +18,7 @@ DB = os.environ["DATABASE_URL"]
 IST = dt.timezone(dt.timedelta(hours=5, minutes=30))
 _background: set = set()
 _prep_pool = ProcessPoolExecutor(max_workers=1)      # keeps 2–4 min of pandas out of the API's GIL
+_live_pool = ProcessPoolExecutor(max_workers=1)      # the live pattern loop never waits behind a day preparation
 _tl_mem: dict = {}                                    # day -> (expires_at, timeline); parsed once per process
 
 
@@ -25,6 +28,12 @@ def connect():
 
 def _today() -> dt.date:
     return dt.datetime.now(IST).date()
+
+
+@app.on_event("startup")
+async def _start_live_patterns():
+    if os.environ.get("PATTERNS_LIVE", "1") != "0":
+        _background.add(asyncio.create_task(lp.run(connect, _live_pool, telegram)))
 
 
 @app.get("/api/health")
@@ -299,17 +308,21 @@ async def scan_stats(days: int = 20):
 @app.websocket("/ws/scan")
 async def ws_scan(ws: WebSocket):
     await ws.accept()
-    ps = R.pubsub(); await ps.subscribe("scan:updated")
+    ps = R.pubsub(); await ps.subscribe("scan:updated", "patterns:updated")
     try:
         raw = await R.get("scan:latest")
         if raw:
             await ws.send_text(raw)
         async for msg in ps.listen():
-            if msg["type"] == "message":
-                raw = await R.get("scan:latest")
-                if raw:
-                    await ws.send_text(raw)
+            if msg["type"] != "message":
+                continue
+            if msg["channel"] == "patterns:updated":
+                await ws.send_text(json.dumps({"type": "patterns", "data": json.loads(msg["data"])}))
+                continue
+            raw = await R.get("scan:latest")
+            if raw:
+                await ws.send_text(raw)
     except WebSocketDisconnect:
         pass
     finally:
-        await ps.unsubscribe("scan:updated")
+        await ps.unsubscribe("scan:updated", "patterns:updated")
