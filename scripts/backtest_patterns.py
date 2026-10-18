@@ -126,10 +126,12 @@ def main(argv=None) -> int:
     ap.add_argument("--days", type=int, default=60)
     ap.add_argument("--no-write", action="store_true")
     ap.add_argument("--note", default="")
+    ap.add_argument("--params", default="", help="JSON overriding DEFAULTS, e.g. '{"min_retrace": 0.008}'")
     args = ap.parse_args(argv)
     import psycopg
     from core.patterns import DEFAULTS, detector_hash
-    det = detector_hash(DEFAULTS)
+    params = {**DEFAULTS, **(json.loads(args.params) if args.params else {})}
+    det = detector_hash(params)
     DB = os.environ["DATABASE_URL"]
     with psycopg.connect(DB) as con, con.cursor() as cur:
         cur.execute("SELECT DISTINCT (ts AT TIME ZONE 'Asia/Kolkata')::date AS d FROM candles_1m WHERE symbol='RELIANCE' ORDER BY d DESC LIMIT %s", (args.days,))
@@ -138,7 +140,7 @@ def main(argv=None) -> int:
     t0 = time.time()
     for day in days:
         with psycopg.connect(DB) as con:
-            rows = patterns_for_day(con, day)
+            rows = patterns_for_day(con, day, params)
             n = 0
             if not args.no_write:
                 with con.cursor() as cur:
@@ -150,12 +152,12 @@ def main(argv=None) -> int:
         all_rows += rows
     summary = summarise(all_rows)
     table = fmt_table(summary)
-    print(f"\ndetector {det} params {json.dumps(DEFAULTS)}  ·  {len(days)} days in {time.time() - t0:.0f}s\n")
+    print(f"\ndetector {det} params {json.dumps(params)}  ·  {len(days)} days in {time.time() - t0:.0f}s\n")
     print(table)
     if args.note:
         with open(args.note, "w") as f:
             f.write(f"# Pattern backtest · {dt.datetime.now(IST):%Y-%m-%d %H:%M} IST\n\n")
-            f.write(f"Detector `{det}`, params `{json.dumps(DEFAULTS)}`, {len(days)} trading days "
+            f.write(f"Detector `{det}`, params `{json.dumps(params)}`, {len(days)} trading days "
                     f"({days[0]} .. {days[-1]}), {len(all_rows)} patterns, rows {'written' if not args.no_write else 'not written'}.\n\n")
             f.write("Hit rate = target touched before stop, among graded triggers. Failed = closed back through the neckline "
                     "within 3 bars before the target. Returns are signed in the trade's favour.\n\n")

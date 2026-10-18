@@ -166,3 +166,10 @@ def test_perf_30_symbol_days():
     for d in days:
         detect_day(d, float(d.open.iloc[0]))
     assert time.perf_counter() - t0 < 0.3
+
+
+def test_min_extension_filters_shallow_days():
+    d, pc = shaped_day(BOTTOM, oi=FALLING_OI, vol=VOL)              # day move at L2 is about -2%
+    assert one(detect_day(d, pc, {**DEFAULTS, "min_extension": 1.0}), "double_bottom")
+    assert not [p for p in detect_day(d, pc, {**DEFAULTS, "min_extension": 3.0}) if p["kind"] == "double_bottom"]
+    assert "min_extension" in DEFAULTS

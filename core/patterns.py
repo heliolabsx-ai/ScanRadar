@@ -10,7 +10,8 @@ import numpy as np, pandas as pd
 from .rules import resample
 
 VERSION = "patterns-v1"
-DEFAULTS = {"tol": 0.004, "min_sep": 4, "max_sep": 36, "min_retrace": 0.0035, "k": 2, "fail_bars": 3}
+DEFAULTS = {"tol": 0.004, "min_sep": 4, "max_sep": 36, "min_retrace": 0.0035, "k": 2, "fail_bars": 3,
+            "min_extension": 0.0}   # min |day % at the second point| for a pattern to count (0 = off)
 FIVE = pd.Timedelta(minutes=5)
 KINDS = {("long", 2): "double_bottom", ("long", 3): "triple_bottom", ("short", 2): "double_top", ("short", 3): "triple_top"}
 
@@ -129,6 +130,10 @@ def detect_day(df1m: pd.DataFrame, prev_close: float, params: dict = DEFAULTS) -
             side = "long" if kind == "low" else "short"
             jp = _partner(side, j, confirmed, b, params)
             if jp is None:
+                continue
+            ext_req = params.get("min_extension", 0.0)
+            dp = b.day_pct.iloc[j]
+            if ext_req and (np.isnan(dp) or (dp > -ext_req if side == "long" else dp < ext_req)):
                 continue
             px = lo if side == "long" else hi
             ext = next((p for p in pats if p["side"] == side and len(p["points"]) == 2 and p["points"][-1]["idx"] == jp
