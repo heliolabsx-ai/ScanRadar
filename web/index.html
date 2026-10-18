@@ -3,6 +3,7 @@
 <title>ScanRadar</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&display=swap">
 <script src="filter.js"></script>
+<script src="notify.js"></script>
 <style>
 /* Layout: control strip → sector/breadth rail → bull/bear card grid → detail panel with canvas chart. Terminal-style data UI. */
 :root{
@@ -110,6 +111,7 @@ canvas{display:block;width:100%;max-width:100%;margin-top:10px;border-radius:4px
   <button id="live" class="primary" hidden title="Return to the live feed">● Live</button>
   <label>Risk ₹ <input id="risk" type="number" min="100" step="100" value="2000" title="Rupees risked per trade; sizes the quantity in the detail panel"></label>
   <button id="theme" title="Toggle light / dark">◐</button>
+  <button id="notify" title="Mac notifications for new alerts and new picks on the live feed">🔔 Notify: off</button>
 </div>
 <div class="slider">
   <span class="t mono">09:15</span>
@@ -498,12 +500,39 @@ document.addEventListener('keydown', e => {
   enterReplay(S.day || todayIST(), minToHHMM(hhmmToMin(S.at || '15:30') + step));
 });
 
+// ---------- desktop notifications (live feed only) ----------
+S.notify = false; S.seenAlerts = new Set(); S.seenPicks = new Set(); S.notifySeeded = false;
+try{ S.notify = localStorage.getItem('notify') === '1'; }catch(e){}
+function notifyLabel(){
+  const p = ScanNotify.permission();
+  $('notify').textContent = p === 'unsupported' ? '🔔 Notify: unsupported' : p === 'denied' ? '🔔 Notify: blocked in browser' : (S.notify && p === 'granted') ? '🔔 Notify: on' : '🔔 Notify: off';
+  $('notify').classList.toggle('primary', S.notify && p === 'granted');
+}
+$('notify').onclick = async () => {
+  if(S.notify){ S.notify = false; }
+  else { const p = await ScanNotify.request(); S.notify = p === 'granted'; if(S.notify) ScanNotify.show({title:'ScanRadar', body:'Notifications on. You will hear a ping on new alerts and new picks.'}); }
+  try{ localStorage.setItem('notify', S.notify ? '1' : '0'); }catch(e){}
+  notifyLabel();
+};
+notifyLabel();
+function notifyFromLive(snap, alerts){
+  // seed on the first live data so a page opened mid-session does not replay the morning
+  const seed = !S.notifySeeded; S.notifySeeded = true;
+  const freshAlerts = ScanNotify.newAlerts(S.seenAlerts, alerts || [], {seed});
+  const freshPicks = snap ? ScanNotify.newPicks(S.seenPicks, snap, {seed}) : [];
+  if(!S.notify) return;
+  const jump = m => { S.selected = m.symbol; if(S.following) renderAll(); else enterReplay(S.day || todayIST(), m.at); };
+  freshAlerts.slice(0, 5).forEach(a => ScanNotify.show(ScanNotify.alertMessage(a), jump));
+  freshPicks.slice(0, 5).forEach(p => ScanNotify.show(ScanNotify.pickMessage(p, snap.ts.slice(11,16)), jump));
+}
+
 // ---------- live feed ----------
 function onLiveSnapshot(snap){
   const wasLive = S.live; S.liveSnap = snap; S.live = true;
   if(!wasLive){ populateDays(); $('live').hidden = false; }
   if(!S.following && !S.userReplay){ goLive(); return; }   // page was parked on the last session before the bell
-  if(S.following){ S.snap = snap; S.mode='live'; setAt(snap.ts.slice(11,16)); setStatus('LIVE','live'); renderAll(); loadAlerts(); }
+  if(S.following){ S.snap = snap; S.mode='live'; setAt(snap.ts.slice(11,16)); setStatus('LIVE','live'); renderAll(); loadAlerts().then(() => notifyFromLive(snap, S.alerts)); }
+  else { api('/api/alerts?limit=30').then(al => notifyFromLive(snap, al)).catch(()=>{}); }
 }
 function connect(){
   const ws = new WebSocket((location.protocol==='https:'?'wss://':'ws://')+location.host+'/ws/scan');

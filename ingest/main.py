@@ -11,6 +11,7 @@ from kiteconnect import KiteTicker
 
 import kite_auth, universe
 from hist import hist
+from tradingday import is_trading_day
 from candles import SymbolState
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
@@ -64,6 +65,9 @@ def load_daily_refs(u):
 
 
 def morning_setup():
+    if not is_trading_day(dt.datetime.now(IST).date()):
+        log.info("not a trading day; skipping morning setup")
+        return
     try:
         _morning_setup()
     except Exception as e:  # noqa: BLE001
@@ -141,6 +145,8 @@ def on_error(ws, code, reason):
 
 def start_ws():
     global ticker
+    if not is_trading_day(dt.datetime.now(IST).date()):
+        return
     token = R.get("kite:access_token")
     if not token or not symbols:
         log.error("cannot open websocket: token=%s universe=%d (morning setup failed?)", bool(token), len(symbols))
@@ -207,7 +213,7 @@ def main():
 
     # If started mid-session on a weekday, catch up immediately.
     now = dt.datetime.now(IST)
-    if now.weekday() < 5 and dt.time(8, 55) <= now.time() <= MARKET_CLOSE:
+    if is_trading_day(now.date()) and dt.time(8, 55) <= now.time() <= MARKET_CLOSE:
         log.info("started mid-session; running setup now")
         try:
             morning_setup()

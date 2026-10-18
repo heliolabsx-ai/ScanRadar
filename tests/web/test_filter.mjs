@@ -1,10 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import vm from 'node:vm';
 
-const g = {};
-vm.runInNewContext(readFileSync(new URL('../../web/filter.js', import.meta.url), 'utf8'), { globalThis: g, window: undefined, self: g });
+// evaluate in this realm (not a vm context) so arrays/objects compare with deepEqual
+new Function(readFileSync(new URL('../../web/filter.js', import.meta.url), 'utf8'))();
+const g = globalThis;
 const F = g.ScanFilter;
 const canon = o => JSON.stringify(Object.fromEntries(Object.entries(o).sort()));   // objects come from the vm realm
 const row = (o = {}) => ({ symbol: 'X', sector: 'IT', price: 1200, rvol: 2.1, oi_cls: 'lb', dir: 1, above_vwap: true, picked: false, rr: 1.8, ...o });
