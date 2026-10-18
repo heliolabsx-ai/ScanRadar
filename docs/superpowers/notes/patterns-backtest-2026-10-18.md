@@ -1,15 +1,15 @@
-# Pattern backtest · 2026-10-18 14:03 IST
+# Pattern backtest · 2026-10-18 14:21 IST
 
-Detector `2bac36ee15f5`, params `{"tol": 0.004, "min_sep": 6, "max_sep": 36, "min_retrace": 0.008, "k": 2, "fail_bars": 3, "min_extension": 1.0}`, 42 trading days (2026-08-18 .. 2026-10-16), 5746 patterns, rows written.
+Detector `0ffda4dc8301`, params `{"tol": 0.004, "min_sep": 6, "max_sep": 36, "min_retrace": 0.008, "k": 2, "fail_bars": 3, "min_extension": 1.0}`, 42 trading days (2026-08-18 .. 2026-10-16), 5746 patterns, rows written.
 
 Hit rate = target touched before stop, among graded triggers. Failed = closed back through the neckline within 3 bars before the target. Returns are signed in the trade's favour.
 
 | kind | triggers | forming only | hit rate | failed ≤3 bars | avg r30 | avg r60 | median min to target | score≥3 triggers / hit | score<3 triggers / hit |
 |---|---|---|---|---|---|---|---|---|---|
-| double_bottom | 340 | 1714 | 63% | 47% | 0.02% | 0.01% | 40 | 193 / 69% | 147 / 56% |
-| double_top | 462 | 1592 | 57% | 42% | -0.01% | -0.01% | 79 | 265 / 64% | 197 / 50% |
+| double_bottom | 340 | 1714 | 63% | 47% | 0.02% | 0.01% | 40 | 194 / 67% | 146 / 58% |
+| double_top | 462 | 1592 | 57% | 42% | -0.01% | -0.01% | 79 | 263 / 64% | 199 / 50% |
 | triple_bottom | 120 | 722 | 61% | 48% | 0.02% | 0.10% | 44 | 70 / 71% | 50 / 47% |
-| triple_top | 153 | 643 | 66% | 43% | 0.06% | 0.05% | 34 | 97 / 66% | 56 / 67% |
+| triple_top | 153 | 643 | 66% | 43% | 0.06% | 0.05% | 34 | 99 / 66% | 54 / 67% |
 
 ## Per day
 
@@ -57,12 +57,11 @@ Hit rate = target touched before stop, among graded triggers. Failed = closed ba
 | 2026-10-14 | 152 | 16 | 152 |
 | 2026-10-15 | 190 | 47 | 190 |
 | 2026-10-16 | 149 | 39 | 149 |
-
-## Reading (18 Oct 2026, detector v2)
+## Reading (18 Oct 2026, detector v3)
 
 - Chosen defaults after a 10-day sweep of five settings: bounce between the points ≥ 0.8 %, points ≥ 6 bars apart, day already moved ≥ 1 % at the second point. The loose defaults produced ~800 patterns a day with flat returns; these produce 15–30 live rows a day and the score separates them.
 - Detector v2 makes a later second point supersede the earlier double on the same first low (or extend it into a triple), which removed the near-duplicate rows v1 produced and is why triples are now common.
-- The score is the edge: double bottoms with score ≥ 3 hit the target before the stop 69 % of the time (193 triggers) versus 56 % below 3; double tops 64 % versus 50 %; triple bottoms 71 % versus 47 %.
+- The score is the edge: double bottoms with score ≥ 3 hit the target before the stop 67 % of the time (194 triggers) versus 58 % below 3; double tops 64 % versus 50 %; triple bottoms 71 % versus 47 %.
 - Mean returns 30 and 60 minutes after the trigger are flat for every setting even where the hit rate is high: the target prints and price comes back. Take the target when it prints; do not hold a pattern trade for the clock.
 - 42–48 % of triggers close back through the neckline within 3 bars. The page shows these as *failed*; treating the first close back through the neckline as the exit keeps the loss near zero.
 - Backfilled days carry no tick delta; the volume check uses total 5m volume. OI before 29 Sep (the previous expiry) is thin, so the OI check is weaker on older days.
