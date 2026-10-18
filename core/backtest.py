@@ -14,8 +14,18 @@ FIELDS = ("open", "high", "low", "close", "volume", "oi", "vwap")
 
 
 def max_offset(scan: dict) -> int:
-    return max((int(side.get("off", 0)) for r in scan["rules"] for side in (r["lhs"], r["rhs"]) if "field" in side),
-               default=0)
+    """Bars back the rule needs to see: the offset plus any moving-average window.
+    An EMA depends on the whole history, so it asks for every bar of the day."""
+    need = 0
+    for r in scan["rules"]:
+        for side in (r["lhs"], r["rhs"]):
+            if "field" not in side:
+                continue
+            off = int(side.get("off", 0))
+            if "ema" in side:
+                return 10_000
+            need = max(need, off + (int(side["sma"]) - 1 if "sma" in side else 0))
+    return need
 
 
 def fires_naive(scan: dict, df1m: pd.DataFrame, ctx: dict, cooldown_min: int) -> list[pd.Timestamp]:

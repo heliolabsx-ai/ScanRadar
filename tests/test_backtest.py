@@ -101,3 +101,16 @@ def test_grade_pattern_untriggered_is_none_and_triggered_has_tt():
     at = d.ts.iloc[100]; entry = float(d.close.iloc[100])
     g = grade_pattern(d, {"triggered_at": at, "side": "long", "entry": entry, "stop": entry * 0.5, "target": float(d.high.iloc[101:].max())})
     assert g["hit"] == "target" and isinstance(g["tt_min"], int) and g["tt_min"] >= 1
+
+
+def test_fast_replay_sees_enough_bars_for_a_moving_average(day):
+    from core.backtest import fires, fires_naive, max_offset
+    scan = {"timeframe": "5m", "match": "all",
+            "rules": [{"lhs": {"off": 1, "field": "close"}, "op": "<=", "rhs": {"off": 1, "field": "close", "sma": 13}},
+                      {"lhs": {"off": 2, "field": "close"}, "op": ">=", "rhs": {"off": 1, "field": "close"}}]}
+    assert max_offset(scan) == 13
+    ctx = {"prev_day_close": 100, "prev_day_high": 101, "prev_day_low": 99}
+    got, ref = fires(scan, day, ctx, cooldown_min=0), fires_naive(scan, day, ctx, cooldown_min=0)
+    assert got == ref and len(got) > 0
+    ema = {"timeframe": "5m", "rules": [{"lhs": {"off": 0, "field": "close"}, "op": ">", "rhs": {"off": 0, "field": "close", "ema": 5}}]}
+    assert fires(ema, day, ctx, cooldown_min=0) == fires_naive(ema, day, ctx, cooldown_min=0)
