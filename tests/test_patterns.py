@@ -3,6 +3,9 @@ import pandas as pd, pytest
 from core.patterns import DEFAULTS, detector_hash, bars5m, swings, detect_day, as_of
 from conftest import shaped_day, synthetic_day, IST
 
+# the synthetic shapes are compact (lows 4 bars apart); test the mechanics with the looser geometry
+P = {**DEFAULTS, "min_sep": 4, "min_retrace": 0.0035, "min_extension": 0.0}
+
 # 5m closes in % vs base. L1 at bar 3 (-2.0), neckline bar 5 (-0.9), L2 at bar 7 (-1.98),
 # L2 confirmed at bar 9, trigger bar 10 (-0.7 > -0.9), then up to the target.
 BOTTOM = [0.0, -0.6, -1.3, -2.0, -1.5, -0.9, -1.4, -1.98, -1.6, -1.2, -0.7, -0.3, 0.1, 0.6, 0.9]
@@ -37,7 +40,7 @@ def test_swings_confirmed_two_bars_later():
 
 def test_double_bottom_detected_with_levels():
     d, pc = shaped_day(BOTTOM, oi=FALLING_OI, vol=VOL)
-    p = one(detect_day(d, pc), "double_bottom")
+    p = one(detect_day(d, pc, P), "double_bottom")
     b = bars5m(d, pc)
     assert p["side"] == "long"
     p1, p2 = p["points"]
@@ -53,12 +56,12 @@ def test_double_bottom_detected_with_levels():
 
 def test_lower_low_is_not_a_double_bottom():
     shape = list(BOTTOM); shape[7] = -3.0
-    assert not [p for p in detect_day(*shaped_day(shape)) if p["kind"] == "double_bottom" and p["points"][0]["idx"] == 3]
+    assert not [p for p in detect_day(*shaped_day(shape), P) if p["kind"] == "double_bottom" and p["points"][0]["idx"] == 3]
 
 
 def test_triple_extends_and_supersedes():
     shape = BOTTOM[:10] + [-1.3, -2.01, -1.5, -1.0, -0.6, -0.2, 0.3, 0.8]   # third low at bar 11, trigger at 14
-    pats = detect_day(*shaped_day(shape))
+    pats = detect_day(*shaped_day(shape), P)
     dbl = one(pats, "double_bottom"); tri = one(pats, "triple_bottom")
     assert [q["idx"] for q in tri["points"]] == [3, 7, 11]
     assert tri["formed_at"] == at_bar(13) and dbl["superseded_at"] == at_bar(13)
@@ -68,7 +71,7 @@ def test_triple_extends_and_supersedes():
 
 def test_top_mirrors():
     d, pc = shaped_day(TOP)
-    p = one(detect_day(d, pc), "double_top")
+    p = one(detect_day(d, pc, P), "double_top")
     b = bars5m(d, pc)
     assert p["side"] == "short"
     assert p["neckline"] == pytest.approx(float(b.low.iloc[4:7].min()))
@@ -79,17 +82,17 @@ def test_top_mirrors():
 
 def test_failed_within_3_bars_and_not_after():
     fail_shape = BOTTOM[:11] + [-1.1, -1.3, -1.4, -1.5]        # back below the neckline the bar after trigger
-    p = one(detect_day(*shaped_day(fail_shape)), "double_bottom")
+    p = one(detect_day(*shaped_day(fail_shape), P), "double_bottom")
     assert p["triggered_at"] == at_bar(10) and p["failed_at"] == at_bar(11)
     late_shape = BOTTOM[:11] + [-0.6, -0.5, -0.4, -0.3, -1.2]  # back below only on the 5th bar after trigger
-    p = one(detect_day(*shaped_day(late_shape)), "double_bottom")
+    p = one(detect_day(*shaped_day(late_shape), P), "double_bottom")
     assert p["failed_at"] is None
 
 
 def test_abandoned_before_trigger():
     shape = BOTTOM[:10] + [-2.6, -2.7, -2.8]
     d, pc = shaped_day(shape)
-    p = one(detect_day(d, pc), "double_bottom")
+    p = one(detect_day(d, pc, P), "double_bottom")
     assert p["abandoned_at"] == at_bar(10) and p["triggered_at"] is None
     assert as_of([p], at_bar(11), {"sector_pct": 0, "bars": bars5m(d, pc)}) == []
     assert len(as_of([p], at_bar(9), {"sector_pct": 0, "bars": bars5m(d, pc)})) == 1
@@ -98,14 +101,14 @@ def test_abandoned_before_trigger():
 def test_detect_with_gaps_uses_bar_positions():
     shape = [0.0, -0.6, -1.3, -2.0, -1.7, -1.5, -1.2, -0.9, -1.3, -1.6, -1.99, -1.6, -1.2, -0.7, -0.2, 0.3]
     d, pc = shaped_day(shape, drop_bars=(5, 8))
-    p = one(detect_day(d, pc), "double_bottom")
+    p = one(detect_day(d, pc, P), "double_bottom")
     assert [q["idx"] for q in p["points"]] == [3, 8]                    # positions after the drops
     assert p["points"][1]["ts"] == pd.Timestamp("2026-10-16 10:05", tz=IST)   # original bar 10's clock time
 
 
 def test_forming_at_close_is_kept():
     d, pc = shaped_day(BOTTOM[:10])                                      # day ends right after L2 confirms
-    p = one(detect_day(d, pc), "double_bottom")
+    p = one(detect_day(d, pc, P), "double_bottom")
     assert p["triggered_at"] is None
     rows = as_of([p], d.ts.iloc[-1] + pd.Timedelta(minutes=1), {"sector_pct": 0, "bars": bars5m(d, pc)})
     assert rows and rows[0]["state"] == "forming"
@@ -114,7 +117,7 @@ def test_forming_at_close_is_kept():
 def test_as_of_state_transitions():
     fail_shape = BOTTOM[:11] + [-1.1, -1.3, -1.4, -1.5]
     d, pc = shaped_day(fail_shape)
-    p = one(detect_day(d, pc), "double_bottom"); ctx = {"sector_pct": 0, "bars": bars5m(d, pc)}
+    p = one(detect_day(d, pc, P), "double_bottom"); ctx = {"sector_pct": 0, "bars": bars5m(d, pc)}
     assert as_of([p], at_bar(8), ctx) == []
     assert as_of([p], at_bar(9), ctx)[0]["state"] == "forming"
     assert as_of([p], at_bar(10), ctx)[0]["state"] == "triggered"
@@ -131,25 +134,25 @@ def test_as_of_never_uses_future(seed):
     d["close"] = d.close * (1 + 0.004 * pd.Series(range(len(d))).mul(0.03).apply(lambda x: __import__("math").sin(x)))  # waves → swings
     d["high"] = d[["open", "close"]].max(axis=1) + 0.05; d["low"] = d[["open", "close"]].min(axis=1) - 0.05
     pc = float(d.open.iloc[0])
-    full = detect_day(d, pc)
+    full = detect_day(d, pc, P)
     for m in range(20, 360, 5):
         at = d.ts.iloc[0] + pd.Timedelta(minutes=m)
         cut = d[d.ts < at]
         a = sorted(key(r) for r in as_of(full, at, {"sector_pct": 0, "bars": bars5m(d, pc)}))
-        b = sorted(key(r) for r in as_of(detect_day(cut, pc), at, {"sector_pct": 0, "bars": bars5m(cut, pc)}))
+        b = sorted(key(r) for r in as_of(detect_day(cut, pc, P), at, {"sector_pct": 0, "bars": bars5m(cut, pc)}))
         assert a == b, m
 
 
 def test_score_without_oi():
     d, pc = shaped_day(BOTTOM, oi=[0] * len(BOTTOM), vol=VOL)
-    p = one(detect_day(d, pc), "double_bottom")
+    p = one(detect_day(d, pc, P), "double_bottom")
     r = as_of([p], at_bar(10), {"sector_pct": 0.5, "bars": bars5m(d, pc)})[0]
     assert r["checks"][1] is False and r["score"] <= 4
 
 
 def test_score_checks_order_and_count():
     d, pc = shaped_day(BOTTOM, oi=FALLING_OI, vol=VOL)
-    p = one(detect_day(d, pc), "double_bottom")
+    p = one(detect_day(d, pc, P), "double_bottom")
     r = as_of([p], at_bar(10), {"sector_pct": 0.5, "bars": bars5m(d, pc)})[0]
     assert r["checks"] == [True] * 6 and r["score"] == 5 and r["rr"] > 0
     f = as_of([p], at_bar(9), {"sector_pct": 0.5, "bars": bars5m(d, pc)})[0]
@@ -157,7 +160,7 @@ def test_score_checks_order_and_count():
 
 
 def test_detector_hash_changes_with_params():
-    assert detector_hash() != detector_hash({**DEFAULTS, "tol": 0.005}) and len(detector_hash()) == 12
+    assert detector_hash() != detector_hash({**DEFAULTS, "tol": 0.005}) and DEFAULTS["min_sep"] == 6 and DEFAULTS["min_extension"] == 1.0 and len(detector_hash()) == 12
 
 
 def test_perf_30_symbol_days():
@@ -170,6 +173,6 @@ def test_perf_30_symbol_days():
 
 def test_min_extension_filters_shallow_days():
     d, pc = shaped_day(BOTTOM, oi=FALLING_OI, vol=VOL)              # day move at L2 is about -2%
-    assert one(detect_day(d, pc, {**DEFAULTS, "min_extension": 1.0}), "double_bottom")
-    assert not [p for p in detect_day(d, pc, {**DEFAULTS, "min_extension": 3.0}) if p["kind"] == "double_bottom"]
+    assert one(detect_day(d, pc, {**P, "min_extension": 1.0}), "double_bottom")
+    assert not [p for p in detect_day(d, pc, {**P, "min_extension": 3.0}) if p["kind"] == "double_bottom"]
     assert "min_extension" in DEFAULTS

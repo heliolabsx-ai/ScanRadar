@@ -10,8 +10,10 @@ import numpy as np, pandas as pd
 from .rules import resample
 
 VERSION = "patterns-v1"
-DEFAULTS = {"tol": 0.004, "min_sep": 4, "max_sep": 36, "min_retrace": 0.0035, "k": 2, "fail_bars": 3,
-            "min_extension": 0.0}   # min |day % at the second point| for a pattern to count (0 = off)
+# Tuned on 10 stored days (18 Oct 2026, docs/superpowers/notes/patterns-backtest-2026-10-18.md):
+# a 0.8% bounce between the points, >= 6 bars apart, on a day already moved >= 1%.
+DEFAULTS = {"tol": 0.004, "min_sep": 6, "max_sep": 36, "min_retrace": 0.008, "k": 2, "fail_bars": 3,
+            "min_extension": 1.0}   # min |day % at the second point| for a pattern to count (0 = off)
 FIVE = pd.Timedelta(minutes=5)
 KINDS = {("long", 2): "double_bottom", ("long", 3): "triple_bottom", ("short", 2): "double_top", ("short", 3): "triple_top"}
 
