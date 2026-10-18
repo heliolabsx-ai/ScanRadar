@@ -181,6 +181,25 @@ def test_brief_context_lists_only_verdicts_since_the_last_brief():
     assert [v["at"] for v in ctx["verdicts_since_last"]] == ["10:05"] and ctx["verdicts_today_counts"] == {"take": 1, "wait": 1, "skip": 1}
 
 
+def test_schemas_use_only_the_supported_subset():
+    import json
+    blob = json.dumps([desk.VERDICT_SCHEMA, desk.BRIEF_SCHEMA, desk.ASK_SCHEMA, desk.REVIEW_SCHEMA])
+    for banned in ("minimum", "maximum", "maxLength", "minItems", "maxItems"):
+        assert banned not in blob
+
+
+def test_exists_retries_transient_errors_only():
+    class Cur:
+        def __init__(self, row): self.row = row
+        def execute(self, *a): pass
+        def fetchone(self): return self.row
+    assert desk.exists(Cur(None), "d", "verdict", "x") is False
+    assert desk.exists(Cur((True, None)), "d", "verdict", "x") is True
+    assert desk.exists(Cur((False, "budget reached")), "d", "verdict", "x") is True
+    assert desk.exists(Cur((False, "skipped: R:R")), "d", "verdict", "x") is True
+    assert desk.exists(Cur((False, "BadRequestError: 400")), "d", "verdict", "x") is False
+
+
 def test_gate_and_pattern_ref():
     assert live_desk.gate(0, 0) is True                        # defaults: every trigger
     assert live_desk.pattern_ref({"symbol": "X", "kind": "double_top", "formed_at": "2026-10-19T10:05:00+05:30"}) == "pattern:X|double_top|10:05"

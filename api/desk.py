@@ -69,27 +69,24 @@ def budget_allows(kind: str, spent: float, budget: float = BUDGET_INR) -> bool:
     return spent < budget
 
 
-# ---------- schemas ----------
+# ---------- schemas (the API accepts a JSON-schema subset: no numeric bounds, lengths live in the prompt) ----------
 REASON = {"type": "object", "additionalProperties": False, "required": ["mark", "text"],
-          "properties": {"mark": {"type": "string", "enum": ["ok", "no", "warn"]},
-                         "text": {"type": "string", "maxLength": 110}}}
+          "properties": {"mark": {"type": "string", "enum": ["ok", "no", "warn"]}, "text": {"type": "string"}}}
 VERDICT_SCHEMA = {"type": "object", "additionalProperties": False,
                   "required": ["call", "confidence", "reasons", "exit_rule", "book_half_at"],
                   "properties": {"call": {"type": "string", "enum": ["take", "wait", "skip"]},
-                                 "confidence": {"type": "integer", "minimum": 1, "maximum": 10},
-                                 "reasons": {"type": "array", "minItems": 3, "maxItems": 3, "items": REASON},
-                                 "exit_rule": {"type": "string", "maxLength": 160},
+                                 "confidence": {"type": "integer"},
+                                 "reasons": {"type": "array", "items": REASON},
+                                 "exit_rule": {"type": "string"},
                                  "book_half_at": {"type": ["number", "null"]}}}
 BRIEF_SCHEMA = {"type": "object", "additionalProperties": False, "required": ["paragraphs", "watch"],
-                "properties": {"paragraphs": {"type": "array", "minItems": 1, "maxItems": 3, "items": {"type": "string", "maxLength": 600}},
-                               "watch": {"type": "array", "maxItems": 4, "items": {"type": "string", "maxLength": 120}}}}
+                "properties": {"paragraphs": {"type": "array", "items": {"type": "string"}},
+                               "watch": {"type": "array", "items": {"type": "string"}}}}
 ASK_SCHEMA = {"type": "object", "additionalProperties": False, "required": ["answer", "used"],
-              "properties": {"answer": {"type": "string", "maxLength": 900},
-                             "used": {"type": "array", "maxItems": 6, "items": {"type": "string", "maxLength": 60}}}}
+              "properties": {"answer": {"type": "string"}, "used": {"type": "array", "items": {"type": "string"}}}}
 REVIEW_SCHEMA = {"type": "object", "additionalProperties": False, "required": ["rules_said", "desk_wrong", "tomorrow", "health"],
-                 "properties": {"rules_said": {"type": "string", "maxLength": 900}, "desk_wrong": {"type": "string", "maxLength": 700},
-                                "tomorrow": {"type": "string", "maxLength": 500},
-                                "health": {"type": "array", "maxItems": 5, "items": {"type": "string", "maxLength": 160}}}}
+                 "properties": {"rules_said": {"type": "string"}, "desk_wrong": {"type": "string"},
+                                "tomorrow": {"type": "string"}, "health": {"type": "array", "items": {"type": "string"}}}}
 
 # ---------- prompts (stable text, cached) ----------
 HOUSE = """You are the desk at ScanRadar, an intraday scanner for NSE stock futures run by one retail trader in India. \
@@ -108,8 +105,8 @@ VERDICT_SYSTEM = HOUSE + """
 
 Task: judge one trigger. Return the structure only.
 - call: take = the trader should enter now at the entry shown; wait = re-check at a stated condition; skip = do not trade this.
-- confidence: 1-10, how sure you are of the call (not of the trade's success).
-- reasons: exactly three, each marked ok (supports the trade), no (against), warn (caveat); each one line, cite numbers.
+- confidence: an integer 1-10, how sure you are of the call (not of the trade's success).
+- reasons: exactly three, each marked ok (supports the trade), no (against), warn (caveat); each at most 90 characters, cite numbers.
 - exit_rule: one sentence, a price or bar condition, earlier than the stop when the pattern is already failing.
 - book_half_at: a price to book half the position before the target when a known level (previous close/high/low, pivot, \
 VWAP, opening range) sits in the way, else null.
@@ -120,10 +117,10 @@ recorded hit rate; rule alerts carry the scan's rules and its recorded hit rate.
 BRIEF_SYSTEM = HOUSE + """
 
 Task: a market brief for the trader, read in 30 seconds. Return the structure only.
-- paragraphs: two or three. First: breadth and which sectors are doing the work, naming the stocks holding the top ranks and \
+- paragraphs: two or three, each under 90 words. First: breadth and which sectors are doing the work, naming the stocks holding the top ranks and \
 for how long. Second: what the pattern desk did since the last brief (triggered, failed, forming) and how the desk's verdicts \
 fared so far. Optional third: one risk for the next 15 minutes drawn from the numbers.
-- watch: up to four one-line items "SYMBOL - condition - why", for the next quarter hour.
+- watch: up to four one-line items (under 20 words each) "SYMBOL - condition - why", for the next quarter hour.
 Continue from the previous brief when given; do not repeat what has not changed."""
 
 ASK_SYSTEM = HOUSE + """
@@ -139,7 +136,7 @@ Task: an end-of-day review the trader reads once. Return the structure only.
 using the P&L figures given (at the shown size, before costs).
 - desk_wrong: where the desk's verdicts were wrong (skips that paid, takes that stopped), with the reason it gave.
 - tomorrow: one concrete thing for tomorrow, grounded in today's numbers.
-- health: data health lines from the figures (candle count, gaps, desk spend vs budget)."""
+- health: up to five short data-health lines from the figures (candle count, gaps, desk spend vs budget)."""
 
 
 # ---------- context shaping (pure) ----------
@@ -289,6 +286,10 @@ def call_model(system: str, user: dict | str, schema: dict, model: str, max_toke
     if resp.stop_reason == "max_tokens":
         raise DeskDeclined("max_tokens", out)
     out["output"] = json.loads(text)
+    if schema is VERDICT_SCHEMA:
+        o = out["output"]
+        o["confidence"] = max(1, min(10, int(o.get("confidence") or 5)))
+        o["reasons"] = (o.get("reasons") or [])[:3]
     return out
 
 
@@ -331,9 +332,17 @@ def store(cur, rec: dict) -> int:
     return cur.fetchone()[0]
 
 
+FINAL_ERRORS = ("budget", "skipped", "stale", "declined")
+
+
 def exists(cur, day, kind: str, ref: str) -> bool:
-    cur.execute("SELECT 1 FROM desk_calls WHERE day=%s AND kind=%s AND ref=%s", (day, kind, ref))
-    return cur.fetchone() is not None
+    """A job is done when it has output or a final error; an API/network failure is retried next minute."""
+    cur.execute("SELECT output IS NOT NULL, error FROM desk_calls WHERE day=%s AND kind=%s AND ref=%s", (day, kind, ref))
+    row = cur.fetchone()
+    if row is None:
+        return False
+    has_output, err = row
+    return bool(has_output) or (err or "").startswith(FINAL_ERRORS)
 
 
 def rows_for_day(cur, day, upto=None) -> list[dict]:
