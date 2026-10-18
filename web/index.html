@@ -32,6 +32,17 @@ body{margin:0;background:var(--bg);color:var(--fg);font-family:var(--sans);font-
 .mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
 h1{font:600 16px/1.2 var(--sans);margin:0;letter-spacing:.01em}
 .top{display:flex;flex-wrap:wrap;gap:10px 18px;align-items:center;margin-bottom:12px}
+.daypick{display:inline-flex;align-items:stretch;border:1px solid var(--line);border-radius:4px;overflow:visible;position:relative;background:var(--panel)}
+.daypick button{border:0;border-radius:0;background:transparent;padding:0 8px;color:var(--fg)}.daypick button:hover{background:var(--bg)}
+.daypick .nav{font:600 14px var(--mono);color:var(--muted);padding:0 7px}.daypick .nav:disabled{opacity:.3}
+.daypick .cur{display:inline-flex;align-items:baseline;gap:6px;border-left:1px solid var(--line);border-right:1px solid var(--line);padding:3px 10px;min-width:118px;justify-content:center}
+.daypick .cur b{font:600 13px var(--mono)}.daypick .cur small{font:500 10px var(--sans);color:var(--muted);letter-spacing:.06em;text-transform:uppercase}.daypick .cur small.live{color:var(--bull)}
+.daymenu{position:absolute;top:calc(100% + 6px);left:0;z-index:30;background:var(--panel);border:1px solid var(--line);border-radius:6px;box-shadow:0 8px 24px rgba(0,0,0,.25);min-width:220px;max-height:60vh;overflow:auto;padding:4px}
+.daymenu .mh{font:500 10px var(--sans);letter-spacing:.1em;text-transform:uppercase;color:var(--muted);padding:6px 10px 4px}
+.daymenu .it{display:grid;grid-template-columns:34px 1fr auto;gap:8px;align-items:center;width:100%;text-align:left;padding:6px 10px;border-radius:4px;font:500 12px var(--sans);color:var(--fg)}
+.daymenu .it:hover{background:var(--bg)}.daymenu .it.on{background:var(--fg);color:var(--bg)}.daymenu .it.on .mut{color:inherit;opacity:.7}
+.daymenu .it .dow{font:600 11px var(--mono);color:var(--muted)}.daymenu .it.on .dow{color:inherit}.daymenu .it .tag{font:600 9.5px var(--mono);letter-spacing:.06em;text-transform:uppercase;color:var(--bull)}
+#day{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none}
 .top .clock{font:700 20px var(--mono);font-variant-numeric:tabular-nums}
 .st{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;border:1px solid var(--line);padding:2px 8px;border-radius:3px;display:inline-flex;align-items:center;gap:6px}
 .st .dot{width:7px;height:7px;border-radius:50%;background:var(--line);display:inline-block}
@@ -137,7 +148,7 @@ table.pt{width:100%;border-collapse:collapse;font-size:12px}.pt th{font:600 10px
 <div class="top">
   <h1>ScanRadar</h1>
   <span class="tabs"><button class="tab on" data-view="scanner">Scanner</button><button class="tab" data-view="patterns">Patterns</button><button class="tab" data-view="desk">Desk</button></span>
-  <select id="day" title="Session"></select>
+  <span class="daypick" id="daypick"><button class="nav" id="dayPrev" title="Previous session">‹</button><button class="cur" id="dayBtn" title="Choose a session" aria-haspopup="listbox"><b id="dayLbl">—</b><small id="dayTag"></small></button><button class="nav" id="dayNext" title="Next session">›</button><div class="daymenu" id="dayMenu" hidden role="listbox"></div></span><select id="day" title="Session" aria-hidden="true" tabindex="-1"></select>
   <span class="clock mono" id="clock">--:--</span>
   <span class="st" id="status"><i class="dot"></i><span id="statusText">WAITING</span></span>
   <button id="live" class="primary" hidden title="Return to the live feed">● Live</button>
@@ -224,7 +235,7 @@ try{ const r = +localStorage.getItem('risk'); if(r>0){ S.risk = r; $('risk').val
 $('risk').onchange = () => { S.risk = Math.max(100, +$('risk').value || 2000); $('risk').value = S.risk; try{ localStorage.setItem('risk', S.risk); }catch(e){} if(S.view === 'patterns') renderPatternDetail(); else renderDetail(); };
 
 // ---------- status ----------
-function setStatus(text, cls){ $('statusText').textContent = text; $('status').className = 'st ' + (cls||''); }
+function setStatus(text, cls){ $('statusText').textContent = text; $('status').className = 'st ' + (cls||''); if(typeof syncDayUI === 'function' && $('dayLbl')) syncDayUI(); }
 
 // ---------- view filter ----------
 S.filter = ScanFilter.defaults();
@@ -552,11 +563,11 @@ async function fetchReplay(){
 function enterReplay(day, at, auto=false){
   const dayChanged = day !== S.day;
   if(!auto) S.userReplay = true;
-  S.following = false; S.day = day; S.atAuto = auto; setAt(at); $('live').hidden = !(S.live || S.liveSnap); $('day').value = day; setStatus('REPLAY','replay');
+  S.following = false; S.day = day; S.atAuto = auto; setAt(at); $('live').hidden = !(S.live || S.liveSnap); $('day').value = day; syncDayUI(); setStatus('REPLAY','replay');
   fetchReplay(); if(dayChanged) loadAlerts();
 }
 function goLive(){
-  S.following = true; S.userReplay = false; S.day = null; S.mode = 'live'; $('live').hidden = true; $('day').value = todayIST();
+  S.following = true; S.userReplay = false; S.day = null; S.mode = 'live'; $('live').hidden = true; $('day').value = todayIST(); syncDayUI();
   if(S.liveSnap){ S.snap = S.liveSnap; setAt(S.snap.ts.slice(11,16)); setStatus('LIVE','live'); renderAll(); }
   else { setStatus('WAITING',''); showEmpty('Waiting for the first ranking. Cards appear from 09:15 on a trading day.'); }
   loadAlerts();
@@ -565,8 +576,37 @@ function populateDays(){
   const today = todayIST();
   const opts = (S.live && !S.days.includes(today)) ? [today, ...S.days] : S.days;
   $('day').innerHTML = opts.map(d => `<option value="${d}">${d}${d===today?' · today':''}</option>`).join('');
-  $('day').hidden = opts.length === 0;
+  S.dayOpts = opts;
+  const byMonth = {};
+  opts.forEach(d => { const m = new Date(d+'T00:00:00+05:30').toLocaleDateString('en-IN', {month:'long', year:'numeric', timeZone:'Asia/Kolkata'}); (byMonth[m] = byMonth[m] || []).push(d); });
+  $('dayMenu').innerHTML = Object.entries(byMonth).map(([m, ds]) => `<div class="mh">${m}</div>` + ds.map(d => `<button class="it" role="option" data-day="${d}"><span class="dow">${dayParts(d).dow}</span><span>${dayParts(d).dm}</span><span class="${d===today?'tag':'mut'}">${d===today?(S.live?'live':'today'):dayParts(d).y}</span></button>`).join('')).join('');
+  $('daypick').hidden = opts.length === 0;
+  syncDayUI();
 }
+function dayParts(d){
+  const dt = new Date(d+'T00:00:00+05:30'), o = {timeZone:'Asia/Kolkata'};
+  return { dow: dt.toLocaleDateString('en-IN', {weekday:'short', ...o}), dm: dt.toLocaleDateString('en-IN', {day:'numeric', month:'short', ...o}), y: dt.toLocaleDateString('en-IN', {year:'numeric', ...o}) };
+}
+function syncDayUI(){
+  const v = $('day').value, today = todayIST(), opts = S.dayOpts || [];
+  if(!v){ $('dayLbl').textContent = '—'; $('dayTag').textContent = ''; return; }
+  const pr = dayParts(v);
+  $('dayLbl').textContent = `${pr.dow} ${pr.dm}`;
+  $('dayTag').textContent = v === today ? (S.following && S.live ? 'live' : 'today') : pr.y;
+  $('dayTag').className = v === today && S.following && S.live ? 'live' : '';
+  const i = opts.indexOf(v);
+  $('dayPrev').disabled = i < 0 || i >= opts.length - 1;      // opts are newest first
+  $('dayNext').disabled = i <= 0;
+  $('dayMenu').querySelectorAll('.it').forEach(b => b.classList.toggle('on', b.dataset.day === v));
+}
+function pickDay(v){ if(!v || v === $('day').value && $('dayMenu').hidden) return; $('day').value = v; $('day').onchange(); closeDayMenu(); }
+function closeDayMenu(){ $('dayMenu').hidden = true; }
+$('dayBtn').onclick = e => { e.stopPropagation(); const m = $('dayMenu'); m.hidden = !m.hidden; if(!m.hidden){ const on = m.querySelector('.it.on'); if(on) on.scrollIntoView({block:'nearest'}); } };
+$('dayPrev').onclick = () => { const o = S.dayOpts || [], i = o.indexOf($('day').value); if(i >= 0 && i < o.length - 1) pickDay(o[i+1]); };
+$('dayNext').onclick = () => { const o = S.dayOpts || [], i = o.indexOf($('day').value); if(i > 0) pickDay(o[i-1]); };
+$('dayMenu').onclick = e => { const b = e.target.closest('.it'); if(b) pickDay(b.dataset.day); };
+document.addEventListener('click', e => { if(!e.target.closest('#daypick')) closeDayMenu(); });
+document.addEventListener('keydown', e => { if(e.key === 'Escape') closeDayMenu(); });
 $('day').onchange = () => { const v = $('day').value; (v === todayIST() && S.live) ? goLive() : enterReplay(v, '15:30', true); };
 $('at').oninput = () => enterReplay(S.day || todayIST(), minToHHMM(+$('at').value));
 $('live').onclick = goLive;
@@ -797,7 +837,7 @@ matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => { if
   let liveSnap = null;
   try{ liveSnap = await api('/api/scan'); }catch(e){}
   if(liveSnap){ onLiveSnapshot(liveSnap); }
-  else if(S.live){ setStatus('WAITING',''); $('day').value = todayIST(); loadAlerts(); }
+  else if(S.live){ setStatus('WAITING',''); $('day').value = todayIST(); syncDayUI(); loadAlerts(); }
   else if(S.days.length){ enterReplay(S.days[0], '15:30', true); }
   else { showEmpty('No sessions stored yet. On the VPS run <code>docker compose run --rm ingest python backfill.py</code> to load the last 60 days, then reload.'); }
 })();
