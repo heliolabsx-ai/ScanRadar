@@ -192,7 +192,7 @@ def verdict_context(trigger: dict, *, snap, sector_pct, bars, ref, lot, setup_st
     entry, stop, target = float(trigger["entry"]), float(trigger["stop"]), float(trigger["target"])
     risk = abs(entry - stop)
     ctx = {"now": now_hhmm, "minutes_since_open": _mins(now_hhmm), "symbol": trigger["symbol"], "side": trigger["side"],
-           "trigger": {k: trigger[k] for k in ("source", "kind", "label", "at", "score", "checks", "scan_rules", "tf") if k in trigger},
+           "trigger": {k: trigger[k] for k in ("source", "kind", "label", "at", "score", "checks", "scan_rules", "tf", "levels") if k in trigger},
            "ticket": {"entry": _r(entry), "stop": _r(stop), "target": _r(target), "rr": _r(abs(target - entry) / risk if risk else 0, 2),
                       "risk_pct": _r(risk / entry * 100 if entry else 0, 2), "size": size_for(entry, stop, lot)},
            "setup_record": setup_stats, "ranking_row": rank_row(snap, trigger["symbol"]),

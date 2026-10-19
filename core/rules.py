@@ -13,6 +13,7 @@ SIDE is one of:
   {"off": N, "field": "close"}          N candles back (0 = forming), field open/high/low/close/volume/vwap/oi
   {"off": N, "field": "close", "sma": 13}   simple moving average of the field over 13 bars ending at that bar
   {"off": N, "field": "close", "ema": 20}   exponential moving average (standard 2/(n+1) smoothing) ending at that bar
+Optional "trade": {"stop": SIDE | {"pct": x}, "target": SIDE | {"pct": x} | {"rr": r}} — the scan's own levels (see trade_levels).
 """
 import operator as op
 import pandas as pd
@@ -59,3 +60,51 @@ def evaluate(scan: dict, bars: pd.DataFrame, ctx: dict) -> bool:
     except (IndexError, KeyError, TypeError):
         return False
     return all(res) if scan.get("match", "all") == "all" else any(res)
+
+
+# ---------- scan-owned trade levels ----------
+MIN_RISK = 0.0005        # a stop closer than 0.05 % to the entry is not a stop
+
+
+def _level(side_spec: dict, bars: pd.DataFrame, ctx: dict, entry: float, side: str):
+    if "pct" in side_spec:
+        x = float(side_spec["pct"]) / 100
+        return entry * (1 - x) if side == "long" else entry * (1 + x)
+    return _resolve(side_spec, bars, ctx)
+
+
+def trade_levels(scan: dict, bars: pd.DataFrame, ctx: dict, entry: float) -> dict | None:
+    """Stop and target a scan defines for itself, resolved at the fire minute:
+
+        "trade": {"stop": SIDE | {"pct": 0.5}, "target": SIDE | {"pct": 1.2} | {"rr": 2.0}}
+
+    SIDE is any rule side (`off`/`field`, `series`, `number`, with `sma`/`ema`); `pct` is a
+    distance from the entry; `rr` places the target at that multiple of the risk. Returns
+    {"stop", "target", "basis"} with basis "scan" when both resolved on the right side of the
+    entry, "scan+rr" when the target had to fall back to 1.5x the risk, or None when the stop
+    is missing or on the wrong side (the caller then uses the analytics' pivot levels)."""
+    t = scan.get("trade")
+    side = scan.get("side")
+    if not t or side not in ("long", "short") or "stop" not in t:
+        return None
+    try:
+        stop = float(_level(t["stop"], bars, ctx, entry, side))
+    except (IndexError, KeyError, TypeError, ValueError):
+        return None
+    risk = (entry - stop) if side == "long" else (stop - entry)
+    if not (risk > entry * MIN_RISK):
+        return None
+    basis = "scan"
+    target = None
+    tspec = t.get("target") or {"rr": 1.5}
+    try:
+        if "rr" in tspec:
+            target = entry + float(tspec["rr"]) * risk if side == "long" else entry - float(tspec["rr"]) * risk
+        else:
+            target = float(_level(tspec, bars, ctx, entry, "short" if side == "long" else "long"))   # a pct target lies on the far side
+    except (IndexError, KeyError, TypeError, ValueError):
+        target = None
+    if target is None or (target <= entry if side == "long" else target >= entry):
+        target = entry + 1.5 * risk if side == "long" else entry - 1.5 * risk
+        basis = "scan+rr"
+    return {"stop": stop, "target": target, "basis": basis}

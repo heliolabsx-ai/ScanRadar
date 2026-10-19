@@ -7,7 +7,7 @@ ScanRadar engine: every minute (on the ingest's 'candles:closed' signal)
 import os, json, glob, time, logging, datetime as dt
 import redis, psycopg, pandas as pd
 from analytics import analyse, score
-from rules import resample, evaluate
+from rules import resample, evaluate, trade_levels
 from notify import telegram
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
@@ -100,13 +100,21 @@ def run_once():
                     key = f"cooldown:{sc['name']}:{s}"
                     if R.set(key, "1", ex=cooldown * 60, nx=True):
                         price = float(bars.close.iloc[-1])
+                        payload = {"tf": tf, "side": sc.get("side")}
+                        lv = trade_levels(sc, bars, ctx, price) if sc.get("side") else None
+                        if lv:
+                            payload.update(stop=lv["stop"], target=lv["target"], levels=lv["basis"])
                         cur.execute("INSERT INTO alerts(scan,symbol,price,payload) VALUES(%s,%s,%s,%s)",
-                                    (sc["name"], s, price, json.dumps({"tf": tf})))
-                        fired.append((sc, s, price))
+                                    (sc["name"], s, price, json.dumps(payload, default=float)))
+                        fired.append((sc, s, price, lv))
         con.commit()
-    for sc, s, price in fired:
+    for sc, s, price, lv in fired:
         if sc.get("alert", {}).get("telegram", True):
-            telegram(f"<b>{sc['name']}</b>\n{s} @ ₹{price:,.2f}  ({sc.get('timeframe','5m')})\n{now:%H:%M}  ·  scanradar.tech")
+            lvl = ""
+            if lv:
+                rr = abs(lv["target"] - price) / abs(price - lv["stop"]) if price != lv["stop"] else 0
+                lvl = f"\nstop ₹{lv['stop']:,.2f} · target ₹{lv['target']:,.2f} · R:R 1:{rr:.1f}"
+            telegram(f"<b>{sc['name']}</b>\n{s} @ ₹{price:,.2f}  ({sc.get('timeframe','5m')}){lvl}\n{now:%H:%M}  ·  scanradar.tech")
     log.info("scan: %d symbols, %d bull / %d bear, %d alerts", n, len(bulls), len(bears), len(fired))
 
 

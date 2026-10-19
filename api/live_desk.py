@@ -158,21 +158,25 @@ def process_minute(con, R, day, at: dt.datetime, snap: dict | None, *, prepare=N
                 skip_row(cur, day, at, ref, a["symbol"], f"stale: fired {a['ts'].strftime('%H:%M')}, judged only within {desk.MAX_AGE_MIN} min", {"label": a["scan"]}); con.commit(); continue
             if not desk.budget_allows("alert", desk.spent(R, day)):
                 skip_row(cur, day, at, ref, a["symbol"], f"skipped: rule-alert share of the budget ({int(desk.ALERT_SHARE * 100)} %) is spent", {"label": a["scan"]}); con.commit(); continue
-            row = desk.raw_row(snap, a["symbol"])
-            if row is None:
-                df = load_symbol(con, day, a["symbol"], at)
-                row = analyse(a["symbol"], df, refs[a["symbol"]]) if not df.empty and refs.get(a["symbol"]) else None
-            if not side or row is None:
-                desk.store(cur, {"day": day, "kind": "verdict", "ts": at, "ref": ref, "symbol": a["symbol"], "context": {"alert": a["scan"]},
-                                 "error": "no side or analysis for this alert"}); con.commit()
-                continue
-            stop, target = al.side_levels(row, side)
+            pl = a["payload"]
+            if pl.get("stop") is not None and pl.get("target") is not None:
+                stop, target, basis = float(pl["stop"]), float(pl["target"]), pl.get("levels", "scan")      # the scan's own levels
+            else:
+                row = desk.raw_row(snap, a["symbol"])
+                if row is None:
+                    df = load_symbol(con, day, a["symbol"], at)
+                    row = analyse(a["symbol"], df, refs[a["symbol"]]) if not df.empty and refs.get(a["symbol"]) else None
+                if not side or row is None:
+                    desk.store(cur, {"day": day, "kind": "verdict", "ts": at, "ref": ref, "symbol": a["symbol"], "context": {"alert": a["scan"]},
+                                     "error": "no side or analysis for this alert"}); con.commit()
+                    continue
+                stop, target = al.side_levels(row, side); basis = "pivot"
             rr = abs(target - a["price"]) / abs(a["price"] - stop) if a["price"] != stop else 0
             if rr < desk.ALERT_MIN_RR or not gate(None if desk.MIN_SCORE == 0 else 5, rr):
                 skip_row(cur, day, at, ref, a["symbol"], f"skipped: R:R 1:{rr:.1f} below {desk.ALERT_MIN_RR:.1f}", {"label": a["scan"], "side": side}); con.commit(); continue
             st = scan_stats.get(a["scan"]) or {}
             trig = {"source": "alert", "kind": a["scan"], "label": a["scan"], "at": a["ts"].strftime("%H:%M"), "tf": a["payload"].get("tf") or sc.get("timeframe"),
-                    "scan_rules": sc.get("rules"), "symbol": a["symbol"], "side": side, "entry": a["price"], "stop": stop, "target": target}
+                    "scan_rules": sc.get("rules"), "levels": basis, "symbol": a["symbol"], "side": side, "entry": a["price"], "stop": stop, "target": target}
             record = {"hit_rate_pct": desk._r(st.get("hit_rate")), "fires_20d": st.get("fires"), "avg_r30_pct": desk._r(st.get("avg_r30")), "avg_r60_pct": desk._r(st.get("avg_r60"))}
             rec = _verdict(cur, R, con, day=day, at=at, trigger=trig, ref=ref, snap=snap, refs=refs, lots=lots, record=record)
             con.commit(); done["verdicts"] += 1

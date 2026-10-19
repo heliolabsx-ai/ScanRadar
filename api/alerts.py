@@ -5,6 +5,7 @@ import os, json, glob, hashlib, datetime as dt
 import pandas as pd
 from core.analytics import analyse
 from core.asof import view_at
+from core.rules import resample, trade_levels
 from core.backtest import fires, outcome
 
 from replay import IST, SETTLED, day_is_settled  # noqa: F401  (re-exported for tests)
@@ -48,12 +49,19 @@ def _ctx(ref: dict) -> dict:
             "prev_day_low": ref.get("prev_low", 0)}
 
 
-def _trade_payload(sym: str, df: pd.DataFrame, ref: dict, ts: pd.Timestamp, side: str, price: float) -> dict:
-    a = analyse(sym, view_at(df, ts), ref)
+def _trade_payload(sym: str, df: pd.DataFrame, ref: dict, ts: pd.Timestamp, side: str, price: float, scan: dict | None = None) -> dict:
+    """Stop/target/outcome for a fire: the scan's own levels when it defines them and they
+    resolve, else the analytics' pivot levels (basis "pivot")."""
+    v = view_at(df, ts)
+    if scan and scan.get("trade"):
+        lv = trade_levels(scan, resample(v, scan.get("timeframe", "5m")), _ctx(ref), float(price))
+        if lv:
+            return {"stop": lv["stop"], "target": lv["target"], "levels": lv["basis"], "outcome": outcome(df, ts, side, price, lv["stop"], lv["target"])}
+    a = analyse(sym, v, ref)
     if not a:
         return {}
     stop, target = side_levels(a, side)
-    return {"stop": stop, "target": target, "outcome": outcome(df, ts, side, price, stop, target)}
+    return {"stop": stop, "target": target, "levels": "pivot", "outcome": outcome(df, ts, side, price, stop, target)}
 
 
 def replay_needed(con, day: dt.date, scans: list[tuple[dict, str]]) -> bool:
@@ -107,7 +115,7 @@ def ensure_replay_alerts(con, day: dt.date, frames: dict, refs: dict, scans: lis
                     price = float(view_at(df, ts).close.iloc[-1])
                     payload = {"tf": tf, "scan_hash": h, "source": "replay", "side": side}
                     if side:
-                        payload.update(_trade_payload(sym, df, ref, ts, side, price))
+                        payload.update(_trade_payload(sym, df, ref, ts, side, price, scan))
                     rows.append((ts.to_pydatetime(), name, sym, price, json.dumps(payload, default=float)))
             if rows:
                 cur.executemany("INSERT INTO alerts(ts,scan,symbol,price,payload,source) VALUES(%s,%s,%s,%s,%s,'replay')", rows)
@@ -129,8 +137,11 @@ def ensure_outcomes(con, day: dt.date, frames: dict, refs: dict, scans: list[tup
             side = scan.get("side") if scan else None
             df, ref = frames.get(sym), refs.get(sym)
             extra: dict = {"outcome": None, "side": side}          # ungradable rows are marked, not skipped
-            if side and df is not None and ref and price is not None:
-                extra.update(_trade_payload(sym, df, ref, pd.Timestamp(ts).tz_convert("Asia/Kolkata"), side, float(price)) or {})
+            p = payload or {}
+            if side and df is not None and p.get("stop") is not None and p.get("target") is not None and price is not None:
+                extra["outcome"] = outcome(df, pd.Timestamp(ts).tz_convert("Asia/Kolkata"), side, float(price), float(p["stop"]), float(p["target"]))   # the engine's levels
+            elif side and df is not None and ref and price is not None:
+                extra.update(_trade_payload(sym, df, ref, pd.Timestamp(ts).tz_convert("Asia/Kolkata"), side, float(price), scan) or {})
             cur.execute("UPDATE alerts SET payload = COALESCE(payload,'{}'::jsonb) || %s::jsonb WHERE id=%s",
                         (json.dumps(extra, default=float), aid))
     con.commit()

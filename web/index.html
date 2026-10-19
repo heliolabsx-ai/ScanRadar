@@ -506,7 +506,7 @@ function renderAlerts(){
   const rows = (S.alerts||[]).filter(a => (!S.day || a.ts.slice(11,16) <= at) && ScanFilter.passAlert(a, bySym, S.sectorsOf, S.filter));
   $('alertsAt').textContent = S.day ? `· to ${at}` : '';
   $('alerts').innerHTML = (S.alertsPending ? '<div class="mut" style="padding:4px 0">computing replay alerts for this day…</div>' : '') +
-    (rows.map(a => `<div class="alert" data-sym="${a.symbol}" data-at="${a.ts.slice(11,16)}"><span class="mono">${a.ts.slice(11,16)}</span><span>${a.scan}${a.source==='replay'?'<span class="tag">replay</span>':''}</span><b class="mono">${a.symbol}</b><span class="oc">₹${fmt(a.price)} · ${outcomeLabel(a.outcome)}</span></div>`).join('')
+    (rows.map(a => `<div class="alert" data-sym="${a.symbol}" data-at="${a.ts.slice(11,16)}"><span class="mono">${a.ts.slice(11,16)}</span><span>${a.scan}${a.source==='replay'?'<span class="tag">replay</span>':''}</span><b class="mono">${a.symbol}</b><span class="oc">₹${fmt(a.price)}${a.stop!=null&&a.target!=null&&a.price!==a.stop?` · R:R 1:${fmt(Math.abs(a.target-a.price)/Math.abs(a.price-a.stop),1)}`:''} · ${outcomeLabel(a.outcome)}</span></div>`).join('')
      || (S.alertsPending ? '' : '<span class="mut">none yet</span>'));
 }
 async function loadAlerts(){
