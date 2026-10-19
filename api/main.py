@@ -10,6 +10,7 @@ import patterns as pt
 import live_patterns as lp
 import desk
 import live_desk as ld
+import watch as wt
 from core.patterns import detector_hash
 from core.notify import telegram
 
@@ -339,6 +340,40 @@ async def scan_stats(days: int = 20):
         with connect() as con:
             return al.scan_stats(con, days)
     return await asyncio.get_running_loop().run_in_executor(None, q)
+
+
+# ---------- Watch board ----------
+@app.get("/api/watch")
+async def watch(symbols: str, day: str | None = None, at: str | None = None):
+    syms = [s.strip().upper() for s in symbols.split(",") if s.strip()][:wt.MAX_SYMBOLS]
+    if not syms:
+        raise HTTPException(400, "symbols is empty")
+    now = dt.datetime.now(IST)
+    if day:
+        try:
+            d, at_dt = rp.parse_replay_args(day, at or "15:30")
+        except rp.ReplayError as e:
+            raise HTTPException(400, str(e))
+    else:
+        d, at_dt = now.date(), now
+    live = d == now.date() and (not at or at_dt >= now - dt.timedelta(minutes=2))
+    if live:
+        snap = json.loads(await R.get("scan:latest") or "null")
+        at_dt = now
+    else:
+        snap = None
+
+    def q():
+        nonlocal snap
+        with connect() as con:
+            if snap is None:
+                try:
+                    snap = rp.snapshot_at(con, d, at_dt)
+                except rp.ReplayError:
+                    snap = None
+            return wt.watch_rows(con, d, at_dt, syms, snap)
+    rows = await asyncio.get_running_loop().run_in_executor(None, q)
+    return {"day": d.isoformat(), "at": at_dt.astimezone(IST).strftime("%H:%M"), "live": live, "rows": json.loads(json.dumps(rows, default=float))}
 
 
 # ---------- Desk (Claude) ----------

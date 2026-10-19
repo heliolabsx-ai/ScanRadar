@@ -8,6 +8,7 @@
 <script src="notify.js?v=412e789"></script>
 <script src="patterns.js?v=412e789"></script>
 <script src="desk.js?v=412e789"></script>
+<script src="watch.js?v=412e789"></script>
 <style>
 /* Layout: control strip → sector/breadth rail → bull/bear card grid → detail panel with canvas chart. Terminal-style data UI. */
 :root{
@@ -133,6 +134,35 @@ table.pt{width:100%;border-collapse:collapse;font-size:12px}.pt th{font:600 10px
 .ask{display:flex;gap:6px;margin-top:8px}.ask input{flex:1;font:12px var(--sans);background:var(--bg);color:var(--fg);border:1px solid var(--line);border-radius:4px;padding:6px 8px}
 .answer{font-size:12.5px;line-height:1.55;margin-top:8px;padding:8px;border-radius:4px;background:var(--bg);border:1px solid var(--line)}.answer .meta{display:block;font:500 10px var(--mono);color:var(--muted);margin-top:4px}
 .review h3{font:600 10.5px var(--sans);letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin:12px 0 4px}.review p{margin:0;font-size:12.5px;line-height:1.55}.review ul{margin:4px 0;padding-left:16px;font-size:12px}
+/* ---- Watch board (Heat) ---- */
+.wtool{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:10px}
+.wpick{position:relative}.wpick input{width:240px;font:12px var(--sans);background:var(--panel);color:var(--fg);border:1px solid var(--line);border-radius:4px;padding:6px 10px}
+.wsugg{position:absolute;top:100%;left:0;z-index:20;background:var(--panel);border:1px solid var(--line);border-radius:6px;min-width:240px;max-height:220px;overflow:auto;display:none}.wsugg div{padding:6px 10px;cursor:pointer;display:flex;justify-content:space-between;font-size:12px}.wsugg div:hover{background:var(--bg)}.wsugg small{color:var(--muted);font-family:var(--mono)}
+.wsort{margin-left:auto;display:flex;gap:4px;align-items:center;color:var(--muted);font-size:11px}.wsort button{font:600 10.5px var(--mono);padding:3px 8px}.wsort button.on{color:var(--fg);border-color:var(--fg)}
+.wgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(290px,1fr));gap:12px}
+.wc{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:10px 12px;position:relative;cursor:pointer;transition:transform .5s cubic-bezier(.2,.7,.2,1),background .8s,box-shadow .3s;--heat:0}
+.wc.hot-up{background:linear-gradient(180deg,rgba(61,220,132,var(--heat)),var(--panel) 70%)}.wc.hot-dn{background:linear-gradient(180deg,rgba(255,107,107,var(--heat)),var(--panel) 70%)}
+.wc.flash{animation:wflash .9s ease-out}@keyframes wflash{0%{box-shadow:0 0 0 2px var(--amber),0 0 24px rgba(224,166,58,.6)}100%{box-shadow:none}}
+.wc .x{position:absolute;top:8px;right:10px;color:var(--muted);font-size:12px;opacity:.5;padding:0 2px}.wc .x:hover{opacity:1;color:var(--bear)}
+.wc .hd{display:flex;align-items:baseline;gap:8px}.wc .hd b{font:700 15px var(--mono)}.wc .hd .sec{font:500 9.5px var(--sans);letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.wc .px{margin-left:auto;font:600 15px var(--mono);font-variant-numeric:tabular-nums;display:inline-flex;overflow:hidden}.wc .px i{display:inline-block;font-style:normal}.wc .px i.r{animation:roll .35s ease}@keyframes roll{from{transform:translateY(-100%);opacity:0}to{transform:none;opacity:1}}
+.wc .pct{font:600 12px var(--mono);min-width:58px;text-align:right}
+.wc .rk{font:500 10.5px var(--mono);color:var(--muted);margin:2px 0 6px}.wc .rk b{color:var(--fg)}.wc .rk .held{color:var(--accent)}
+.wpos{position:relative;height:26px;margin:4px 0 6px}.wpos .track{position:absolute;left:0;right:0;top:11px;height:4px;background:var(--line);border-radius:2px}
+.wpos .lvl{position:absolute;top:0;font:500 9px var(--mono);color:var(--muted);transform:translateX(-50%)}.wpos .lvl::after{content:"";display:block;width:1px;height:8px;background:var(--line);margin:1px auto 0}.wpos .lvl.vw{color:var(--vwap)}.wpos .lvl.vw::after{background:var(--vwap)}
+.wpos .cur{position:absolute;top:8px;width:10px;height:10px;border-radius:50%;background:var(--fg);transform:translateX(-50%);transition:left .7s ease;box-shadow:0 0 0 3px rgba(230,235,231,.15)}
+.wc canvas.sp{width:100%;height:56px;display:block}
+.wst{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-top:6px}.wst div{font:500 10px var(--sans);letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}.wst span{display:block;font:600 12px var(--mono);color:var(--fg);letter-spacing:0;text-transform:none;margin-top:1px}
+.wdl{height:5px;border-radius:3px;background:var(--bear);overflow:hidden;margin-top:4px}.wdl i{display:block;height:100%;background:var(--bull);transition:width .6s}
+.wev{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;min-height:20px}.wev span{font:600 10px var(--mono);padding:2px 7px;border-radius:4px;border:1px solid var(--line);color:var(--fg);animation:pop .4s ease}.wev .form{color:var(--muted)}.wev .fail{color:var(--muted);text-decoration:line-through}.wev .trig{background:var(--accent);color:#0b1220;border-color:var(--accent)}.wev .take{background:var(--bull);color:#0b1a10;border-color:var(--bull)}.wev .skip{background:var(--bear);color:#fff;border-color:var(--bear)}.wev .wait{background:var(--amber);color:#1a1300;border-color:var(--amber)}
+@keyframes pop{from{transform:scale(.6);opacity:0}to{transform:scale(1);opacity:1}}
+.wdrawer{position:fixed;top:0;right:0;height:100vh;width:min(600px,100vw);background:var(--panel);border-left:1px solid var(--line);box-shadow:-20px 0 50px rgba(0,0,0,.45);transform:translateX(100%);transition:transform .35s cubic-bezier(.2,.7,.2,1);z-index:60;overflow:auto;padding:14px 16px}
+.wdrawer.open{transform:none}.wdrawer .close{position:absolute;top:10px;right:12px}
+.wdrawer h2{font:700 20px var(--mono);margin:0 0 2px}.wdrawer .sub{font:500 11px var(--mono);color:var(--muted);margin-bottom:8px}
+.wdrawer h3{font:500 10.5px var(--sans);letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin:14px 0 6px}
+.lvls{display:grid;grid-template-columns:repeat(5,1fr);gap:6px}.lvls div{background:var(--bg);border:1px solid var(--line);border-radius:4px;padding:5px 6px;font:600 11px var(--mono)}.lvls b{display:block;font:500 9px var(--sans);letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}.lvls .here{border-color:var(--fg)}
+.wl{display:grid;grid-template-columns:auto 1fr auto auto;gap:6px 10px;font-size:11.5px;align-items:center}.wl .chipx{font:600 9.5px var(--mono);padding:1px 6px;border-radius:3px;border:1px solid var(--line);color:var(--muted)}.wl .chipx.trig{background:var(--accent);color:#0b1220;border-color:var(--accent)}
+.wbtn{display:flex;gap:6px;margin-top:12px}
 .score{display:inline-flex;gap:2px;vertical-align:middle}.score i{width:6px;height:6px;border-radius:50%;background:var(--line);display:block}.score i.on{background:currentColor}
 .why{margin-top:10px;font-size:11.5px;padding:8px;border-radius:4px;background:var(--bg);border:1px solid var(--line);line-height:1.6}.why ul{margin:4px 0 0;padding:0;list-style:none}.why b{font-family:var(--mono)}.ok::before{content:"✓ ";color:var(--bull)}.no::before{content:"· ";color:var(--muted)}
 .alerts{margin-top:12px}.alerts .list{max-height:460px;overflow:auto}
@@ -147,7 +177,7 @@ table.pt{width:100%;border-collapse:collapse;font-size:12px}.pt th{font:600 10px
 </style></head><body>
 <div class="top">
   <h1>ScanRadar</h1>
-  <span class="tabs"><button class="tab on" data-view="scanner">Scanner</button><button class="tab" data-view="patterns">Patterns</button><button class="tab" data-view="desk">Desk</button></span>
+  <span class="tabs"><button class="tab on" data-view="scanner">Scanner</button><button class="tab" data-view="patterns">Patterns</button><button class="tab" data-view="desk">Desk</button><button class="tab" data-view="watch">Watch</button></span>
   <span class="daypick" id="daypick"><button class="nav" id="dayPrev" title="Previous session">‹</button><button class="cur" id="dayBtn" title="Choose a session" aria-haspopup="listbox"><b id="dayLbl">—</b><small id="dayTag"></small></button><button class="nav" id="dayNext" title="Next session">›</button><div class="daymenu" id="dayMenu" hidden role="listbox"></div></span><select id="day" title="Session" aria-hidden="true" tabindex="-1"></select>
   <span class="clock mono" id="clock">--:--</span>
   <span class="st" id="status"><i class="dot"></i><span id="statusText">WAITING</span></span>
@@ -197,6 +227,17 @@ table.pt{width:100%;border-collapse:collapse;font-size:12px}.pt th{font:600 10px
   </div>
   <div class="panel" id="pdetail"></div>
 </div>
+<div id="watchView" hidden>
+  <div class="wtool">
+    <div class="wpick"><input id="wq" placeholder="Add ticker… (type, Enter adds)" autocomplete="off"><div class="wsugg" id="wsugg"></div></div>
+    <div class="pills" id="wgroups" style="margin:0"><span class="pill on" data-g="mine">My watch</span><span class="pill" data-g="picks">Top picks</span><span class="pill" data-g="trig">Triggered today</span><select id="wsector" title="Load a sector"><option value="">sector…</option></select></div>
+    <div class="wsort">sort <button data-s="pct" class="on">% chg</button><button data-s="rank">rank</button><button data-s="rvol">RVOL</button><button data-s="events">events</button><span class="mono mut" id="wat"></span></div>
+  </div>
+  <div class="wgrid" id="wgrid"></div>
+  <div class="empty" id="wempty"></div>
+  <p class="note mut" style="font-size:11px;line-height:1.5;margin-top:8px">Cards fill with the day's colour in proportion to the move; prices roll as they print. A pattern trigger or desk verdict flashes the card. Click a card for the full detail; ✕ removes it. The board re-ranks every five minutes or when you change the sort. The list is saved in this browser.</p>
+</div>
+<div class="wdrawer" id="wdrawer"><button class="close" id="wclose">Esc ✕</button><div id="wbody"></div></div>
 <div class="dgrid" id="deskView" hidden>
   <div class="panel">
     <p class="eyebrow"><span id="deyebrow">Desk · verdicts</span><span class="budget" id="dbudget" title="Rupees spent on Claude today against the daily hard stop"><span class="bar"><i></i></span><span id="dbudgetText">—</span></span></p>
@@ -260,6 +301,7 @@ function formToFilter(){
 }
 function populateSectors(){
   const secs = [...new Set(Object.values(S.sectorsOf))].sort();
+  $('wsector').innerHTML = '<option value="">sector…</option>' + secs.map(s => `<option>${s}</option>`).join('');
   $('fSectors').innerHTML = secs.map(x => `<option value="${x}">${x}</option>`).join('');
   $('fSectors').size = 1; filterToForm();
 }
@@ -385,7 +427,7 @@ async function loadAndDraw(a){
       if(chartCache.key !== key || S.following){ const r = await api(`/api/candles/${a.symbol}?day=${day}`); chartCache.key = key; chartCache.data = r.candles; chartCache.ref = r.ref || {}; chartCache.delta = r.delta_available; }
     }
   }catch(e){ return; }
-  const stillCurrent = S.view === 'patterns' ? (S.psel && S.psel.symbol === a.symbol) : S.selected === a.symbol;
+  const stillCurrent = S.view === 'patterns' ? (S.psel && S.psel.symbol === a.symbol) : S.view === 'watch' ? S.wsel === a.symbol : S.selected === a.symbol;
   if(stillCurrent) drawChart(a);
 }
 function drawChart(a){
@@ -491,7 +533,7 @@ function renderAll(){
   $('clock').textContent = S.at || S.snap.ts.slice(11,16);
   renderCards(); renderAlerts(); renderFoot();
   if(!S.selected && S.snap.bulls[0]) S.selected = S.snap.bulls[0].symbol;
-  if(S.view === 'patterns') loadPatterns(); else if(S.view === 'desk') loadDesk(); else renderDetail();
+  if(S.view === 'patterns') loadPatterns(); else if(S.view === 'desk') loadDesk(); else if(S.view === 'watch'){ loadWatch(); loadPatterns(); loadDesk(); } else renderDetail();
 }
 function outcomeLabel(o){
   if(o === null) return '<span class="mut">—</span>';
@@ -647,17 +689,17 @@ function notifyFromLive(snap, alerts){
 }
 
 // ---------- Patterns tab ----------
-S.view = location.hash === '#patterns' ? 'patterns' : location.hash === '#desk' ? 'desk' : 'scanner';
+S.view = location.hash === '#patterns' ? 'patterns' : location.hash === '#desk' ? 'desk' : location.hash === '#watch' ? 'watch' : 'scanner';
 S.prows = []; S.pcounts = {}; S.ppending = false; S.psel = null; S.pquick = 'all'; S.pstats = null; S.pseen = new Set(); S.pseeded = false;
 const PK = ScanPatterns;
 function setView(v){
-  S.view = v; location.hash = v === 'patterns' ? '#patterns' : v === 'desk' ? '#desk' : '';
+  S.view = v; location.hash = v === 'patterns' ? '#patterns' : v === 'desk' ? '#desk' : v === 'watch' ? '#watch' : '';
   document.querySelectorAll('.tab').forEach(b => b.classList.toggle('on', b.dataset.view === v));
-  $('scannerView').hidden = v !== 'scanner'; $('patternsView').hidden = v !== 'patterns'; $('deskView').hidden = v !== 'desk';
-  if(v === 'patterns'){ loadPatterns(); loadPatternStats(); } else if(v === 'desk'){ loadDesk(); } else { renderDetail(); }
+  $('scannerView').hidden = v !== 'scanner'; $('patternsView').hidden = v !== 'patterns'; $('deskView').hidden = v !== 'desk'; $('watchView').hidden = v !== 'watch';
+  if(v === 'patterns'){ loadPatterns(); loadPatternStats(); } else if(v === 'desk'){ loadDesk(); } else if(v === 'watch'){ loadWatch(); loadPatterns(); loadDesk(); } else { renderDetail(); }
 }
 document.querySelectorAll('.tab').forEach(b => b.onclick = () => setView(b.dataset.view));
-function panelEl(){ return S.view === 'patterns' ? $('pdetail') : $('detail'); }
+function panelEl(){ return S.view === 'patterns' ? $('pdetail') : S.view === 'watch' ? $('wbody') : $('detail'); }
 
 async function loadPatterns(){
   const day = S.day || todayIST(), at = S.at || '15:30';
@@ -665,7 +707,7 @@ async function loadPatterns(){
     const res = await api(`/api/patterns?day=${day}&at=${at}`);
     if((S.day || todayIST()) !== day || (S.at || '15:30') !== at) return;
     S.prows = res.rows; S.pcounts = res.counts; S.ppending = res.pending;
-    if(S.view === 'patterns') renderPatterns();
+    if(S.view === 'patterns') renderPatterns(); else if(S.view === 'watch') renderWatch();
     notifyPatterns(res.rows);
     if(S.ppending){ clearTimeout(S.ptimer); S.ptimer = setTimeout(loadPatterns, 10000); }
   }catch(e){ S.prows = []; S.pcounts = {}; if(S.view === 'patterns') renderPatterns(e.message); }
@@ -754,7 +796,7 @@ async function loadDesk(){
     const res = await api(`/api/desk?day=${day}&at=${at}`);
     if((S.day || todayIST()) !== day || (S.at || '15:30') !== at) return;
     S.desk = res;
-    if(S.view === 'desk') renderDesk();
+    if(S.view === 'desk') renderDesk(); else if(S.view === 'watch') renderWatch();
     notifyDesk(res.verdicts);
   }catch(e){ S.desk = null; if(S.view === 'desk') renderDesk(e.message); }
 }
@@ -815,6 +857,100 @@ function notifyDesk(verdicts){
   fresh.slice(0,5).forEach(v => ScanNotify.show(DK.notification(v), () => { setView('desk'); }));
 }
 
+// ---------- Watch board (Heat) ----------
+const WK = ScanWatch;
+S.watch = WK.load(null); try{ S.watch = WK.load(localStorage.getItem('watch')); }catch(e){}
+S.wrows = {}; S.wprev = {}; S.wsort = 'pct'; S.wcache = null; S.wsel = null; S.wgroup = 'mine'; S.wseen = new Set(); S.wat = '';
+function saveWatch(){ if(S.wgroup === 'mine'){ try{ localStorage.setItem('watch', WK.save(S.watch)); }catch(e){} } }
+async function loadWatch(){
+  const syms = S.watch; if(!syms.length){ S.wrows = {}; renderWatch(); return; }
+  const live = S.following && !S.day; const day = S.day || todayIST(), at = S.at || '15:30';
+  try{ const res = await api(live ? `/api/watch?symbols=${syms.join(',')}` : `/api/watch?symbols=${syms.join(',')}&day=${day}&at=${at}`);
+    if(syms.join(',') !== S.watch.join(',')) return;
+    S.wprev = Object.fromEntries(Object.entries(S.wrows).map(([k,v]) => [k, v.price])); S.wrows = res.rows; S.wat = res.at;
+    renderWatch();
+  }catch(e){ if(S.view === 'watch') $('wempty').textContent = `could not load the board: ${e.message}`; }
+}
+function wcard(r, ev){
+  const up = r.pct >= 0, d = WK.digits(S.wprev[r.symbol], r.price), pos = v => WK.position(r, v);
+  const held = S.timeline ? null : null;
+  return `<span class="x" data-wx="${r.symbol}" title="Remove">✕</span>
+   <div class="hd"><b>${r.symbol}</b><span class="sec">${esc(r.sector||'')}</span><span class="px ${up?'up':'dn'}">${d.map(x=>`<i class="${x.changed?'r':''}">${x.ch}</i>`).join('')}</span><span class="pct ${up?'up':'dn'}">${sg(r.pct)}%</span></div>
+   <div class="rk">${r.rank ? `rank <b>#${r.rank}</b> · p${fmt(r.pctile||0,0)}${r.picked?' · <b class=up>PICKED</b>':''}` : '<span class="mut">outside the top 40</span>'} · <span class="held">${r.n_min} min</span></div>
+   <div class="wpos"><div class="track"></div><span class="lvl" style="left:${pos(r.prev_low)}%">PDL</span><span class="lvl" style="left:${pos(r.prev_close)}%">PC</span><span class="lvl vw" style="left:${pos(r.vwap)}%">VWAP</span><span class="lvl" style="left:${pos(r.prev_high)}%">PDH</span><i class="cur" style="left:${pos(r.price)}%"></i></div>
+   <canvas class="sp" width="560" height="112"></canvas>
+   <div class="wst"><div>OI<span><i class="chip ${r.oi_cls}" style="font-size:9.5px;padding:1px 6px">${esc(r.oi_label)}</i></span></div><div>RVOL<span class="${r.rvol>=1.5?'up':''}">${fmt(r.rvol,1)}×</span></div><div>Δ buy/sell<span>${r.delta_available?Math.round(50+50*Math.max(-1,Math.min(1,r.delta/Math.max(1,Math.abs(r.delta)*2))))+'%':'—'}</span>${r.delta_available?`<div class="wdl"><i style="width:${Math.round(50+50*Math.max(-1,Math.min(1,r.delta/Math.max(1,Math.abs(r.delta)*2))))}%"></i></div>`:''}</div></div>
+   <div class="wev">${ev.map(e=>`<span class="${e.k}">${esc(e.t)}</span>`).join('')}</div>`;
+}
+function wspark(c, r){
+  const ctx = c.getContext('2d'), W = c.width, H = c.height, h = r.spark || []; if(h.length < 2) return;
+  const lo = Math.min(...h, r.vwap), hi = Math.max(...h, r.vwap), y = v => H-6-(v-lo)/((hi-lo)||1)*(H-12), x = i => i/(h.length-1)*W;
+  ctx.clearRect(0,0,W,H); ctx.lineWidth = 2; ctx.strokeStyle = C('--vwap'); ctx.setLineDash([4,4]); ctx.beginPath(); ctx.moveTo(0,y(r.vwap)); ctx.lineTo(W,y(r.vwap)); ctx.stroke(); ctx.setLineDash([]);
+  const up = h[h.length-1] >= h[0]; ctx.strokeStyle = up ? C('--bull') : C('--bear');
+  const g = ctx.createLinearGradient(0,0,0,H); g.addColorStop(0, up?'rgba(61,220,132,.25)':'rgba(255,107,107,.25)'); g.addColorStop(1,'rgba(0,0,0,0)');
+  ctx.beginPath(); h.forEach((v,i)=> i?ctx.lineTo(x(i),y(v)):ctx.moveTo(x(i),y(v))); ctx.stroke(); ctx.lineTo(W,H); ctx.lineTo(0,H); ctx.closePath(); ctx.fillStyle = g; ctx.fill();
+  ctx.fillStyle = up?C('--bull'):C('--bear'); ctx.beginPath(); ctx.arc(x(h.length-1), y(h[h.length-1]), 4, 0, 7); ctx.fill();
+}
+function renderWatch(){
+  const grid = $('wgrid'); $('wat').textContent = S.wat ? `as of ${S.wat}` : '';
+  const rows = S.watch.map(s => S.wrows[s]).filter(Boolean).map(r => ({...r, events: WK.events(r.symbol, S.prows, S.desk && S.desk.verdicts)}));
+  const missing = S.watch.filter(s => !S.wrows[s]);
+  const minuteIdx = hhmmToMin(S.wat || S.at || '09:15');
+  const o = WK.order(rows, S.wsort, S.wcache, minuteIdx, 5); S.wcache = o.cache;
+  const before = [...grid.children].map(t => t.dataset.sym).join(','); const first = {}; [...grid.children].forEach(t => first[t.dataset.sym] = t.getBoundingClientRect());
+  const have = {}; [...grid.children].forEach(t => have[t.dataset.sym] = t); grid.innerHTML = '';
+  o.rows.forEach(r => { let t = have[r.symbol]; if(!t){ t = document.createElement('div'); t.className = 'wc'; t.dataset.sym = r.symbol; }
+    t.innerHTML = wcard(r, r.events); t.style.setProperty('--heat', WK.heat(r.pct).toFixed(2)); t.classList.toggle('hot-up', r.pct >= 0); t.classList.toggle('hot-dn', r.pct < 0);
+    const evKey = r.events.map(e=>e.t).join('|'); if(t.dataset.ev && t.dataset.ev !== evKey && r.events.length){ t.classList.remove('flash'); void t.offsetWidth; t.classList.add('flash'); } t.dataset.ev = evKey;
+    grid.appendChild(t); wspark(t.querySelector('canvas.sp'), r); });
+  if(before !== o.rows.map(r=>r.symbol).join(',')) [...grid.children].forEach(t => { const f = first[t.dataset.sym]; if(!f) return; const l = t.getBoundingClientRect(); const dx = f.left-l.left, dy = f.top-l.top; if(dx||dy){ t.style.transition='none'; t.style.transform=`translate(${dx}px,${dy}px)`; requestAnimationFrame(()=>requestAnimationFrame(()=>{ t.style.transition=''; t.style.transform=''; })); } });
+  $('wempty').textContent = !S.watch.length ? 'No tickers on the board. Type a symbol above or pick a group.' : !rows.length ? (S.wat ? 'no data for these symbols at this minute' : 'loading…') : missing.length ? `no data yet for ${missing.join(', ')}` : '';
+  if(S.wsel) renderWatchDrawer();
+}
+function renderWatchDrawer(){
+  const r = S.wrows[S.wsel]; const d = $('wbody'); if(!r){ d.innerHTML = `<h2>${esc(S.wsel)}</h2><div class="mut">no data at this minute</div>`; return; }
+  const a = {...r}; const long = r.pct >= 0; const L = {S2:r.S2, S1:r.S1, PDL:r.prev_low, P:r.P, PC:r.prev_close, VWAP:r.vwap, R1:r.R1, PDH:r.prev_high, R2:r.R2};
+  const lv = Object.entries(L).filter(([k,v])=>v!=null).sort((x,y)=>x[1]-y[1]);
+  const pats = (S.prows||[]).filter(p => p.symbol === r.symbol); const vds = (S.desk && S.desk.verdicts || []).filter(v => v.symbol === r.symbol);
+  const als = (S.alerts||[]).filter(x => x.symbol === r.symbol && (!S.day || x.ts.slice(11,16) <= (S.at||'15:30')));
+  const sec = S.snap && S.snap.sectors ? S.snap.sectors[r.sector] : null;
+  d.innerHTML = `<h2>${r.symbol} <span class="${long?'up':'dn'}" style="font-size:16px">₹${fmt(r.price)} · ${sg(r.pct)}%</span></h2>
+   <div class="sub">${esc(r.sector||'')}${sec!=null?` ${sg(sec)}%`:''} · ${r.rank?`rank #${r.rank} · p${fmt(r.pctile||0,0)}${r.picked?' · PICKED':''}`:'outside the top 40'} · <span class="chip ${r.oi_cls}" style="font-size:9.5px">${esc(r.oi_label)}</span> ${sg(r.oi_pct,1)}% OI · RVOL ${fmt(r.rvol,1)}× · as of ${S.wat}</div>
+   <div class="tfrow">${TFS.map(t=>`<button class="tf ${curTf()===t?'on':''}" data-tf="${t}">${t}</button>`).join('')}<span class="readout mono"></span></div>
+   <canvas class="chart" width="620" height="430"></canvas>
+   <h3>Levels (price sits between the highlighted pair)</h3>
+   <div class="lvls">${lv.map(([k,v],i)=>`<div class="${(lv[i+1]&&v<=r.price&&lv[i+1][1]>r.price)||(!lv[i+1]&&v<=r.price)?'here':''}"><b>${k}</b>${fmt(v)}</div>`).join('')}</div>
+   <h3>Trade at ₹${fmt(S.risk,0)} risk (scanner levels)</h3>
+   <dl class="kv"><dt>Bias</dt><dd class="${long?'up':'dn'}">${long?'long with the day':'short with the day'}</dd><dt>Stop</dt><dd>${fmt(r.stop)} <span class="mut">(${fmt(r.risk_pct)}%)</span></dd><dt>Target</dt><dd>${fmt(r.target)}</dd><dt>R:R</dt><dd>1:${fmt(r.rr,1)}</dd><dt>OR H/L</dt><dd>${fmt(r.orH)} / ${fmt(r.orL)}</dd><dt>OB</dt><dd>${r.ob?fmt(r.ob.lo)+'–'+fmt(r.ob.hi):'—'}</dd></dl>
+   <dl class="size">${sizing(a)}</dl>
+   <h3>Patterns today</h3>
+   <div class="wl">${pats.map(p=>`<span class="mono mut">${String(p.triggered_at||p.formed_at).slice(11,16)}</span><span>${PK.kindLabel(p.kind)}</span><span class="chipx ${p.state==='triggered'?'trig':''}">${p.state.toUpperCase()}</span><span class="mono">${p.confidence&&p.confidence.hit_rate!=null?Math.round(p.confidence.hit_rate)+'%':''}</span>`).join('') || '<span class="mut">none yet</span>'}</div>
+   <h3>Desk</h3>
+   ${vds.map(verdictCard).join('') || '<span class="mut">no verdict on this symbol yet</span>'}
+   <h3>Rule alerts today</h3>
+   <div class="wl">${als.map(x=>`<span class="mono mut">${x.ts.slice(11,16)}</span><span>${esc(x.scan)}</span><span class="chipx">${outcomeLabel(x.outcome)}</span><span class="mono">₹${fmt(x.price)}</span>`).join('') || '<span class="mut">none</span>'}</div>
+   <div class="wbtn"><button id="wToScanner">Open in Scanner at ${S.wat||''}</button><button id="wToPatterns">Open in Patterns</button><button id="wToDesk">Open the Desk</button></div>`;
+  wireChart(a);
+  $('wToScanner').onclick = () => { S.selected = r.symbol; closeWatchDrawer(); setView('scanner'); if(!S.following) enterReplay(S.day || todayIST(), S.wat || S.at); else renderAll(); };
+  $('wToPatterns').onclick = () => { const p = pats[0]; closeWatchDrawer(); setView('patterns'); if(p){ S.psel = p; renderPatterns(); } };
+  $('wToDesk').onclick = () => { closeWatchDrawer(); setView('desk'); };
+}
+function openWatchDrawer(sym){ S.wsel = sym; $('wdrawer').classList.add('open'); renderWatchDrawer(); }
+function closeWatchDrawer(){ S.wsel = null; $('wdrawer').classList.remove('open'); }
+$('wclose').onclick = closeWatchDrawer; document.addEventListener('keydown', e => { if(e.key === 'Escape') closeWatchDrawer(); });
+$('wgrid').onclick = e => { const x = e.target.closest('[data-wx]'); if(x){ S.watch = S.watch.filter(s => s !== x.dataset.wx); saveWatch(); renderWatch(); return; } const c = e.target.closest('.wc'); if(c) openWatchDrawer(c.dataset.sym); };
+$('wq').oninput = () => { const v = $('wq').value.trim().toUpperCase(); const box = $('wsugg'); if(!v){ box.style.display = 'none'; return; } const m = Object.keys(S.lots).filter(s => s.includes(v) && !S.watch.includes(s)).sort((a,b)=>a.indexOf(v)-b.indexOf(v)||a.localeCompare(b)).slice(0,8); box.innerHTML = m.map(s=>`<div data-ws="${s}">${s}<small>${esc(S.sectorsOf[s]||'')} · lot ${S.lots[s]||'?'}</small></div>`).join('') || '<div><small>no match</small></div>'; box.style.display = 'block'; };
+$('wq').onkeydown = e => { if(e.key === 'Enter'){ const f = $('wsugg').querySelector('[data-ws]'); if(f) addWatch(f.dataset.ws); } if(e.key === 'Escape'){ $('wsugg').style.display = 'none'; } };
+$('wsugg').onclick = e => { const d = e.target.closest('[data-ws]'); if(d) addWatch(d.dataset.ws); };
+document.addEventListener('click', e => { if(!e.target.closest('.wpick')) $('wsugg').style.display = 'none'; });
+function addWatch(sym){ if(!S.watch.includes(sym)) S.watch.unshift(sym); if(S.watch.length > 30) S.watch.length = 30; $('wq').value = ''; $('wsugg').style.display = 'none'; saveWatch(); renderWatch(); loadWatch(); }
+function setWatchList(list, group){ S.wgroup = group; S.watch = list.slice(0, 30); document.querySelectorAll('#wgroups .pill').forEach(p => p.classList.toggle('on', p.dataset.g === group)); if(group !== 'sector') $('wsector').value = ''; renderWatch(); loadWatch(); }
+$('wgroups').onclick = e => { const p = e.target.closest('.pill'); if(!p) return; const g = WK.groups(S.snap, S.prows, S.sectorsOf);
+  if(p.dataset.g === 'mine'){ let mine = WK.DEFAULT; try{ mine = WK.load(localStorage.getItem('watch')); }catch(x){} setWatchList(mine, 'mine'); }
+  else if(p.dataset.g === 'picks') setWatchList(g.picks, 'picks'); else if(p.dataset.g === 'trig') setWatchList(g.trig, 'trig'); };
+$('wsector').onchange = () => { const sec = $('wsector').value; if(!sec) return; const g = WK.groups(S.snap, S.prows, S.sectorsOf); setWatchList(g.bySector[sec] || [], 'sector'); };
+document.querySelector('.wsort').onclick = e => { const b = e.target.closest('button'); if(!b) return; S.wsort = b.dataset.s; document.querySelectorAll('.wsort button').forEach(x => x.classList.toggle('on', x === b)); renderWatch(); };
+
 // ---------- live feed ----------
 function onLiveSnapshot(snap){
   const wasLive = S.live; S.liveSnap = snap; S.live = true;
@@ -825,7 +961,7 @@ function onLiveSnapshot(snap){
 }
 function connect(){
   const ws = new WebSocket((location.protocol==='https:'?'wss://':'ws://')+location.host+'/ws/scan');
-  ws.onmessage = e => { const m = JSON.parse(e.data); if(m && m.type === 'patterns'){ loadPatterns(); return; } if(m && m.type === 'desk'){ loadDesk(); return; } onLiveSnapshot(m); };
+  ws.onmessage = e => { const m = JSON.parse(e.data); if(m && m.type === 'patterns'){ loadPatterns(); return; } if(m && m.type === 'desk'){ loadDesk(); return; } onLiveSnapshot(m); if(S.view === 'watch' && S.following) loadWatch(); };
   ws.onclose = () => { if(S.following && S.liveSnap) setStatus('RECONNECTING','warn'); setTimeout(connect, 3000); };
 }
 document.addEventListener('click', e => {
@@ -839,7 +975,7 @@ matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => { if
   populateSectors();
   try{ const d = await api('/api/days'); S.days = d.days; S.live = d.live; S.expiry = d.expiry; }catch(e){ S.days = []; }
   populateDays(); loadStats(); setInterval(loadStats, 300000);
-  if(S.view !== 'scanner'){ document.querySelectorAll('.tab').forEach(b => b.classList.toggle('on', b.dataset.view === S.view)); $('scannerView').hidden = true; $('patternsView').hidden = S.view !== 'patterns'; $('deskView').hidden = S.view !== 'desk'; if(S.view === 'patterns') loadPatternStats(); else loadDesk(); }
+  if(S.view !== 'scanner'){ document.querySelectorAll('.tab').forEach(b => b.classList.toggle('on', b.dataset.view === S.view)); $('scannerView').hidden = true; $('patternsView').hidden = S.view !== 'patterns'; $('deskView').hidden = S.view !== 'desk'; $('watchView').hidden = S.view !== 'watch'; if(S.view === 'patterns') loadPatternStats(); else if(S.view === 'desk') loadDesk(); else { loadWatch(); loadPatterns(); loadDesk(); } }
   connect();
   let liveSnap = null;
   try{ liveSnap = await api('/api/scan'); }catch(e){}
