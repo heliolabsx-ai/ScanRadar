@@ -12,4 +12,6 @@ def test_watch_row_has_analytics_rank_and_spark():
     assert r["symbol"] == "X" and r["rank"] == 7 and r["picked"] is True and r["lot_size"] == 500
     assert len(r["spark"]) == 60 and r["spark"][-1] == round(float(d.close.iloc[-1]), 2) and r["n_min"] == len(d)
     assert "vwap" in r and "oi_label" in r and r["prev_high"] == 101.5 and r["spark_from"] == "14:30"
+    assert len(r["bars5"]) == 24 and r["bars5"][-1]["t"] == "15:25" and set(r["bars5"][0]) == {"t", "o", "h", "l", "c", "v"}
+    assert all(b["h"] >= max(b["o"], b["c"]) and b["l"] <= min(b["o"], b["c"]) for b in r["bars5"])
     assert rank_fields(snap, "Y") == {} and watch_row(d, None, "X", snap, 500) is None and watch_row(d.iloc[0:0], ref, "X", snap, 500) is None

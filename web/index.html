@@ -143,7 +143,7 @@ table.pt{width:100%;border-collapse:collapse;font-size:12px}.pt th{font:600 10px
 .wc{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:10px 12px;position:relative;cursor:pointer;transition:transform .5s cubic-bezier(.2,.7,.2,1),background .8s,box-shadow .3s;--heat:0}
 .wc.hot-up{background:linear-gradient(180deg,rgba(61,220,132,var(--heat)),var(--panel) 70%)}.wc.hot-dn{background:linear-gradient(180deg,rgba(255,107,107,var(--heat)),var(--panel) 70%)}
 .wc.flash{animation:wflash .9s ease-out}@keyframes wflash{0%{box-shadow:0 0 0 2px var(--amber),0 0 24px rgba(224,166,58,.6)}100%{box-shadow:none}}
-.wc .x{position:absolute;top:8px;right:10px;color:var(--muted);font-size:12px;opacity:.5;padding:0 2px}.wc .x:hover{opacity:1;color:var(--bear)}
+.wc .x{margin-left:6px;font:600 11px var(--mono);color:var(--muted);border:1px solid var(--line);border-radius:4px;padding:1px 6px;line-height:1.4;background:var(--panel)}.wc .x:hover{color:#fff;background:var(--bear);border-color:var(--bear)}
 .wc .hd{display:flex;align-items:baseline;gap:8px}.wc .hd b{font:700 15px var(--mono)}.wc .hd .sec{font:500 9.5px var(--sans);letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
 .wc .px{margin-left:auto;font:600 15px var(--mono);font-variant-numeric:tabular-nums;display:inline-flex;overflow:hidden}.wc .px i{display:inline-block;font-style:normal}.wc .px i.r{animation:roll .35s ease}@keyframes roll{from{transform:translateY(-100%);opacity:0}to{transform:none;opacity:1}}
 .wc .pct{font:600 12px var(--mono);min-width:58px;text-align:right}
@@ -874,17 +874,27 @@ async function loadWatch(){
 function wcard(r, ev){
   const up = r.pct >= 0, d = WK.digits(S.wprev[r.symbol], r.price), pos = v => WK.position(r, v);
   const held = S.timeline ? null : null;
-  return `<span class="x" data-wx="${r.symbol}" title="Remove">✕</span>
-   <div class="hd"><b>${r.symbol}</b><span class="sec">${esc(r.sector||'')}</span><span class="px ${up?'up':'dn'}">${d.map(x=>`<i class="${x.changed?'r':''}">${x.ch}</i>`).join('')}</span><span class="pct ${up?'up':'dn'}">${sg(r.pct)}%</span></div>
+  return `<div class="hd"><b>${r.symbol}</b><span class="sec">${esc(r.sector||'')}</span><span class="px ${up?'up':'dn'}">${d.map(x=>`<i class="${x.changed?'r':''}">${x.ch}</i>`).join('')}</span><span class="pct ${up?'up':'dn'}">${sg(r.pct)}%</span><span class="x" data-wx="${r.symbol}" title="Remove ${r.symbol} from the board">✕</span></div>
    <div class="rk">${r.rank ? `rank <b>#${r.rank}</b> · p${fmt(r.pctile||0,0)}${r.picked?' · <b class=up>PICKED</b>':''}` : '<span class="mut">outside the top 40</span>'} · <span class="held">${r.n_min} min</span></div>
    <div class="wpos"><div class="track"></div><span class="lvl" style="left:${pos(r.prev_low)}%">PDL</span><span class="lvl" style="left:${pos(r.prev_close)}%">PC</span><span class="lvl vw" style="left:${pos(r.vwap)}%">VWAP</span><span class="lvl" style="left:${pos(r.prev_high)}%">PDH</span><i class="cur" style="left:${pos(r.price)}%"></i></div>
-   <canvas class="sp" width="560" height="112"></canvas>
+   <canvas class="sp" width="560" height="120" title="Last two hours, 5-minute candles, VWAP dashed"></canvas>
    <div class="wst"><div>OI<span><i class="chip ${r.oi_cls}" style="font-size:9.5px;padding:1px 6px">${esc(r.oi_label)}</i></span></div><div>RVOL<span class="${r.rvol>=1.5?'up':''}">${fmt(r.rvol,1)}×</span></div><div>Δ buy/sell<span>${WK.deltaShare(r)!=null?WK.deltaShare(r)+'%':'—'}</span>${WK.deltaShare(r)!=null?`<div class="wdl"><i style="width:${WK.deltaShare(r)}%"></i></div>`:''}</div></div>
    <div class="wev">${ev.map(e=>`<span class="${e.k}">${esc(e.t)}</span>`).join('')}</div>`;
 }
 const cssVar = k => getComputedStyle(document.documentElement).getPropertyValue(k).trim();
 function wspark(c, r){
-  const C = cssVar; const ctx = c.getContext('2d'), W = c.width, H = c.height, h = r.spark || []; if(h.length < 2) return;
+  const C = cssVar; const ctx = c.getContext('2d'), W = c.width, H = c.height, bars = r.bars5 || [];
+  if(bars.length >= 2){                                       // 5-minute candles, the forming one last, VWAP dashed
+    const lo = Math.min(...bars.map(b=>b.l), r.vwap), hi = Math.max(...bars.map(b=>b.h), r.vwap), y = v => H-6-(v-lo)/((hi-lo)||1)*(H-12);
+    const n = Math.max(bars.length, 24), slot = W/n, bw = Math.max(3, slot*0.62), x0 = W - bars.length*slot;
+    ctx.clearRect(0,0,W,H); ctx.lineWidth = 1.5; ctx.strokeStyle = C('--vwap'); ctx.setLineDash([4,4]); ctx.beginPath(); ctx.moveTo(0,y(r.vwap)); ctx.lineTo(W,y(r.vwap)); ctx.stroke(); ctx.setLineDash([]);
+    bars.forEach((b,i) => { const up = b.c >= b.o, col = up ? C('--bull') : C('--bear'), x = x0 + i*slot + slot/2;
+      ctx.strokeStyle = col; ctx.fillStyle = col; ctx.lineWidth = 1.2; ctx.beginPath(); ctx.moveTo(x, y(b.h)); ctx.lineTo(x, y(b.l)); ctx.stroke();
+      const top = y(Math.max(b.o,b.c)), hgt = Math.max(1.5, y(Math.min(b.o,b.c)) - top);
+      if(up){ ctx.fillStyle = C('--panel'); ctx.fillRect(x-bw/2, top, bw, hgt); ctx.strokeRect(x-bw/2, top, bw, hgt); } else ctx.fillRect(x-bw/2, top, bw, hgt); });
+    return;
+  }
+  const h = r.spark || []; if(h.length < 2) return;
   const lo = Math.min(...h, r.vwap), hi = Math.max(...h, r.vwap), y = v => H-6-(v-lo)/((hi-lo)||1)*(H-12), x = i => i/(h.length-1)*W;
   ctx.clearRect(0,0,W,H); ctx.lineWidth = 2; ctx.strokeStyle = C('--vwap'); ctx.setLineDash([4,4]); ctx.beginPath(); ctx.moveTo(0,y(r.vwap)); ctx.lineTo(W,y(r.vwap)); ctx.stroke(); ctx.setLineDash([]);
   const up = h[h.length-1] >= h[0]; ctx.strokeStyle = up ? C('--bull') : C('--bear');
@@ -930,11 +940,12 @@ function renderWatchDrawer(){
    ${vds.map(verdictCard).join('') || '<span class="mut">no verdict on this symbol yet</span>'}
    <h3>Rule alerts today</h3>
    <div class="wl">${als.map(x=>`<span class="mono mut">${x.ts.slice(11,16)}</span><span>${esc(x.scan)}</span><span class="chipx">${outcomeLabel(x.outcome)}</span><span class="mono">₹${fmt(x.price)}</span>`).join('') || '<span class="mut">none</span>'}</div>
-   <div class="wbtn"><button id="wToScanner">Open in Scanner at ${S.wat||''}</button><button id="wToPatterns">Open in Patterns</button><button id="wToDesk">Open the Desk</button></div>`;
+   <div class="wbtn"><button id="wToScanner">Open in Scanner at ${S.wat||''}</button><button id="wToPatterns">Open in Patterns</button><button id="wToDesk">Open the Desk</button><button id="wRemove" style="margin-left:auto;color:var(--bear)">Remove from board</button></div>`;
   wireChart(a);
   $('wToScanner').onclick = () => { S.selected = r.symbol; closeWatchDrawer(); setView('scanner'); if(!S.following) enterReplay(S.day || todayIST(), S.wat || S.at); else renderAll(); };
   $('wToPatterns').onclick = () => { const p = pats[0]; closeWatchDrawer(); setView('patterns'); if(p){ S.psel = p; renderPatterns(); } };
   $('wToDesk').onclick = () => { closeWatchDrawer(); setView('desk'); };
+  $('wRemove').onclick = () => { S.watch = S.watch.filter(s => s !== r.symbol); saveWatch(); closeWatchDrawer(); renderWatch(); };
 }
 function openWatchDrawer(sym){ S.wsel = sym; $('wdrawer').classList.add('open'); renderWatchDrawer(); }
 function closeWatchDrawer(){ S.wsel = null; $('wdrawer').classList.remove('open'); }

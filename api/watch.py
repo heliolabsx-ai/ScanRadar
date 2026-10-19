@@ -4,10 +4,12 @@ ranking lists, the last hour of closes for the sparkline, previous-day levels, l
 import datetime as dt
 import pandas as pd
 from core.analytics import analyse
+from core.rules import resample
 from replay import load_refs, session_bounds, COLS as CANDLE_COLS
 
 IST = dt.timezone(dt.timedelta(hours=5, minutes=30))
 SPARK_MIN = 60
+CANDLES_5M = 24          # two hours of 5-minute candles on the card
 MAX_SYMBOLS = 30
 
 
@@ -42,8 +44,17 @@ def watch_row(df: pd.DataFrame, ref: dict | None, symbol: str, snap: dict | None
     a.update({"prev_close": ref.get("prev_close"), "prev_high": ref.get("prev_high"), "prev_low": ref.get("prev_low"), "avg_vol_1m": ref.get("avg_vol_1m"),
               "lot_size": lot, "last_ts": df.ts.iloc[-1].isoformat(), "n_min": int(len(df)),
               "spark": [round(float(c), 2) for c in tail.close], "spark_from": tail.ts.iloc[0].strftime("%H:%M"),
+              "bars5": candles5m(df),
               "delta_available": bool((df.delta != 0).any())})
     return a
+
+
+def candles5m(df: pd.DataFrame, n: int = CANDLES_5M) -> list[dict]:
+    """The last n 5-minute candles (the forming one included), compact for the card."""
+    src = df if "delta" in df else df.assign(delta=0)
+    b = resample(src, "5m").tail(n)
+    return [{"t": r.ts.strftime("%H:%M"), "o": round(float(r.open), 2), "h": round(float(r.high), 2), "l": round(float(r.low), 2),
+             "c": round(float(r.close), 2), "v": int(r.volume)} for r in b.itertuples()]
 
 
 def watch_rows(con, day, at: dt.datetime, symbols: list[str], snap: dict | None) -> dict:
