@@ -100,7 +100,7 @@ def _verdict(cur, R, con, *, day, at, trigger, ref, snap, refs, lots, record, mo
         if a:
             ctx["ranking_row"] = desk.rank_row({"bulls": [a] if a["dir"] > 0 else [], "bears": [a] if a["dir"] <= 0 else []}, sym)
     return desk.run_job(cur, R, day=day, kind="verdict", ts=at, ref=ref, symbol=sym, system=desk.VERDICT_SYSTEM,
-                        context=ctx, schema=desk.VERDICT_SCHEMA, model=model, max_tokens=1200)
+                        context=ctx, schema=desk.VERDICT_SCHEMA, model=model, max_tokens=4000)
 
 
 def new_pattern_triggers(con, day, at, include_replay: bool = False) -> list[dict]:
@@ -187,7 +187,7 @@ def process_minute(con, R, day, at: dt.datetime, snap: dict | None, *, prepare=N
                 verdicts = [r for r in rows if r["kind"] == "verdict"]
                 ctx = desk.brief_context(snap, recent, verdicts, prev["output"] if prev else None, at.strftime("%H:%M"), since)
                 desk.run_job(cur, R, day=day, kind="brief", ts=at, ref=ref, symbol=None, system=desk.BRIEF_SYSTEM, context=ctx,
-                             schema=desk.BRIEF_SCHEMA, model=desk.BRIEF_MODEL, max_tokens=1500)
+                             schema=desk.BRIEF_SCHEMA, model=desk.BRIEF_MODEL, max_tokens=6000)
                 con.commit(); done["brief"] = 1
         if at.time() >= REVIEW_AT and not desk.exists(cur, day, "review", "review"):
             run_review(con, cur, R, day, at, prepare)
@@ -247,7 +247,7 @@ def run_review(con, cur, R, day, at, prepare=None) -> dict:
     ctx = desk.review_context(day, alerts=al.alerts_for_day(con, day), patterns=pats, verdicts=verdicts, lots=lots_map(con),
                               candles=health, spend=desk.spent(R, day))
     rec = desk.run_job(cur, R, day=day, kind="review", ts=at, ref="review", symbol=None, system=desk.REVIEW_SYSTEM, context=ctx,
-                       schema=desk.REVIEW_SCHEMA, model=desk.MODEL, max_tokens=2500)
+                       schema=desk.REVIEW_SCHEMA, model=desk.MODEL, max_tokens=10000)
     return rec
 
 

@@ -266,8 +266,9 @@ def client():
     return _client
 
 
-def call_model(system: str, user: dict | str, schema: dict, model: str, max_tokens: int = 1500, effort: str = EFFORT) -> dict:
-    """One structured call. Returns {output, usage, model, latency_ms, stop_reason} or raises."""
+def call_model(system: str, user: dict | str, schema: dict, model: str, max_tokens: int = 4000, effort: str = EFFORT) -> dict:
+    """One structured call. Returns {output, usage, model, latency_ms, stop_reason} or raises.
+    max_tokens covers the model's thinking as well as the JSON, so it must be several times the output size."""
     import anthropic
     t0 = time.time()
     content = user if isinstance(user, str) else json.dumps(user, separators=(",", ":"), default=str)

@@ -390,7 +390,7 @@ async def desk_ask(body: dict):
                        "desk_verdicts": [{"symbol": r["symbol"], "at": r["ts"][11:16], "call": r["output"]["call"], "confidence": r["output"]["confidence"]} for r in rows if r["kind"] == "verdict" and r.get("output")],
                        "blind_to": desk.BLIND_TO}
                 rec = desk.run_job(cur, ld.desk_redis(), day=d, kind="ask", ts=at_dt, ref=f"ask:{now.strftime('%H:%M:%S')}", symbol=None,
-                                   system=desk.ASK_SYSTEM, context=ctx, schema=desk.ASK_SCHEMA, model=desk.MODEL, max_tokens=800)
+                                   system=desk.ASK_SYSTEM, context=ctx, schema=desk.ASK_SCHEMA, model=desk.MODEL, max_tokens=4000)
                 con.commit()
                 return rec
     rec = await asyncio.get_running_loop().run_in_executor(None, work)
