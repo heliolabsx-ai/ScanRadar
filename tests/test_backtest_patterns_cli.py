@@ -13,15 +13,16 @@ def row(kind, hit, r30, tt, score=3, failed=False, triggered=True):
 
 
 def test_summarise_per_kind_with_median_and_score_split():
-    rows = [row("double_bottom", "target", 1.0, 10, score=4), row("double_bottom", "stop", -1.0, None, score=2),
-            row("double_bottom", "target", 0.5, 30, score=3, failed=True), row("double_bottom", None, None, None, triggered=False),
+    rows = [row("double_bottom", "target", 1.0, 10, score=6), row("double_bottom", "stop", -1.0, None, score=2),
+            row("double_bottom", "target", 0.5, 30, score=5, failed=True), row("double_bottom", None, None, None, triggered=False),
             row("double_top", "none", 0.2, None, score=1)]
     s = summarise(rows)
     db = s["double_bottom"]
     assert db["triggers"] == 3 and db["forming_only"] == 1
     assert db["hit_rate"] == 2 / 3 * 100 and db["fail_rate"] == 1 / 3 * 100
     assert db["avg_r30"] == (1.0 - 1.0 + 0.5) / 3 and db["median_tt_min"] == 20
-    assert db["by_score"][">=3"]["triggers"] == 2 and db["by_score"]["<3"]["triggers"] == 1
+    assert db["by_score"][">=5"]["triggers"] == 2 and db["by_score"]["<5"]["triggers"] == 1
+    assert db["by_volume"]["unknown"] == 3 and db["by_volume"]["with"]["triggers"] == 0
     assert s["double_top"]["hit_rate"] is None and s["double_top"]["triggers"] == 1
 
 

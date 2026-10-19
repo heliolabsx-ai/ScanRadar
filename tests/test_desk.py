@@ -203,5 +203,5 @@ def test_exists_retries_transient_errors_only():
 def test_gate_and_pattern_ref():
     assert live_desk.gate(0, 0) is True                        # defaults: every trigger
     assert live_desk.pattern_ref({"symbol": "X", "kind": "double_top", "formed_at": "2026-10-19T10:05:00+05:30"}) == "pattern:X|double_top|10:05"
-    rec = live_desk.pattern_record({"kind": "double_bottom", "score": 4}, {"double_bottom": {"hit_rate": 67.3, "triggers": 340, "avg_r30": 0.01, "median_tt_min": 20, "by_score": {">=3": {"hit_rate": 70.0, "triggers": 200}, "<3": {"hit_rate": 58.0, "triggers": 140}}}})
+    rec = live_desk.pattern_record({"kind": "double_bottom", "score": 6}, {"double_bottom": {"hit_rate": 67.3, "triggers": 340, "avg_r30": 0.01, "median_tt_min": 20, "by_score": {">=5": {"hit_rate": 70.0, "triggers": 200}, "<5": {"hit_rate": 58.0, "triggers": 140}}}})
     assert rec["same_score_bucket"] == {"hit_rate_pct": 70.0, "triggers": 200} and rec["hit_rate_pct"] == 67.3

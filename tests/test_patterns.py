@@ -4,7 +4,7 @@ from core.patterns import DEFAULTS, detector_hash, bars5m, swings, detect_day, a
 from conftest import shaped_day, synthetic_day, IST
 
 # the synthetic shapes are compact (lows 4 bars apart); test the mechanics with the looser geometry
-P = {**DEFAULTS, "min_sep": 4, "min_retrace": 0.0035, "min_extension": 0.0}
+P = {**DEFAULTS, "min_sep": 4, "min_retrace": 0.0035, "min_extension": 0.0, "breakout_vol": 0}   # mechanics with the volume gate off
 
 # 5m closes in % vs base. L1 at bar 3 (-2.0), neckline bar 5 (-0.9), L2 at bar 7 (-1.98),
 # L2 confirmed at bar 9, trigger bar 10 (-0.7 > -0.9), then up to the target.
@@ -48,7 +48,7 @@ def test_double_bottom_detected_with_levels():
     assert abs(p2["price"] - p1["price"]) / p1["price"] <= DEFAULTS["tol"]
     assert p["neckline"] == pytest.approx(float(b.high.iloc[4:7].max()))
     assert p["stop"] == pytest.approx(min(p1["price"], p2["price"]))
-    assert p["target"] == pytest.approx(p["neckline"] + (p["neckline"] - p["stop"]))
+    assert p["target"] == pytest.approx(p["neckline"] + 1.5 * (p["neckline"] - p["stop"])) and p["facts"]["target_basis"] == "1.5x"   # no pivots given
     assert p["formed_at"] == at_bar(9)
     assert p["triggered_at"] == at_bar(10) and p["entry"] == pytest.approx(float(b.close.iloc[10]))
     assert p["failed_at"] is None and p["abandoned_at"] is None
@@ -76,7 +76,7 @@ def test_top_mirrors():
     assert p["side"] == "short"
     assert p["neckline"] == pytest.approx(float(b.low.iloc[4:7].min()))
     assert p["stop"] == pytest.approx(max(q["price"] for q in p["points"]))
-    assert p["target"] == pytest.approx(p["neckline"] - (p["stop"] - p["neckline"]))
+    assert p["target"] == pytest.approx(p["neckline"] - 1.5 * (p["stop"] - p["neckline"]))
     assert p["triggered_at"] == at_bar(10)
 
 
@@ -169,16 +169,17 @@ def test_score_without_oi():
     d, pc = shaped_day(BOTTOM, oi=[0] * len(BOTTOM), vol=VOL)
     p = one(detect_day(d, pc, P), "double_bottom")
     r = as_of([p], at_bar(10), {"sector_pct": 0.5, "bars": bars5m(d, pc)})[0]
-    assert r["checks"][1] is False and r["score"] <= 4
+    assert r["checks"][1] is False and r["score"] <= 7
 
 
 def test_score_checks_order_and_count():
     d, pc = shaped_day(BOTTOM, oi=FALLING_OI, vol=VOL)
     p = one(detect_day(d, pc, P), "double_bottom")
     r = as_of([p], at_bar(10), {"sector_pct": 0.5, "bars": bars5m(d, pc)})[0]
-    assert r["checks"] == [True] * 6 and r["score"] == 5 and r["rr"] > 0
+    # equal volume around both lows: no exhaustion; synthetic delta is 0: no delta tick
+    assert r["checks"] == [True, True, True, True, True, False, True, False, True] and r["score"] == 6 and r["rr"] > 0
     f = as_of([p], at_bar(9), {"sector_pct": 0.5, "bars": bars5m(d, pc)})[0]
-    assert f["state"] == "forming" and f["checks"][5] is False
+    assert f["state"] == "forming" and f["checks"][8] is False and f["checks"][6] is False
 
 
 def test_detector_hash_changes_with_params():

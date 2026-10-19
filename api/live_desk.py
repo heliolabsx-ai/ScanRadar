@@ -83,7 +83,7 @@ def setup_stats(con, now: dt.datetime) -> tuple[dict, dict]:
 
 def pattern_record(r: dict, pat_stats: dict) -> dict:
     s = pat_stats.get(r["kind"]) or {}
-    bucket = (s.get("by_score") or {}).get(">=3" if (r.get("score") or 0) >= 3 else "<3") or {}
+    bucket = (s.get("by_score") or {}).get(">=5" if (r.get("score") or 0) >= 5 else "<5") or {}
     return {"hit_rate_pct": desk._r(s.get("hit_rate")), "triggers_20d": s.get("triggers"), "avg_r30_pct": desk._r(s.get("avg_r30")),
             "median_min_to_target": s.get("median_tt_min"), "same_score_bucket": {"hit_rate_pct": desk._r(bucket.get("hit_rate")), "triggers": bucket.get("triggers")}}
 

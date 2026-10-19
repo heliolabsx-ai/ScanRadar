@@ -3,7 +3,7 @@ the day preparation job and the live loop), stored rows → view at a minute,
 today's rows on demand, and per-kind statistics."""
 import os, json, datetime as dt
 import pandas as pd
-from core.patterns import detect_day, as_of, bars5m, DEFAULTS, detector_hash, summarise, checks_for
+from core.patterns import detect_day, as_of, bars5m, DEFAULTS, detector_hash, summarise, checks_for, state_at, CHECKS
 from core.backtest import grade_pattern
 from replay import IST, load_day, load_refs
 
@@ -52,7 +52,7 @@ def sector_pct_map(frames: dict, refs: dict, at) -> dict:
 
 
 def _clean(p: dict) -> dict:
-    return {k: v for k, v in p.items() if k not in ("target_touched", "formed_idx", "trigger_idx")}
+    return {k: v for k, v in p.items() if k not in ("target_touched", "formed_idx", "trigger_idx", "failed_idx")}
 
 
 def detect_frames(frames: dict, refs: dict, at=None, params: dict | None = None) -> tuple[list[dict], list[dict]]:
@@ -74,7 +74,7 @@ def detect_frames(frames: dict, refs: dict, at=None, params: dict | None = None)
         ref = refs.get(sym)
         if not ref or not ref.get("prev_close") or df.empty:
             continue
-        pats = detect_day(df, float(ref["prev_close"]), params, at=at)
+        pats = detect_day(df, float(ref["prev_close"]), params, at=at, ref=ref)
         if not pats:
             continue
         sector = ref.get("sector", "OTHERS")
@@ -123,11 +123,7 @@ def patterns_needed(con, day, detector: str) -> bool:
 
 # ---------- views ----------
 def pattern_state(r: dict, at) -> str:
-    if r.get("failed_at") is not None and r["failed_at"] <= at:
-        return "failed"
-    if r.get("triggered_at") is not None and r["triggered_at"] <= at:
-        return "triggered"
-    return "forming"
+    return state_at(r, at) or "forming"
 
 
 def rows_at(stored: list[dict], at) -> list[dict]:
@@ -141,16 +137,16 @@ def rows_at(stored: list[dict], at) -> list[dict]:
         if r.get("superseded_at") is not None and r["superseded_at"] <= at:
             continue
         state = pattern_state(r, at)
-        trig = state != "forming"
+        trig = state in ("triggered", "failed")
         if r.get("facts"):
             checks = checks_for(r["facts"], r["side"], state)
         else:
-            checks = list(r.get("checks") or [False] * 6); checks[5] = trig
+            checks = (list(r.get("checks") or []) + [False] * CHECKS)[:CHECKS]; checks[CHECKS - 1] = trig
         ref = r["entry"] if trig and r.get("entry") is not None else r["neckline"]
         risk = abs(ref - r["stop"])
         since = r["triggered_at"] if trig else r["formed_at"]
         row = {k: v for k, v in r.items() if k not in ("detector",)}
-        row.update({"state": state, "checks": checks, "score": sum(1 for c in checks[:5] if c),
+        row.update({"state": state, "checks": checks, "score": sum(1 for c in checks[:CHECKS - 1] if c),
                     "entry": r["entry"] if trig else None, "triggered_at": r["triggered_at"] if trig else None,
                     "failed_at": r["failed_at"] if state == "failed" else None,
                     "outcome": r.get("outcome") if trig else None,
@@ -200,6 +196,6 @@ def today_rows_json(at_iso: str) -> list[dict]:
 def stats(con, days: int) -> dict:
     since = dt.datetime.now(IST).date() - dt.timedelta(days=int(days * 7 / 5) + 3)
     with con.cursor() as cur:
-        cur.execute("SELECT kind, score, triggered_at, failed_at, outcome, source FROM patterns WHERE day >= %s AND superseded_at IS NULL", (since,))
-        rows = [{"kind": k, "score": sc, "triggered_at": t, "failed_at": f, "outcome": o, "source": s} for k, sc, t, f, o, s in cur.fetchall()]
+        cur.execute("SELECT kind, score, triggered_at, failed_at, outcome, source, facts FROM patterns WHERE day >= %s AND superseded_at IS NULL", (since,))
+        rows = [{"kind": k, "score": sc, "triggered_at": t, "failed_at": f, "outcome": o, "source": s, "facts": fc} for k, sc, t, f, o, s, fc in cur.fetchall()]
     return summarise(rows)

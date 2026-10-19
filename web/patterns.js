@@ -32,12 +32,12 @@
   }
 
   function sortRows(rows) {
-    const rank = { triggered: 0, forming: 1, failed: 2 };
+    const rank = { triggered: 0, forming: 1, retest: 2, failed: 3 };
     return [...rows].sort((a, b) => {
       const d = rank[a.state] - rank[b.state];
       if (d) return d;
       if (a.state === 'triggered') return String(b.triggered_at).localeCompare(String(a.triggered_at));
-      if (a.state === 'forming') return (b.score - a.score) || (a.age_min - b.age_min);
+      if (a.state === 'forming' || a.state === 'retest') return (b.score - a.score) || (a.age_min - b.age_min);
       return String(b.failed_at || '').localeCompare(String(a.failed_at || ''));
     });
   }

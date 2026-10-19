@@ -162,13 +162,22 @@ Replay and live use the same analytics code (`core/`). The engine switches to
 The **Patterns** tab detects double and triple bottoms and tops on 5-minute bars
 for every stock, obeying the same date and time slider as the Scanner. A row is
 **forming** once its second (or third) swing point is confirmed, **triggered**
-on the first 5-minute close through the neckline (entry = that close, stop =
-the pattern's extreme, target = the measured move), and **failed** if a close
-comes back through the neckline within three bars. The score counts five
-confirmations: the day already moved at least 1 % by the second point, OI lower
-at the second point than the first, volume at least 1.5× the day's 5-minute
-average, the sector agreeing with the direction, and the trigger close on the
-right side of VWAP. Clicking a row draws the points, neckline, trigger bar and
+on the first 5-minute close through the neckline that carries volume (at least
+1.5× the median volume of the pattern's own bars; a quiet close through the
+neckline leaves the setup forming), with entry = that close, stop = the
+pattern's extreme and target = the nearest previous-day pivot beyond the
+neckline that is at least one pattern height away, else 1.5× the height, so
+R:R varies by setup. **Failed** = a close back through the neckline within
+three bars. A shape that re-forms on a failed setup's stop and neckline within
+12 bars is labelled **retest** rather than forming. The score counts eight
+confirmations: the day already moved at least 1 % by the second point, OI
+lower at the second point than the first, trigger volume at least 1.5× the
+day's 5-minute average, the sector agreeing with the direction, the trigger
+close on the right side of VWAP, exhaustion (the second point's bars traded
+less than the first's), breakout volume (the tick behind the gate) and
+breakout delta (tick-rule delta with the direction; zero on backfilled days).
+The stats line splits the hit rate by whether the breakout-volume tick was
+present. Clicking a row draws the points, neckline, trigger bar and
 stop/target zones on the chart, and the panel lists the checks.
 
 Rows for stored days come from the `patterns` table. Populate it (and print the

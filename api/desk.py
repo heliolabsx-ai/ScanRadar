@@ -111,9 +111,10 @@ Task: judge one trigger. Return the structure only.
 - exit_rule: one sentence, a price or bar condition, earlier than the stop when the pattern is already failing.
 - book_half_at: a price to book half the position before the target when a known level (previous close/high/low, pivot, \
 VWAP, opening range) sits in the way, else null.
-Context fields: pattern triggers carry score 0-5 (checks: day moved >=1 % by the second point, OI lower at the second \
-point, volume >=1.5x the day's 5-minute average, sector agrees, trigger close on the right side of VWAP) and the setup's \
-recorded hit rate; rule alerts carry the scan's rules and its recorded hit rate. The ticket (entry, stop, target, size) is fixed."""
+Context fields: pattern triggers carry score 0-8 (checks, in order: day moved >=1 % by the second point, OI lower at the \
+second point, trigger volume >=1.5x the day's 5-minute average, sector agrees, trigger close on the right side of VWAP, \
+exhaustion = the second point's bars traded less than the first's, breakout volume = the confirming close traded >=1.5x the \
+median of the pattern's own bars, breakout delta = tick-rule delta with the direction) and the setup's recorded hit rate; rule alerts carry the scan's rules and its recorded hit rate. The ticket (entry, stop, target, size) is fixed."""
 
 BRIEF_SYSTEM = HOUSE + """
 

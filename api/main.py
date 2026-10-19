@@ -299,7 +299,7 @@ async def patterns(day: str, at: str):
                     else:
                         rows = await loop.run_in_executor(_live_pool, pt.today_rows_json, at_dt.isoformat())
                         await R.set(key, json.dumps(rows), ex=60)
-    counts = {k: sum(1 for r in rows if r["state"] == k) for k in ("forming", "triggered", "failed")}
+    counts = {k: sum(1 for r in rows if r["state"] == k) for k in ("forming", "retest", "triggered", "failed")}
     return {"day": d.isoformat(), "at": at, "pending": bool(need), "rows": rows, "counts": counts}
 
 
