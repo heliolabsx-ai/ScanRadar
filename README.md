@@ -249,11 +249,26 @@ and any API error (a wrong key shows as `AuthenticationError`, no credit as
 `BadRequestError ... credit balance`). Each call is stored in `desk_calls` with
 its context, output, usage and rupee cost.
 
-## 10. Adding a scan
+## 10. Watch tab (multi-ticker board)
+
+The **Watch** tab shows a board of tickers you choose, each as a card that fills with the
+day's colour in proportion to the move, with a rolling price, a PDL · PC · VWAP · PDH
+position bar, the last hour as a sparkline, the OI label, RVOL, the buy/sell share of the
+tick-rule delta, and chips for the symbol's patterns (with confidence) and desk verdicts.
+A new trigger or verdict flashes the card. Type a symbol to add it, ✕ removes it, and the
+groups load the scanner's picks, today's triggered names or a sector. Sorting by % change,
+rank, RVOL or events re-ranks every five minutes, never on every tick. Clicking a card opens
+a drawer with the full chart (every timeframe, VWAP, pivots, opening range, order block,
+alert markers), the levels strip, the trade at your risk setting with lot-based size, the
+symbol's patterns, desk verdicts and rule alerts, and buttons into the other tabs. The
+board follows the date and time slider like everything else; the list is saved in the
+browser. `GET /api/watch?symbols=A,B&day=&at=` serves it, up to 30 symbols per call.
+
+## 11. Adding a scan
 
 Create `scans/my_scan.json` (see the two examples). Sides are `{"number": x}`, `{"series": "prev_day_close|prev_day_high|prev_day_low"}`, or `{"off": N, "field": "open|high|low|close|volume|vwap|oi"}` where `off` 0 = forming candle, 1 = last closed, etc. Add `"sma": 13` or `"ema": 20` to an `off` side for a moving average of that field ending at that bar (Chartink's `Sma(Close, 13)`). Timeframes: 1m, 3m, 5m, 15m, 30m, 60m. Give the scan its own trade with `"trade": {"stop": SIDE | {"pct": 0.5}, "target": SIDE | {"pct": 1.2} | {"rr": 2.0}}` (for example the bar-2 high as the stop of a bounce-failure short, target at twice the risk): the engine, the replay, the outcomes, the rail stats, the dashboard R:R and the desk then all use those levels; a scan without `trade`, or a stop that resolves on the wrong side of the entry, falls back to the analytics' pivot levels (`levels: "pivot"` in the alert). `"alert": {"telegram": false}` records fires without messaging; `"desk": false` keeps the scan out of Claude's verdicts. Check a new scan's record before switching either on: `docker compose run --rm -T api python scripts/backtest_scan.py --scan "Name" --days 20`. The engine reloads the folder every minute.
 
-## 11. Known limits / to-do
+## 12. Known limits / to-do
 
 - Auto-login replays Kite's browser flow; if Zerodha changes the login page, fix `ingest/kite_auth.py`.
 - Volume delta uses the tick rule (uptick = buy); it is an approximation.
