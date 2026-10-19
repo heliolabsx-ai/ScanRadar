@@ -101,6 +101,8 @@ Verify: `https://scanradar.tech/api/health` → `{"ingest":"ready","ws":"connect
 
 - **18 Oct 2026:** Patterns tab and the Claude Desk built on `feat/patterns`, deployed on the VPS from that branch (merge to `main` pending Saurabh's call). `ANTHROPIC_API_KEY` set on the VPS by Saurabh (rotate the key after the first live day). First real verdict on 16 Oct data: Opus 5.5, 9 s, ₹2.16 (cache write; reads are cheaper). Facts learned: structured-output schemas accept only a subset (no `minimum`/`maximum`/`maxLength`/`minItems`; keep lengths in the prompt); `fallbacks: "default"` goes through `extra_body` with the `server-side-fallback-2026-07-01` header; at ₹2,000 risk most F&O lots size to 0, so the cards show the one-lot risk.
 
+- **19 Oct 2026, first live day:** ingest clean all day (375 minutes × 213 symbols, OI on every candle, preflight confirmed OI on ticks). Engine rule scans crashed 09:16–09:33 (forming bar made `ts` object dtype; fixed). Desk: 39 verdicts, briefs failed 09:45–13:15 on `max_tokens` (thinking shares the limit; limits raised), spend ≈ ₹107 incl. the refunded waste. Patterns v4 then v5 shipped the same day; stored days re-backtested under v5. Web helper scripts are cache-busted with `?v=<hash>` in `web/index.html` — **bump the token whenever a helper .js changes.** `scripts/day_report.py <day>` prints the facts for the end-of-day review; `scripts/backtest_scan.py --scan NAME` backtests a rule scan.
+
 ## To-do / roadmap (in priority order)
 
 1. First live run; fix whatever breaks in ingest. Confirm OI arrives on futures ticks and prev-day OI loads via `historical_data(..., oi=True)`.

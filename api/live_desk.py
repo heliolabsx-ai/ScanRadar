@@ -247,7 +247,7 @@ def run_review(con, cur, R, day, at, prepare=None) -> dict:
     with con.cursor() as c2:
         c2.execute("SELECT count(DISTINCT ts), count(DISTINCT symbol) FROM candles_1m WHERE ts>=%s AND ts<%s", session_bounds(day))
         n_min, n_sym = c2.fetchone()
-    health = {"minutes_with_candles": n_min, "symbols": n_sym, "expected_minutes": 360}
+    health = {"minutes_with_candles": n_min, "symbols": n_sym, "expected_minutes": "375 on a live day (09:15-15:29), 360 on a backfilled day (Kite equity bars end 15:14)"}
     ctx = desk.review_context(day, alerts=al.alerts_for_day(con, day), patterns=pats, verdicts=verdicts, lots=lots_map(con),
                               candles=health, spend=desk.spent(R, day))
     rec = desk.run_job(cur, R, day=day, kind="review", ts=at, ref="review", symbol=None, system=desk.REVIEW_SYSTEM, context=ctx,
