@@ -157,10 +157,18 @@ parks on the last real bar.
 Replay and live use the same analytics code (`core/`). The engine switches to
 `core/` after the first clean live day (Phase 2 in the design doc).
 
-## 8. Patterns tab (double and triple bottoms and tops)
+## 8. Patterns tab (chart patterns with a recorded confidence)
 
-The **Patterns** tab detects double and triple bottoms and tops on 5-minute bars
-for every stock, obeying the same date and time slider as the Scanner. A row is
+The **Patterns** tab detects chart patterns on 5-minute bars for every stock,
+obeying the same date and time slider as the Scanner. Reversal shapes: double and
+triple bottoms and tops, head & shoulders and its inverse. Continuation shapes:
+bull and bear flags, rectangles (range breakout / breakdown), ascending and
+descending triangles, and the opening-range break (first 15 minutes, break by
+10:30, created at the moment it triggers). Every shape shares one lifecycle and
+one **Conf** column: the recorded hit rate of that pattern in that score bucket
+over the last 42 sessions, with the sample size, so a name never carries more
+weight than its own record. For continuation shapes the first two checks flip:
+the day must have moved *with* the trade and OI must be building, not unwinding. A row is
 **forming** once its second (or third) swing point is confirmed, **triggered**
 on the first 5-minute close through the neckline that carries volume (at least
 1.5× the median volume of the pattern's own bars; a quiet close through the

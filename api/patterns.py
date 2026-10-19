@@ -3,7 +3,7 @@ the day preparation job and the live loop), stored rows → view at a minute,
 today's rows on demand, and per-kind statistics."""
 import os, json, datetime as dt
 import pandas as pd
-from core.patterns import detect_day, as_of, bars5m, DEFAULTS, detector_hash, summarise, checks_for, state_at, CHECKS
+from core.patterns import detect_day, as_of, bars5m, DEFAULTS, detector_hash, summarise, checks_for, state_at, CHECKS, INTERNAL, confidence
 from core.backtest import grade_pattern
 from replay import IST, load_day, load_refs
 
@@ -52,7 +52,7 @@ def sector_pct_map(frames: dict, refs: dict, at) -> dict:
 
 
 def _clean(p: dict) -> dict:
-    return {k: v for k, v in p.items() if k not in ("target_touched", "formed_idx", "trigger_idx", "failed_idx")}
+    return {k: v for k, v in p.items() if k not in INTERNAL or k == "facts"}
 
 
 def detect_frames(frames: dict, refs: dict, at=None, params: dict | None = None) -> tuple[list[dict], list[dict]]:
@@ -191,6 +191,13 @@ def today_rows_json(at_iso: str) -> list[dict]:
     at = dt.datetime.fromisoformat(at_iso)
     with psycopg.connect(os.environ["DATABASE_URL"]) as con:
         return to_json_rows(today_rows(con, at))
+
+
+def with_confidence(rows: list[dict], st: dict | None) -> list[dict]:
+    """Attach the recorded hit rate (kind, score bucket) to each row."""
+    for r in rows:
+        r["confidence"] = confidence(st, r["kind"], r.get("score"), r.get("state", "forming"))
+    return rows
 
 
 def stats(con, days: int) -> dict:

@@ -11,7 +11,7 @@ from core.calendar import is_trading_day
 log = logging.getLogger("live_patterns")
 IST = dt.timezone(dt.timedelta(hours=5, minutes=30))
 START, END = dt.time(9, 20), dt.time(15, 20)
-LABEL = {"double_bottom": "Double bottom", "triple_bottom": "Triple bottom", "double_top": "Double top", "triple_top": "Triple top"}
+from core.patterns import LABELS as LABEL
 
 
 def should_run(now: dt.datetime) -> bool:

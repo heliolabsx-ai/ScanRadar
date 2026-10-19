@@ -98,7 +98,7 @@ def test_today_rows_are_graded_as_of_at():
     d["close"] = d.close * (1 + 0.01 * pd.Series(range(len(d))).mul(0.09).apply(math.sin))
     d["high"] = d[["open", "close"]].max(axis=1) + 0.05; d["low"] = d[["open", "close"]].min(axis=1) - 0.05
     refs = {"X": {"prev_close": float(d.open.iloc[0]) * 1.03, "sector": "IT"}}
-    params = {"tol": 0.004, "min_sep": 4, "max_sep": 36, "min_retrace": 0.0035, "k": 2, "fail_bars": 3, "min_extension": 0.0}
+    params = {"tol": 0.004, "min_sep": 4, "max_sep": 36, "min_retrace": 0.0035, "k": 2, "fail_bars": 3, "min_extension": 0.0, "breakout_vol": 0}
     rows = today_rows_from_frames({"X": d}, refs, d.ts.iloc[-1] + pd.Timedelta(minutes=1), params=params)
     trig = [r for r in rows if r["state"] != "forming"]
     assert trig and all("outcome" in r and r["outcome"] is not None for r in trig)

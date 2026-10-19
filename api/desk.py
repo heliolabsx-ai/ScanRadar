@@ -237,7 +237,8 @@ def _hhmm(ts) -> str | None:
 
 
 # ---------- rendering (pure) ----------
-LABEL = {"double_bottom": "double bottom", "triple_bottom": "triple bottom", "double_top": "double top", "triple_top": "triple top"}
+from core.patterns import LABELS as _LABELS
+LABEL = {k: v[0].lower() + v[1:] for k, v in _LABELS.items()}
 MARK = {"ok": "✓", "no": "✗", "warn": "!"}
 
 

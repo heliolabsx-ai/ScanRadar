@@ -190,8 +190,8 @@ table.pt{width:100%;border-collapse:collapse;font-size:12px}.pt th{font:600 10px
   <div class="panel">
     <p class="eyebrow"><span id="peyebrow">Pattern setups · 5m</span><span class="mono" id="pcounts"></span></p>
     <div class="pstats" id="pstats"></div>
-    <div class="pills"><span class="pill on" data-q="all">All</span><span class="pill" data-q="bottoms">Bottoms (BUY)</span><span class="pill" data-q="tops">Tops (SELL)</span><span class="pill" data-q="triggered">Triggered only</span><span class="pill" data-q="oi">OI confirmed</span><span class="pill" data-q="rr15">Min R:R 1.5</span></div>
-    <table class="pt"><thead><tr><th>Stock</th><th>Pattern</th><th>State</th><th>Side</th><th>Entry</th><th>Stop</th><th>Target</th><th>R:R</th><th>Score</th><th>Age</th></tr></thead><tbody id="prows"></tbody></table>
+    <div class="pills"><span class="pill on" data-q="all">All</span><span class="pill" data-q="bottoms">Bottoms (BUY)</span><span class="pill" data-q="tops">Tops (SELL)</span><span class="pill" data-q="reversal">Reversal</span><span class="pill" data-q="continuation">Continuation</span><span class="pill" data-q="triggered">Triggered only</span><span class="pill" data-q="oi">OI confirmed</span><span class="pill" data-q="rr15">Min R:R 1.5</span></div>
+    <table class="pt"><thead><tr><th>Stock</th><th>Pattern</th><th>State</th><th>Side</th><th>Entry</th><th>Stop</th><th>Target</th><th>R:R</th><th>Score</th><th title="Recorded hit rate of this pattern in this score bucket over the last 42 sessions · sample">Conf</th><th>Age</th></tr></thead><tbody id="prows"></tbody></table>
     <div class="empty" id="pempty"></div>
     <p class="note mut" style="font-size:11px;line-height:1.5;margin-top:8px"><b>Forming</b> = shape complete, waiting for the confirming 5m close through the neckline. <b>Triggered</b> = that close happened; entry is its close, stop the pattern's extreme, target the measured move. <b>Failed</b> = closed back through the neckline within 3 bars. Score = confirmations ticked on the right.</p>
   </div>
@@ -695,6 +695,7 @@ function renderPatterns(err){
     <td><span class="chip ${r.side==='long'?'buy':'sell'}">${r.side==='long'?'BUY':'SELL'}</span></td>
     <td class="mono">${fmt(r.entry!=null?r.entry:r.neckline)}</td><td class="mono dn">${fmt(r.stop)}</td><td class="mono up">${fmt(r.target)}</td><td class="mono">1:${fmt(r.rr,1)}</td>
     <td><span class="score ${r.side==='long'?'up':'dn'}" title="${r.score} of 8">${[1,2,3,4,5,6,7,8].map(k=>`<i class="${r.score>=k?'on':''}"></i>`).join('')}</span></td>
+    <td class="mono" title="${r.confidence ? esc(r.confidence.basis) : 'no history yet'}">${PK.confLabel(r.confidence)}</td>
     <td class="mono mut">${PK.ageLabel(r.age_min, r.triggered_at)}</td></tr>`).join('');
   $('pempty').textContent = err ? `could not load patterns: ${err}` : S.ppending ? 'preparing this day (patterns, outcomes, history)… refreshing' : rows.length ? '' : `no patterns formed by ${at}${S.pquick!=='all'||ScanFilter.isActive(S.filter)?' that pass the filters':''}`;
   renderPatternDetail();
@@ -721,7 +722,7 @@ function renderPatternDetail(){
    <div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px"><div class="mono" style="font-weight:700;font-size:15px">${r.symbol}</div><span class="chip ${long?'buy':'sell'}" style="font-size:12px">${PK.actionLabel(r)}</span></div>
    <dl class="kv"><dt>Entry</dt><dd>${fmt(ref)}${r.entry==null?' <span class="mut">(neckline)</span>':''}</dd><dt>Stop</dt><dd class="dn">${fmt(r.stop)} <span class="mut">(${fmt(dist/ref*100)}%)</span></dd>
     <dt>Target</dt><dd class="up">${fmt(r.target)}</dd><dt>R:R</dt><dd>1:${fmt(r.rr,1)}</dd>
-    <dt>Qty @ ₹${fmt(S.risk,0)}</dt><dd>${qty?qty.toLocaleString('en-IN')+' <span class="mut">('+qty/lot+' × '+lot+')</span>':'<span class="mut">'+(lot?'lot too large':'lot unknown')+'</span>'}</dd><dt>Hit rate</dt><dd>${hitRateFor(r.kind)}</dd>
+    <dt>Qty @ ₹${fmt(S.risk,0)}</dt><dd>${qty?qty.toLocaleString('en-IN')+' <span class="mut">('+qty/lot+' × '+lot+')</span>':'<span class="mut">'+(lot?'lot too large':'lot unknown')+'</span>'}</dd><dt>Confidence</dt><dd title="${r.confidence ? esc(r.confidence.basis) : ''}">${PK.confLabel(r.confidence)}${r.confidence ? ' <span class="mut">hit rate, 42d</span>' : ' <span class="mut">no history yet</span>'}</dd>
     ${r.outcome?`<dt>Outcome</dt><dd>${outcomeLabel(r.outcome)}</dd>`:''}</dl>
    <div class="tfrow">${TFS.filter(t=>t!=='1D').map(t=>`<button class="tf ${curTf()===t?'on':''}" data-tf="${t}">${t}</button>`).join('')}<span class="readout mono"></span></div>
    <canvas class="chart" width="620" height="430"></canvas>

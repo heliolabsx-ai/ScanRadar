@@ -1,6 +1,11 @@
 /* Patterns tab helpers: pure functions (tested in node). Rendering lives in index.html. */
 (function (root) {
-  const LABEL = { double_bottom: 'Double bottom', triple_bottom: 'Triple bottom', double_top: 'Double top', triple_top: 'Triple top' };
+  const LABEL = { double_bottom: 'Double bottom', triple_bottom: 'Triple bottom', double_top: 'Double top', triple_top: 'Triple top',
+    inv_head_shoulders: 'Inverse head & shoulders', head_shoulders: 'Head & shoulders', bull_flag: 'Bull flag', bear_flag: 'Bear flag',
+    range_break_long: 'Range breakout', range_break_short: 'Range breakdown', asc_triangle: 'Ascending triangle', desc_triangle: 'Descending triangle',
+    orb_long: 'Opening range break up', orb_short: 'Opening range break down' };
+  const FAMILY = k => ['bull_flag', 'bear_flag', 'range_break_long', 'range_break_short', 'asc_triangle', 'desc_triangle', 'orb_long', 'orb_short'].includes(k) ? 'continuation' : 'reversal';
+  const confLabel = c => !c || c.hit_rate == null ? '—' : `${Math.round(c.hit_rate)}%${c.n != null ? ' · ' + c.n : ''}`;
   const fmt2 = n => Number(n).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const kindLabel = k => LABEL[k] || k;
 
@@ -23,6 +28,8 @@
     return rows.filter(r => {
       if (quick === 'bottoms' && r.side !== 'long') return false;
       if (quick === 'tops' && r.side !== 'short') return false;
+      if (quick === 'reversal' && FAMILY(r.kind) !== 'reversal') return false;
+      if (quick === 'continuation' && FAMILY(r.kind) !== 'continuation') return false;
       if (quick === 'triggered' && r.state !== 'triggered') return false;
       if (quick === 'oi' && !(r.checks && r.checks[1])) return false;
       if (quick === 'rr15' && !(r.rr >= 1.5)) return false;
@@ -42,5 +49,5 @@
     });
   }
 
-  root.ScanPatterns = { kindLabel, actionLabel, ageLabel, filterRows, sortRows, LABEL };
+  root.ScanPatterns = { kindLabel, actionLabel, ageLabel, filterRows, sortRows, LABEL, FAMILY, confLabel };
 })(typeof window !== 'undefined' ? window : globalThis);

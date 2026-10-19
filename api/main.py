@@ -299,8 +299,30 @@ async def patterns(day: str, at: str):
                     else:
                         rows = await loop.run_in_executor(_live_pool, pt.today_rows_json, at_dt.isoformat())
                         await R.set(key, json.dumps(rows), ex=60)
+    try:
+        st = await _pattern_stats_cached()
+    except Exception:  # noqa: BLE001
+        st = {}
+    rows = pt.with_confidence(rows, st)
     counts = {k: sum(1 for r in rows if r["state"] == k) for k in ("forming", "retest", "triggered", "failed")}
     return {"day": d.isoformat(), "at": at, "pending": bool(need), "rows": rows, "counts": counts}
+
+
+_pstats: dict = {}
+
+
+async def _pattern_stats_cached(days: int = 42) -> dict:
+    """Per-kind record used for row confidence; refreshed every 10 minutes."""
+    now = dt.datetime.now(IST)
+    if _pstats.get("until") and _pstats["until"] > now:
+        return _pstats["value"]
+
+    def q():
+        with connect() as con:
+            return pt.stats(con, days)
+    value = await asyncio.get_running_loop().run_in_executor(None, q)
+    _pstats.update(until=now + dt.timedelta(minutes=10), value=value)
+    return value
 
 
 @app.get("/api/pattern-stats")
