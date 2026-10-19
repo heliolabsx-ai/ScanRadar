@@ -882,8 +882,9 @@ function wcard(r, ev){
    <div class="wst"><div>OI<span><i class="chip ${r.oi_cls}" style="font-size:9.5px;padding:1px 6px">${esc(r.oi_label)}</i></span></div><div>RVOL<span class="${r.rvol>=1.5?'up':''}">${fmt(r.rvol,1)}×</span></div><div>Δ buy/sell<span>${r.delta_available?Math.round(50+50*Math.max(-1,Math.min(1,r.delta/Math.max(1,Math.abs(r.delta)*2))))+'%':'—'}</span>${r.delta_available?`<div class="wdl"><i style="width:${Math.round(50+50*Math.max(-1,Math.min(1,r.delta/Math.max(1,Math.abs(r.delta)*2))))}%"></i></div>`:''}</div></div>
    <div class="wev">${ev.map(e=>`<span class="${e.k}">${esc(e.t)}</span>`).join('')}</div>`;
 }
+const cssVar = k => getComputedStyle(document.documentElement).getPropertyValue(k).trim();
 function wspark(c, r){
-  const ctx = c.getContext('2d'), W = c.width, H = c.height, h = r.spark || []; if(h.length < 2) return;
+  const C = cssVar; const ctx = c.getContext('2d'), W = c.width, H = c.height, h = r.spark || []; if(h.length < 2) return;
   const lo = Math.min(...h, r.vwap), hi = Math.max(...h, r.vwap), y = v => H-6-(v-lo)/((hi-lo)||1)*(H-12), x = i => i/(h.length-1)*W;
   ctx.clearRect(0,0,W,H); ctx.lineWidth = 2; ctx.strokeStyle = C('--vwap'); ctx.setLineDash([4,4]); ctx.beginPath(); ctx.moveTo(0,y(r.vwap)); ctx.lineTo(W,y(r.vwap)); ctx.stroke(); ctx.setLineDash([]);
   const up = h[h.length-1] >= h[0]; ctx.strokeStyle = up ? C('--bull') : C('--bear');
