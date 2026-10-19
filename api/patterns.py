@@ -193,6 +193,9 @@ def today_rows_json(at_iso: str) -> list[dict]:
         return to_json_rows(today_rows(con, at))
 
 
+confidence = confidence   # re-exported for the live loops
+
+
 def with_confidence(rows: list[dict], st: dict | None) -> list[dict]:
     """Attach the recorded hit rate (kind, score bucket) to each row."""
     for r in rows:

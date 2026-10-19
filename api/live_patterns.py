@@ -11,6 +11,13 @@ from core.calendar import is_trading_day
 log = logging.getLogger("live_patterns")
 IST = dt.timezone(dt.timedelta(hours=5, minutes=30))
 START, END = dt.time(9, 20), dt.time(15, 20)
+MIN_CONF = float(os.environ.get("PATTERN_MIN_CONF", "40"))     # Telegram and desk only for shapes whose recorded hit rate clears this
+
+
+def worth_telling(r: dict, min_conf: float = MIN_CONF) -> bool:
+    """A trigger is messaged when its recorded confidence clears the floor, or when it has no record yet."""
+    c = r.get("confidence")
+    return c is None or c.get("hit_rate") is None or c["hit_rate"] >= min_conf
 from core.patterns import LABELS as LABEL
 
 
@@ -44,6 +51,18 @@ def message(r: dict) -> str:
             f"R:R 1:{r['rr']:.1f} · score {r['score']}/5\n{hhmm} · scanradar.tech")
 
 
+_st_cache: dict = {}
+
+
+def _stats_cached(con, now: dt.datetime) -> dict:
+    if _st_cache.get("until") and _st_cache["until"] > now:
+        return _st_cache["value"]
+    import patterns as pt
+    value = pt.stats(con, 42)
+    _st_cache.update(until=now + dt.timedelta(minutes=10), value=value)
+    return value
+
+
 _R = None
 
 
@@ -75,13 +94,19 @@ def tick(connect, now: dt.datetime, send) -> tuple[int, int]:
                 with con.cursor() as cur:
                     pt.upsert_patterns(cur, day, records, "live", detector_hash())     # full lifecycle, DO UPDATE
                 con.commit()
-    js = pt.to_json_rows(rows)
+    try:
+        st = _stats_cached(con, at)
+    except Exception:  # noqa: BLE001
+        st = {}
+    js = pt.to_json_rows(pt.with_confidence(rows, st))
     R.set("patterns:today:latest", json.dumps({"at": at.strftime("%H:%M"), "rows": js}), ex=300)
     seen_key = f"pseen:{day}"
     seen = set(R.smembers(seen_key))
     fresh = new_triggers(seen, js)
     for r in fresh:
         R.sadd(seen_key, _key(r)); R.expire(seen_key, 86400)
+        if not worth_telling(r):
+            continue
         if R.set(f"pcool:{day}:{r['symbol']}:{r['kind']}", "1", ex=86400, nx=True):
             try:
                 send(message(r))

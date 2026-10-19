@@ -47,8 +47,10 @@ def main(argv=None) -> int:
     det = detector_hash(params)
     DB = os.environ["DATABASE_URL"]
     with psycopg.connect(DB) as con, con.cursor() as cur:
-        cur.execute("SELECT DISTINCT (ts AT TIME ZONE 'Asia/Kolkata')::date AS d FROM candles_1m WHERE symbol='RELIANCE' ORDER BY d DESC LIMIT %s", (args.days,))
-        days = [r[0] for r in cur.fetchall()][::-1]
+        cur.execute("SELECT DISTINCT (ts AT TIME ZONE 'Asia/Kolkata')::date AS d FROM candles_1m WHERE symbol='RELIANCE' ORDER BY d DESC LIMIT %s", (args.days + 1,))
+        from replay import day_is_settled
+        now = dt.datetime.now(IST)
+        days = [r[0] for r in cur.fetchall() if day_is_settled(r[0], now)][: args.days][::-1]
     all_rows, per_day = [], []
     t0 = time.time()
     for day in days:

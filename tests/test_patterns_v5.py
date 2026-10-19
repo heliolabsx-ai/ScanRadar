@@ -57,7 +57,7 @@ def test_rectangle_gives_both_sides_and_dedupes():
     longs = [p for p in pats if p["kind"] == "range_break_long"]; shorts = [p for p in pats if p["kind"] == "range_break_short"]
     assert len(longs) == 1 and len(shorts) == 1                        # the third swing high does not spawn a second box
     lg = longs[0]
-    assert lg["formed_at"] == at_bar(14) and lg["stop"] < lg["neckline"] and lg["triggered_at"] == at_bar(19)
+    assert lg["formed_at"] == at_bar(17) and lg["stop"] < lg["neckline"] and lg["triggered_at"] == at_bar(19)   # third touch confirmed at 17
     assert shorts[0]["abandoned_at"] is not None                       # the breakout killed the breakdown case
 
 
@@ -66,7 +66,7 @@ def test_ascending_triangle():
     d, pc = shaped_day(seq, vol=vol_spike(len(seq), 19))
     pats = detect_day(d, pc, P)
     t = one(pats, "asc_triangle")
-    assert t["side"] == "long" and t["formed_at"] == at_bar(14) and t["triggered_at"] == at_bar(19)
+    assert t["side"] == "long" and t["formed_at"] == at_bar(17) and t["triggered_at"] == at_bar(19)
     assert not [p for p in pats if p["kind"].startswith("range_break")]
 
 

@@ -14,6 +14,7 @@ from core.backtest import outcome as grade
 log = logging.getLogger("live_desk")
 IST = dt.timezone(dt.timedelta(hours=5, minutes=30))
 START, END = dt.time(9, 20), dt.time(15, 45)
+MIN_CONF = float(os.environ.get("PATTERN_MIN_CONF", "40"))
 REVIEW_AT = dt.time(15, 40)
 _stats_cache: dict = {}
 
@@ -133,6 +134,9 @@ def process_minute(con, R, day, at: dt.datetime, snap: dict | None, *, prepare=N
                 continue                                      # a trigger that already failed gets no verdict
             if not gate(r.get("score"), r.get("rr")):
                 skip_row(cur, day, at, ref, r["symbol"], f"skipped: score {r.get('score')} / R:R {r.get('rr'):.1f} below the gate"); con.commit(); continue
+            conf = pt.confidence(pat_stats, r["kind"], r.get("score"), r["state"])
+            if conf and conf.get("hit_rate") is not None and conf["hit_rate"] < MIN_CONF:
+                skip_row(cur, day, at, ref, r["symbol"], f"skipped: {r['kind']} records {conf['hit_rate']:.0f}% in this bucket, below {MIN_CONF:.0f}%"); con.commit(); continue
             if stale(r["triggered_at"], at):
                 skip_row(cur, day, at, ref, r["symbol"], f"stale: triggered {desk._hhmm(r['triggered_at'])}, judged only within {desk.MAX_AGE_MIN} min"); con.commit(); continue
             trig = {"source": "pattern", "kind": r["kind"], "label": desk.LABEL.get(r["kind"], r["kind"]), "at": desk._hhmm(r["triggered_at"]),

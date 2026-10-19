@@ -28,8 +28,8 @@ DEFAULTS = {"tol": 0.004, "min_sep": 6, "max_sep": 36, "min_retrace": 0.008, "k"
             "shoulder_tol": 0.006,   # shoulders within this of each other
             "pole_min": 0.012,       # flags: pole of at least this much within `pole_bars`
             "pole_bars": 6, "flag_min": 3, "flag_max": 10,
-            "range_bars": 8,         # rectangles / triangles: structure spans at least this many bars
-            "range_min": 0.004, "range_max": 0.02,
+            "range_bars": 12,        # rectangles / triangles: structure spans at least this many bars, with three touches on one side
+            "range_min": 0.006, "range_max": 0.02,
             "orb_bars": 3, "orb_until": "10:30", "orb_min": 0.0025, "orb_max": 0.02}
 FIVE = pd.Timedelta(minutes=5)
 KINDS = {("long", 2): "double_bottom", ("long", 3): "triple_bottom", ("short", 2): "double_top", ("short", 3): "triple_top"}
@@ -232,7 +232,7 @@ def _ranges(D: _Day, j, confirmed, i) -> list[dict]:
     p, tol = D.params, D.params["tol"]
     lo_sw = [x[0] for x in confirmed if x[1] == "low" and j - x[0] <= p["max_sep"]][-3:]
     hi_sw = [x[0] for x in confirmed if x[1] == "high" and j - x[0] <= p["max_sep"]][-3:]
-    if len(lo_sw) < 2 or len(hi_sw) < 2:
+    if len(lo_sw) < 2 or len(hi_sw) < 2 or max(len(lo_sw), len(hi_sw)) < 3:
         return []
     first = min(lo_sw + hi_sw)
     if j - first < p["range_bars"]:

@@ -32,3 +32,11 @@ def test_should_run_windows():
     assert should_run(dt.datetime(2026, 10, 19, 9, 10, tzinfo=IST)) is False     # before 09:20
     assert should_run(dt.datetime(2026, 10, 19, 10, 0, tzinfo=IST)) is True
     assert should_run(dt.datetime(2026, 10, 19, 15, 25, tzinfo=IST)) is False    # after 15:20
+
+
+def test_worth_telling_uses_the_recorded_confidence():
+    from live_patterns import worth_telling
+    assert worth_telling({"confidence": None}) is True
+    assert worth_telling({"confidence": {"hit_rate": 68.0, "n": 298}}) is True
+    assert worth_telling({"confidence": {"hit_rate": 12.0, "n": 689}}) is False
+    assert worth_telling({"confidence": {"hit_rate": 12.0}}, min_conf=10) is True
