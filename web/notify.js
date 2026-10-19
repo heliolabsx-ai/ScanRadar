@@ -42,22 +42,34 @@
   const hasDom = typeof document !== 'undefined' && typeof Notification !== 'undefined';
   function permission() { return hasDom ? Notification.permission : 'unsupported'; }
   async function request() { return hasDom ? Notification.requestPermission() : 'unsupported'; }
-  function beep() {
+  // Sound: 'system' lets macOS play the alert sound chosen in System Settings > Notifications (an Apple tune,
+  // e.g. Glass or Tink); 'chime' is a soft two-note synthesized chime; 'none' is silent.
+  let tone = 'system';
+  try { tone = root.localStorage && root.localStorage.getItem('notifyTone') || 'system'; } catch (e) { /* no storage */ }
+  function setTone(t) { tone = ['system', 'chime', 'none'].includes(t) ? t : 'system'; try { root.localStorage.setItem('notifyTone', tone); } catch (e) { /* no storage */ } }
+  function getTone() { return tone; }
+  function chime() {
     try {
       const ac = new (root.AudioContext || root.webkitAudioContext)();
-      const o = ac.createOscillator(), gn = ac.createGain();
-      o.type = 'sine'; o.frequency.value = 880; gn.gain.value = 0.08;
-      o.connect(gn); gn.connect(ac.destination); o.start(); o.stop(ac.currentTime + 0.18);
-      setTimeout(() => ac.close(), 400);
+      const t0 = ac.currentTime;
+      [[1318.5, 0], [1760, 0.12]].forEach(([f, dt]) => {          // E6 then A6, a glassy fourth
+        const o = ac.createOscillator(), gn = ac.createGain();
+        o.type = 'sine'; o.frequency.value = f;
+        gn.gain.setValueAtTime(0.0001, t0 + dt); gn.gain.exponentialRampToValueAtTime(0.09, t0 + dt + 0.01);
+        gn.gain.exponentialRampToValueAtTime(0.0001, t0 + dt + 0.7);
+        o.connect(gn); gn.connect(ac.destination); o.start(t0 + dt); o.stop(t0 + dt + 0.75);
+      });
+      setTimeout(() => ac.close(), 1200);
     } catch (e) { /* no audio */ }
   }
+  const beep = chime;
   function show(msg, onClick) {
     if (!hasDom || Notification.permission !== 'granted') return null;
-    const n = new Notification(msg.title, { body: msg.body, tag: msg.title + msg.body, silent: true });
+    const n = new Notification(msg.title, { body: msg.body, tag: msg.title + msg.body, silent: tone !== 'system' });
     n.onclick = () => { try { root.focus(); } catch (e) {} if (onClick) onClick(msg); n.close(); };
-    beep();
+    if (tone === 'chime') chime();
     return n;
   }
 
-  root.ScanNotify = { newAlerts, newPicks, alertMessage, pickMessage, permission, request, show, beep };
+  root.ScanNotify = { newAlerts, newPicks, alertMessage, pickMessage, permission, request, show, beep, chime, setTone, getTone };
 })(typeof window !== 'undefined' ? window : globalThis);

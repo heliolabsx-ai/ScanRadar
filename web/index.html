@@ -155,6 +155,7 @@ table.pt{width:100%;border-collapse:collapse;font-size:12px}.pt th{font:600 10px
   <label>Risk ₹ <input id="risk" type="number" min="100" step="100" value="2000" title="Rupees risked per trade; sizes the quantity in the detail panel"></label>
   <button id="theme" title="Toggle light / dark">◐</button>
   <button id="notify" title="Mac notifications for new alerts and new picks on the live feed">🔔 Notify: off</button>
+  <select id="notifyTone" title="Notification sound: System plays the alert sound picked in macOS System Settings › Notifications (Glass, Tink…); Chime is a soft two-note tone"><option value="system">♪ System sound</option><option value="chime">♪ Chime</option><option value="none">♪ Silent</option></select>
 </div>
 <div class="slider">
   <span class="t mono">09:15</span>
@@ -620,6 +621,8 @@ document.addEventListener('keydown', e => {
 // ---------- desktop notifications (live feed only) ----------
 S.notify = false; S.seenAlerts = new Set(); S.seenPicks = new Set(); S.notifySeeded = false;
 try{ S.notify = localStorage.getItem('notify') === '1'; }catch(e){}
+$('notifyTone').value = ScanNotify.getTone();
+$('notifyTone').onchange = () => { ScanNotify.setTone($('notifyTone').value); if($('notifyTone').value === 'chime') ScanNotify.chime(); else if($('notifyTone').value === 'system' && S.notify) ScanNotify.show({title:'ScanRadar', body:'This is the system sound. Change it in System Settings › Notifications › your browser.'}); };
 function notifyLabel(){
   const p = ScanNotify.permission();
   $('notify').textContent = p === 'unsupported' ? '🔔 Notify: unsupported' : p === 'denied' ? '🔔 Notify: blocked in browser' : (S.notify && p === 'granted') ? '🔔 Notify: on' : '🔔 Notify: off';
