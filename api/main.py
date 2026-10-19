@@ -373,7 +373,9 @@ async def watch(symbols: str, day: str | None = None, at: str | None = None):
                     snap = None
             return wt.watch_rows(con, d, at_dt, syms, snap)
     rows = await asyncio.get_running_loop().run_in_executor(None, q)
-    return {"day": d.isoformat(), "at": at_dt.astimezone(IST).strftime("%H:%M"), "live": live, "rows": json.loads(json.dumps(rows, default=float))}
+    last = max((r["last_ts"] for r in rows.values()), default=None)
+    shown = last[11:16] if live and last else at_dt.astimezone(IST).strftime("%H:%M")     # after the close the board is as of the last candle
+    return {"day": d.isoformat(), "at": shown, "live": live, "rows": json.loads(json.dumps(rows, default=float))}
 
 
 # ---------- Desk (Claude) ----------

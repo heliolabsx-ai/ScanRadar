@@ -8,7 +8,7 @@
 <script src="notify.js?v=412e789"></script>
 <script src="patterns.js?v=412e789"></script>
 <script src="desk.js?v=412e789"></script>
-<script src="watch.js?v=412e789"></script>
+<script src="watch.js?v=2adbbde"></script>
 <style>
 /* Layout: control strip → sector/breadth rail → bull/bear card grid → detail panel with canvas chart. Terminal-style data UI. */
 :root{
@@ -879,7 +879,7 @@ function wcard(r, ev){
    <div class="rk">${r.rank ? `rank <b>#${r.rank}</b> · p${fmt(r.pctile||0,0)}${r.picked?' · <b class=up>PICKED</b>':''}` : '<span class="mut">outside the top 40</span>'} · <span class="held">${r.n_min} min</span></div>
    <div class="wpos"><div class="track"></div><span class="lvl" style="left:${pos(r.prev_low)}%">PDL</span><span class="lvl" style="left:${pos(r.prev_close)}%">PC</span><span class="lvl vw" style="left:${pos(r.vwap)}%">VWAP</span><span class="lvl" style="left:${pos(r.prev_high)}%">PDH</span><i class="cur" style="left:${pos(r.price)}%"></i></div>
    <canvas class="sp" width="560" height="112"></canvas>
-   <div class="wst"><div>OI<span><i class="chip ${r.oi_cls}" style="font-size:9.5px;padding:1px 6px">${esc(r.oi_label)}</i></span></div><div>RVOL<span class="${r.rvol>=1.5?'up':''}">${fmt(r.rvol,1)}×</span></div><div>Δ buy/sell<span>${r.delta_available?Math.round(50+50*Math.max(-1,Math.min(1,r.delta/Math.max(1,Math.abs(r.delta)*2))))+'%':'—'}</span>${r.delta_available?`<div class="wdl"><i style="width:${Math.round(50+50*Math.max(-1,Math.min(1,r.delta/Math.max(1,Math.abs(r.delta)*2))))}%"></i></div>`:''}</div></div>
+   <div class="wst"><div>OI<span><i class="chip ${r.oi_cls}" style="font-size:9.5px;padding:1px 6px">${esc(r.oi_label)}</i></span></div><div>RVOL<span class="${r.rvol>=1.5?'up':''}">${fmt(r.rvol,1)}×</span></div><div>Δ buy/sell<span>${WK.deltaShare(r)!=null?WK.deltaShare(r)+'%':'—'}</span>${WK.deltaShare(r)!=null?`<div class="wdl"><i style="width:${WK.deltaShare(r)}%"></i></div>`:''}</div></div>
    <div class="wev">${ev.map(e=>`<span class="${e.k}">${esc(e.t)}</span>`).join('')}</div>`;
 }
 const cssVar = k => getComputedStyle(document.documentElement).getPropertyValue(k).trim();

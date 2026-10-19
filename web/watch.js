@@ -40,6 +40,13 @@
     return out.sort((a, b) => b.ts.localeCompare(a.ts)).slice(0, 3);
   }
 
+  // Buy/sell share for the bar: the day's net tick-rule delta against an hour of average volume, centred at 50 %.
+  function deltaShare(row) {
+    if (!row || !row.delta_available || !row.avg_vol_1m) return null;
+    const x = Math.max(-1, Math.min(1, row.delta / (row.avg_vol_1m * 60)));
+    return Math.round(50 + 50 * x);
+  }
+
   function position(row, v) { const lo = row.prev_low || row.prev_close * 0.985, hi = row.prev_high || row.prev_close * 1.015; return Math.max(2, Math.min(98, (v - lo) / ((hi - lo) || 1) * 100)); }
 
   function groups(snap, prows, sectorsOf) {
@@ -49,5 +56,5 @@
     return { picks, trig, bySector };
   }
 
-  root.ScanWatch = { load, save, digits, heat, order, events, position, groups, DEFAULT };
+  root.ScanWatch = { load, save, digits, heat, order, events, position, groups, deltaShare, DEFAULT };
 })(typeof window !== 'undefined' ? window : globalThis);

@@ -39,7 +39,7 @@ def watch_row(df: pd.DataFrame, ref: dict | None, symbol: str, snap: dict | None
         return None
     tail = df.tail(SPARK_MIN)
     a.update(rank_fields(snap, symbol))
-    a.update({"prev_close": ref.get("prev_close"), "prev_high": ref.get("prev_high"), "prev_low": ref.get("prev_low"),
+    a.update({"prev_close": ref.get("prev_close"), "prev_high": ref.get("prev_high"), "prev_low": ref.get("prev_low"), "avg_vol_1m": ref.get("avg_vol_1m"),
               "lot_size": lot, "last_ts": df.ts.iloc[-1].isoformat(), "n_min": int(len(df)),
               "spark": [round(float(c), 2) for c in tail.close], "spark_from": tail.ts.iloc[0].strftime("%H:%M"),
               "delta_available": bool((df.delta != 0).any())})

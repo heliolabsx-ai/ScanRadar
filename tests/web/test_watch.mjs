@@ -36,6 +36,11 @@ test('events merge patterns and verdicts newest first', () => {
   assert.deepEqual(ev.map(e => e.k), ['take', 'trig']); assert.match(ev[1].t, /Double bottom · TRIGGERED 10:45 · conf 62%/);
   assert.equal(W.events('B', prows, vds)[0].k, 'form'); assert.deepEqual(W.events('Z', prows, vds), []);
 });
+test('delta share', () => {
+  assert.equal(W.deltaShare({ delta_available: true, avg_vol_1m: 1000, delta: 30000 }), 75);
+  assert.equal(W.deltaShare({ delta_available: true, avg_vol_1m: 1000, delta: -90000 }), 0);
+  assert.equal(W.deltaShare({ delta_available: false, avg_vol_1m: 1000, delta: 5 }), null);
+});
 test('position and groups', () => {
   assert.equal(W.position({ prev_low: 90, prev_high: 110, prev_close: 100 }, 100), 50);
   const g = W.groups({ bulls: [{ symbol: 'A', picked: true }, { symbol: 'B', picked: false }], bears: [] }, [{ symbol: 'C', triggered_at: 'x' }], { A: 'IT', C: 'IT', D: 'BANK' });
