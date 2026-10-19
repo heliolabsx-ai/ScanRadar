@@ -23,6 +23,7 @@ def load_today() -> dict[str, pd.DataFrame]:
     with psycopg.connect(DB) as con:
         df = pd.read_sql("SELECT ts,symbol,open,high,low,close,volume,oi,delta FROM candles_1m "
                          "WHERE ts >= %s ORDER BY symbol, ts", con, params=(dt.datetime.combine(today, dt.time(9, 15), IST),))
+    df["ts"] = pd.to_datetime(df.ts, utc=True).dt.tz_convert("Asia/Kolkata")     # one dtype whatever the driver returned
     frames = {s: g.drop(columns="symbol").reset_index(drop=True) for s, g in df.groupby("symbol")}
     # append the forming candle from Redis so [0] means "current"
     for s, g in frames.items():
@@ -31,8 +32,10 @@ def load_today() -> dict[str, pd.DataFrame]:
             v = json.loads(raw)
             live = pd.DataFrame([{"ts": pd.Timestamp(v["ts"]), "open": v["o"], "high": v["h"], "low": v["l"],
                                   "close": v["c"], "volume": v["v"], "oi": v["oi"], "delta": v["d"]}])
+            live["ts"] = pd.to_datetime(live.ts, utc=True).dt.tz_convert("Asia/Kolkata")
             if g.empty or live.ts.iloc[0] > g.ts.iloc[-1]:
                 frames[s] = pd.concat([g, live], ignore_index=True)
+                frames[s]["ts"] = pd.to_datetime(frames[s].ts, utc=True).dt.tz_convert("Asia/Kolkata")   # concat must stay datetime, never object
     return frames
 
 
