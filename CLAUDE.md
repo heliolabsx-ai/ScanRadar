@@ -106,6 +106,8 @@ Verify: `https://scanradar.tech/api/health` → `{"ingest":"ready","ws":"connect
 
 - **19 Oct 2026, first live day:** ingest clean all day (375 minutes × 213 symbols, OI on every candle, preflight confirmed OI on ticks). Engine rule scans crashed 09:16–09:33 (forming bar made `ts` object dtype; fixed). Desk: 39 verdicts, briefs failed 09:45–13:15 on `max_tokens` (thinking shares the limit; limits raised), spend ≈ ₹107 incl. the refunded waste. Patterns v4 then v5 shipped the same day; stored days re-backtested under v5. Web helper scripts are cache-busted with `?v=<hash>` in `web/index.html` — **bump the token whenever a helper .js changes.** `scripts/day_report.py <day>` prints the facts for the end-of-day review; `scripts/backtest_scan.py --scan NAME` backtests a rule scan.
 
+- **20 Oct 2026 (Dussehra, NSE closed):** the socket connected and no tick arrived all day; the page served Monday's last snapshot as "Tue 20 Oct LIVE" for hours before anyone noticed. Fixed 21 Oct: ingest `watchdog()` reports a silent feed once (log, `ingest:status`, Telegram), `scan:latest` expires after 30 min, `/api/scan` carries `stale`, the status chip reads STALE, `/api/days.live` needs a fresh `live:ts`. `NSE_HOLIDAYS` in `.env` is the proper fix per holiday; `core/calendar.py`/`ingest/tradingday.py` read it.
+
 ## To-do / roadmap (in priority order)
 
 1. First live run; fix whatever breaks in ingest. Confirm OI arrives on futures ticks and prev-day OI loads via `historical_data(..., oi=True)`.

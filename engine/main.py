@@ -78,7 +78,7 @@ def run_once():
             a["side_rank"] = i + 1; a["picked"] = i < TOP_N and a["rr"] >= 1.5
     snapshot = {"ts": dt.datetime.now(IST).isoformat(), "sectors": sec_avg, "n_bull": len(bulls), "n_bear": len(bears),
                 "bulls": bulls[:40], "bears": bears[:40]}
-    R.set("scan:latest", json.dumps(snapshot, default=float))
+    R.set("scan:latest", json.dumps(snapshot, default=float), ex=1800)     # a snapshot older than 30 min is never served as live
     R.publish("scan:updated", snapshot["ts"])
 
     # ---- rule scans ----

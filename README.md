@@ -289,6 +289,6 @@ Create `scans/my_scan.json` (see the two examples). Sides are `{"number": x}`, `
 - Auto-login replays Kite's browser flow; if Zerodha changes the login page, fix `ingest/kite_auth.py`.
 - Volume delta uses the tick rule (uptick = buy); it is an approximation.
 - Previous-day OI comes from the historical API with `oi=True`; on expiry-rollover days the nearest contract changes, so OI % that morning compares against the new contract's prior day.
-- NSE holidays are not known to the scheduler: it logs in and opens the socket; nothing arrives. Harmless.
+- NSE holidays: set `NSE_HOLIDAYS=2026-10-20,2026-11-...` in `.env` (comma-separated dates) and restart ingest, api and engine, and the day is skipped. Unlisted holidays are harmless: the scheduler logs in and opens the socket, nothing arrives, and ten minutes after the open the ingest reports **feed silent** once (log, `ingest:status`, Telegram) so a dead feed on a trading day cannot pass unnoticed. The dashboard shows **STALE · last HH:MM** instead of LIVE when the last ranking is older than five minutes, and the ranking snapshot expires after 30 minutes so a previous session is never served as today's.
 - Historical backfill / replay / backtest of scans is not included yet — the candles are stored, so it's a query away.
 - Kite Connect plan: ₹500/month, top up credits in the developer console before expiry or the 08:55 login fails.

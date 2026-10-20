@@ -13,6 +13,7 @@ import kite_auth, universe
 from hist import hist
 from tradingday import is_trading_day
 from candles import SymbolState
+from notify import telegram
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
 log = logging.getLogger("ingest")
@@ -27,6 +28,9 @@ symbols: dict[str, SymbolState] = {}
 kite = None
 ticker = None
 lock = threading.Lock()
+ticks_seen = 0                      # ticks received since the socket opened (watchdog)
+last_tick_at: dt.datetime | None = None
+from feed import feed_state, SILENT_AFTER_MIN   # noqa: E402  (pure, tested)
 
 
 # ---------------- daily setup ----------------
@@ -103,7 +107,9 @@ def _morning_setup():
 
 # ---------------- websocket ----------------
 def on_ticks(ws, ticks):
+    global ticks_seen, last_tick_at
     now = dt.datetime.now(IST)
+    ticks_seen += len(ticks); last_tick_at = now
     # The socket opens at 09:14 and pre-open ticks arrive before 09:15; after 15:30
     # the closing-price/post-close ticks would open a bogus 15:30+ candle.
     if not (MARKET_OPEN <= now.time() < MARKET_CLOSE):
@@ -200,7 +206,22 @@ def flush():
         pipe.set("live:ts", dt.datetime.now(IST).isoformat())
         pipe.publish("candles:closed", json.dumps([r[1] for r in rows]))
         pipe.execute()
-    log.info("flush: %d candles persisted, %d live", len(rows), len(live))
+    log.info("flush: %d candles persisted, %d live, %d ticks so far", len(rows), len(live), ticks_seen)
+    watchdog()
+
+
+def watchdog():
+    """Once a day: a connected socket with no ticks ten minutes into the session is reported,
+    not restarted (an NSE holiday looks exactly like a dead feed from here)."""
+    now = dt.datetime.now(IST)
+    if feed_state(now, R.get("ingest:ws"), last_tick_at) != "silent":
+        return
+    if R.set(f"ingest:silent:{now.date()}", "1", ex=86400, nx=True):
+        msg = (f"no ticks since the open ({now:%H:%M}); socket connected, universe {len(symbols)}. "
+               "NSE holiday today? (add it to NSE_HOLIDAYS) — otherwise the feed is dead: check Kite status / restart ingest")
+        log.error("feed silent: %s", msg)
+        R.set("ingest:status", "error: no ticks (holiday or dead feed)")
+        telegram(f"<b>ScanRadar feed silent</b>\n{msg}")
 
 
 def main():

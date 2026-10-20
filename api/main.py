@@ -52,7 +52,13 @@ async def scan():
     raw = await R.get("scan:latest")
     if not raw:
         raise HTTPException(404, "no scan yet (market closed or ingest not ready)")
-    return json.loads(raw)
+    snap = json.loads(raw)
+    try:
+        age = (dt.datetime.now(IST) - dt.datetime.fromisoformat(snap["ts"])).total_seconds()
+    except (KeyError, ValueError):
+        age = 0
+    snap["stale"] = age > 300
+    return snap
 
 
 @app.get("/api/days")
@@ -66,8 +72,15 @@ async def days():
             ex = cur.fetchone()[0]
         return ds, ex
     ds, ex = await asyncio.get_running_loop().run_in_executor(None, q)
-    live = (await R.get("ingest:ws")) == "connected"
-    return {"days": ds, "latest": ds[0] if ds else None, "live": live, "expiry": ex.isoformat() if ex else None}
+    live_ts = await R.get("live:ts")
+    fresh = False
+    if live_ts:
+        try:
+            fresh = (dt.datetime.now(IST) - dt.datetime.fromisoformat(live_ts)).total_seconds() < 300
+        except ValueError:
+            fresh = False
+    live = (await R.get("ingest:ws")) == "connected" and fresh
+    return {"days": ds, "latest": ds[0] if ds else None, "live": live, "expiry": ex.isoformat() if ex else None, "ingest": await R.get("ingest:status")}
 
 
 @app.get("/api/instruments")

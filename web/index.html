@@ -626,7 +626,7 @@ function enterReplay(day, at, auto=false){
 }
 function goLive(){
   S.following = true; S.userReplay = false; S.day = null; S.mode = 'live'; $('live').hidden = true; $('day').value = todayIST(); syncDayUI();
-  if(S.liveSnap){ S.snap = S.liveSnap; setAt(S.snap.ts.slice(11,16)); setStatus('LIVE','live'); renderAll(); }
+  if(S.liveSnap){ S.snap = S.liveSnap; setAt(S.snap.ts.slice(11,16)); setStatus(S.snap.stale ? 'STALE · last ' + S.snap.ts.slice(11,16) : 'LIVE', S.snap.stale ? 'warn' : 'live'); renderAll(); }
   else { setStatus('WAITING',''); showEmpty('Waiting for the first ranking. Cards appear from 09:15 on a trading day.'); }
   loadAlerts();
 }
@@ -1021,7 +1021,7 @@ function onLiveSnapshot(snap){
   const wasLive = S.live; S.liveSnap = snap; S.live = true;
   if(!wasLive){ populateDays(); $('live').hidden = false; }
   if(!S.following && !S.userReplay){ goLive(); return; }   // page was parked on the last session before the bell
-  if(S.following){ S.snap = snap; S.mode='live'; setAt(snap.ts.slice(11,16)); setStatus('LIVE','live'); renderAll(); loadAlerts().then(() => notifyFromLive(snap, S.alerts)); }
+  if(S.following){ S.snap = snap; S.mode='live'; setAt(snap.ts.slice(11,16)); setStatus(snap.stale ? 'STALE · last ' + snap.ts.slice(11,16) : 'LIVE', snap.stale ? 'warn' : 'live'); renderAll(); loadAlerts().then(() => notifyFromLive(snap, S.alerts)); }
   else { api('/api/alerts?limit=30').then(al => notifyFromLive(snap, al)).catch(()=>{}); }
 }
 function connect(){
