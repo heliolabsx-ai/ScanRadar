@@ -365,6 +365,10 @@ async def screen_at(name: str, day: str | None = None, at: str | None = None):
         d, at_dt = now.date(), now
     live = d == now.date() and (not at or at_dt >= now - dt.timedelta(minutes=2))
     minute = (now if live else at_dt).astimezone(IST).replace(second=0, microsecond=0)
+    if live:
+        last = await R.get("live:ts")                      # after the close the screen is as of the last live minute
+        if last:
+            minute = min(minute, dt.datetime.fromisoformat(last).astimezone(IST).replace(second=0, microsecond=0) + dt.timedelta(minutes=1))
     key = f"screen:{name}:{h}:{d}:{minute.strftime('%H:%M')}"
     cached = await R.get(key)
     if cached:
