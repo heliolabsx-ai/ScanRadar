@@ -266,9 +266,11 @@ browser. `GET /api/watch?symbols=A,B&day=&at=` serves it, up to 30 symbols per c
 
 ## 11. Screens (daily-timeframe filters)
 
-A screen is a Chartink-style set of conditions on **daily, weekly and monthly** bars that a
-stock passes or fails at a minute of the session, with today, this week and this month as
-forming bars. Screens live in `screens/*.json` (see `S0101.json`: NR7, red daily candle
+A screen is a Chartink-style set of conditions on **daily, weekly and monthly** bars. On the
+default `"basis": "eod"` it is evaluated on completed daily candles at the previous close, so
+the list is fixed for the whole next session, the way an end-of-day Chartink run is used
+(the week and month are forming through that close). `"basis": "intraday"` instead treats
+today as a forming bar and re-evaluates every minute. Screens live in `screens/*.json` (see `S0101.json`: NR7, red daily candle
 below yesterday's close, red week and month, SMA20 < SMA40 < SMA60, volume 1.25× yesterday).
 Sides are `{"d": N, "field": open|high|low|close|volume|range}` (N days ago, 0 = today),
 `{"w": N, ...}` weeks, `{"m": N, ...}` months, with optional `"sma": n` and `"mul": x`, or

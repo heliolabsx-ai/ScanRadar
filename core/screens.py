@@ -3,8 +3,11 @@ monthly bars that a symbol passes or fails at a minute of a session. The current
 week and month are *forming* bars built from the session so far, as Chartink does.
 
 Screen JSON:
-{"name": "S0101", "description": "...", "match": "all"|"any",
+{"name": "S0101", "description": "...", "match": "all"|"any", "basis": "eod"|"intraday",
  "rules": [{"lhs": SIDE, "op": "<", "rhs": SIDE}, ...]}
+basis "eod" (default): completed daily candles only — "today" (d = 0) is the last finished
+session, so the list is fixed for the whole next session, the way an end-of-day Chartink run
+is used. basis "intraday": d = 0 is the forming day, re-evaluated every minute.
 SIDE: {"number": x}
       {"d": N, "field": F}          N days ago (0 = today, forming); F = open|high|low|close|volume|range
       {"w": N, "field": F}          N weeks ago (0 = this week, forming)

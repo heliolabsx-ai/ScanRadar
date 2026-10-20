@@ -369,17 +369,18 @@ async def screen_at(name: str, day: str | None = None, at: str | None = None):
         last = await R.get("live:ts")                      # after the close the screen is as of the last live minute
         if last:
             minute = min(minute, dt.datetime.fromisoformat(last).astimezone(IST).replace(second=0, microsecond=0) + dt.timedelta(minutes=1))
-    key = f"screen:{name}:{h}:{d}:{minute.strftime('%H:%M')}"
+    eod = sc.basis(screen) == "eod"
+    key = f"screen:{name}:{h}:{d}:{'eod' if eod else minute.strftime('%H:%M')}"
     cached = await R.get(key)
     if cached:
         return json.loads(cached)
 
     def q():
         with connect() as con:
-            return sc.passing(con, screen, d, minute)
-    syms = await asyncio.get_running_loop().run_in_executor(None, q)
-    res = {"name": name, "day": d.isoformat(), "at": minute.strftime("%H:%M"), "symbols": syms, "n": len(syms), "description": screen.get("description", "")}
-    await R.set(key, json.dumps(res), ex=60 if live else 7 * 86400)
+            return sc.passing(con, screen, d, minute), sc.as_of_label(con, screen, d, minute)
+    syms, label = await asyncio.get_running_loop().run_in_executor(None, q)
+    res = {"name": name, "day": d.isoformat(), "at": label, "basis": sc.basis(screen), "symbols": syms, "n": len(syms), "description": screen.get("description", "")}
+    await R.set(key, json.dumps(res), ex=(7 * 86400 if eod or not live else 60))
     return res
 
 

@@ -60,14 +60,21 @@ def recent_days(con, after: dt.date, before: dt.date) -> dict[str, pd.DataFrame]
     return {s: g.drop(columns="symbol").set_index("day") for s, g in df.groupby("symbol")}
 
 
+def basis(screen: dict) -> str:
+    return "intraday" if screen.get("basis") == "intraday" else "eod"
+
+
 def passing(con, screen: dict, day: dt.date, at: dt.datetime) -> list[str]:
+    """Symbols passing the screen for session `day`: on the eod basis from the candles of the
+    sessions before it (the list a trader prepares the evening before), on the intraday basis
+    with `day`'s forming bar through minute `at`."""
     hist = load_daily(con, day, lookback_days(screen) + 5)
     last_daily = max((d.index[-1] for d in hist.values()), default=None)
     if last_daily is not None and last_daily < day - dt.timedelta(days=1):
         for sym, g in recent_days(con, last_daily, day).items():
             if sym in hist:
                 hist[sym] = pd.concat([hist[sym], g[g.index > hist[sym].index[-1]]])
-    today = forming_day(con, day, at)
+    today = forming_day(con, day, at) if basis(screen) == "intraday" else {}
     out = []
     for sym, d in hist.items():
         t = today.get(sym)
@@ -76,3 +83,13 @@ def passing(con, screen: dict, day: dt.date, at: dt.datetime) -> list[str]:
         if evaluate(screen, d):
             out.append(sym)
     return sorted(out)
+
+
+def as_of_label(con, screen: dict, day: dt.date, minute: dt.datetime) -> str:
+    if basis(screen) == "intraday":
+        return minute.strftime("%H:%M")
+    with con.cursor() as cur:
+        cur.execute("SELECT max(d) FROM (SELECT (ts AT TIME ZONE 'Asia/Kolkata')::date AS d FROM candles_1m WHERE symbol='RELIANCE' AND ts < %s UNION SELECT max(day) FROM candles_1d WHERE day < %s) x",
+                    (dt.datetime.combine(day, dt.time(0), IST), day))
+        last = cur.fetchone()[0]
+    return f"close of {last.strftime('%a %d %b')}" if last else "previous close"

@@ -749,7 +749,7 @@ function renderPatterns(err){
   $('pcounts').textContent = `${c.forming||0} forming${c.retest ? ` · ${c.retest} retest` : ''} · ${c.triggered||0} triggered · ${c.failed||0} failed`;
   document.querySelectorAll('.pill').forEach(p => p.classList.toggle('on', p.dataset.q === S.pquick));
   const rows = PK.sortRows(PK.filterRows(S.prows, S.pquick, S.filter, S.sectorsOf)).filter(r => !S.screenSet || S.screenSet.has(r.symbol));
-  $('pscreenN').textContent = S.screen ? (S.screenSet ? `${S.screenSet.size} stocks pass ${S.screen} at ${S.screenAt||at}` : 'computing…') : '';
+  $('pscreenN').textContent = S.screen ? (S.screenSet ? `${S.screenSet.size} stocks pass ${S.screen} · ${S.screenAt||at}` : 'computing…') : '';
   if(S.psel && !rows.some(r => r.symbol === S.psel.symbol && r.kind === S.psel.kind && r.formed_at === S.psel.formed_at)) S.psel = null;
   if(!S.psel && rows.length) S.psel = rows[0];
   $('prows').innerHTML = rows.map(r => `<tr class="prow ${S.psel && S.psel.symbol===r.symbol && S.psel.kind===r.kind && S.psel.formed_at===r.formed_at ? 'sel':''}" data-key="${r.symbol}|${r.kind}|${r.formed_at}">

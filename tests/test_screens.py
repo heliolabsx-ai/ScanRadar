@@ -38,6 +38,13 @@ def test_weekly_and_monthly_forming_bars():
     assert "range" in w and "range" in m
 
 
+def test_s0101_is_an_end_of_day_screen():
+    screen = json.load(open("screens/S0101.json"))
+    assert screen.get("basis") == "eod"
+    from screens import basis
+    assert basis(screen) == "eod" and basis({"basis": "intraday"}) == "intraday" and basis({}) == "eod"
+
+
 def test_lookback_covers_sma_and_months():
     screen = json.load(open("screens/S0101.json"))
     assert lookback_days(screen) >= 61

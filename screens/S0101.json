@@ -1,6 +1,6 @@
 {
   "name": "S0101",
-  "description": "Chartink translation (20 Oct 2026): today's range narrower than each of the last 7 days (NR7), red daily candle below yesterday's close, red week and red month, yesterday's volume > 10,000, daily SMA20 < SMA40 < SMA60, today's volume > 1.25x yesterday's. Today, this week and this month are forming bars.",
+  "description": "Chartink translation (20 Oct 2026), end-of-day basis: evaluated on completed daily candles at the previous close, so the list is fixed for the whole next session. Today's range narrower than each of the last 7 days (NR7), red daily candle below the day before, red week and red month, volume > 10,000 the day before, daily SMA20 < SMA40 < SMA60, volume > 1.25x the day before.",
   "match": "all",
   "rules": [
     {
@@ -172,5 +172,6 @@
         "mul": 1.25
       }
     }
-  ]
+  ],
+  "basis": "eod"
 }
