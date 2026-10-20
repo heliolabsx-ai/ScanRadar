@@ -220,7 +220,7 @@ table.pt{width:100%;border-collapse:collapse;font-size:12px}.pt th{font:600 10px
   <div class="panel">
     <p class="eyebrow"><span id="peyebrow">Pattern setups · 5m</span><span class="mono" id="pcounts"></span></p>
     <div class="pstats" id="pstats"></div>
-    <div class="pills"><span class="pill on" data-q="all">All</span><span class="pill" data-q="bottoms">Bottoms (BUY)</span><span class="pill" data-q="tops">Tops (SELL)</span><span class="pill" data-q="reversal">Reversal</span><span class="pill" data-q="continuation">Continuation</span><span class="pill" data-q="triggered">Triggered only</span><span class="pill" data-q="oi">OI confirmed</span><span class="pill" data-q="rr15">Min R:R 1.5</span></div>
+    <div class="pills"><span class="pill on" data-q="all">All</span><span class="pill" data-q="bottoms">Bottoms (BUY)</span><span class="pill" data-q="tops">Tops (SELL)</span><span class="pill" data-q="reversal">Reversal</span><span class="pill" data-q="continuation">Continuation</span><span class="pill" data-q="triggered">Triggered only</span><span class="pill" data-q="oi">OI confirmed</span><span class="pill" data-q="rr15">Min R:R 1.5</span><select id="pscreen" title="Daily-timeframe screen: only stocks passing it at this minute are shown"><option value="">screen: none</option></select><span class="mono mut" id="pscreenN"></span></div>
     <table class="pt"><thead><tr><th>Stock</th><th>Pattern</th><th>State</th><th>Side</th><th>Entry</th><th>Stop</th><th>Target</th><th>R:R</th><th>Score</th><th title="Recorded hit rate of this pattern in this score bucket over the last 42 sessions · sample">Conf</th><th>Age</th></tr></thead><tbody id="prows"></tbody></table>
     <div class="empty" id="pempty"></div>
     <p class="note mut" style="font-size:11px;line-height:1.5;margin-top:8px"><b>Forming</b> = shape complete, waiting for the confirming 5m close through the neckline. <b>Triggered</b> = that close happened; entry is its close, stop the pattern's extreme, target the measured move. <b>Failed</b> = closed back through the neckline within 3 bars. Score = confirmations ticked on the right.</p>
@@ -230,7 +230,7 @@ table.pt{width:100%;border-collapse:collapse;font-size:12px}.pt th{font:600 10px
 <div id="watchView" hidden>
   <div class="wtool">
     <div class="wpick"><input id="wq" placeholder="Add ticker… (type, Enter adds)" autocomplete="off"><div class="wsugg" id="wsugg"></div></div>
-    <div class="pills" id="wgroups" style="margin:0"><span class="pill on" data-g="mine">My watch</span><span class="pill" data-g="picks">Top picks</span><span class="pill" data-g="trig">Triggered today</span><select id="wsector" title="Load a sector"><option value="">sector…</option></select></div>
+    <div class="pills" id="wgroups" style="margin:0"><span class="pill on" data-g="mine">My watch</span><span class="pill" data-g="picks">Top picks</span><span class="pill" data-g="trig">Triggered today</span><span class="pill" data-g="screen" id="wscreenPill" hidden>Screen</span><select id="wsector" title="Load a sector"><option value="">sector…</option></select></div>
     <div class="wsort">sort <button data-s="pct" class="on">% chg</button><button data-s="rank">rank</button><button data-s="rvol">RVOL</button><button data-s="events">events</button><span class="mono mut" id="wat"></span></div>
   </div>
   <div class="wgrid" id="wgrid"></div>
@@ -701,8 +701,27 @@ function setView(v){
 document.querySelectorAll('.tab').forEach(b => b.onclick = () => setView(b.dataset.view));
 function panelEl(){ return S.view === 'patterns' ? $('pdetail') : S.view === 'watch' ? $('wbody') : $('detail'); }
 
+S.screen = ''; S.screenSet = null; S.screenAt = ''; S.screens = [];
+try{ S.screen = localStorage.getItem('screen') || ''; }catch(e){}
+async function loadScreen(){
+  if(!S.screen){ S.screenSet = null; return; }
+  const live = S.following && !S.day; const day = S.day || todayIST(), at = S.at || '15:30';
+  try{ const res = await api(live ? `/api/screen/${S.screen}` : `/api/screen/${S.screen}?day=${day}&at=${at}`);
+    if(res.name !== S.screen) return; S.screenSet = new Set(res.symbols); S.screenAt = res.at;
+    if(S.view === 'patterns') renderPatterns(); if(S.view === 'watch' && S.wgroup === 'screen') setWatchList(res.symbols, 'screen');
+  }catch(e){ S.screenSet = null; }
+}
+async function loadScreens(){
+  try{ S.screens = await api('/api/screens'); }catch(e){ S.screens = []; }
+  const opts = '<option value="">screen: none</option>' + S.screens.map(s => `<option value="${s.name}" title="${esc(s.description)}">screen: ${s.name}</option>`).join('');
+  $('pscreen').innerHTML = opts; $('pscreen').value = S.screens.some(s => s.name === S.screen) ? S.screen : ''; S.screen = $('pscreen').value;
+  $('wscreenPill').hidden = !S.screens.length; $('wscreenPill').textContent = S.screen ? `Screen ${S.screen}` : 'Screen';
+  if(S.screen) loadScreen();
+}
+$('pscreen').onchange = () => { S.screen = $('pscreen').value; S.screenSet = null; try{ localStorage.setItem('screen', S.screen); }catch(e){} $('wscreenPill').textContent = S.screen ? `Screen ${S.screen}` : 'Screen'; renderPatterns(); loadScreen(); };
 async function loadPatterns(){
   const day = S.day || todayIST(), at = S.at || '15:30';
+  if(S.screen) loadScreen();
   try{
     const res = await api(`/api/patterns?day=${day}&at=${at}`);
     if((S.day || todayIST()) !== day || (S.at || '15:30') !== at) return;
@@ -729,7 +748,8 @@ function renderPatterns(err){
   const c = S.pcounts || {};
   $('pcounts').textContent = `${c.forming||0} forming${c.retest ? ` · ${c.retest} retest` : ''} · ${c.triggered||0} triggered · ${c.failed||0} failed`;
   document.querySelectorAll('.pill').forEach(p => p.classList.toggle('on', p.dataset.q === S.pquick));
-  const rows = PK.sortRows(PK.filterRows(S.prows, S.pquick, S.filter, S.sectorsOf));
+  const rows = PK.sortRows(PK.filterRows(S.prows, S.pquick, S.filter, S.sectorsOf)).filter(r => !S.screenSet || S.screenSet.has(r.symbol));
+  $('pscreenN').textContent = S.screen ? (S.screenSet ? `${S.screenSet.size} stocks pass ${S.screen} at ${S.screenAt||at}` : 'computing…') : '';
   if(S.psel && !rows.some(r => r.symbol === S.psel.symbol && r.kind === S.psel.kind && r.formed_at === S.psel.formed_at)) S.psel = null;
   if(!S.psel && rows.length) S.psel = rows[0];
   $('prows').innerHTML = rows.map(r => `<tr class="prow ${S.psel && S.psel.symbol===r.symbol && S.psel.kind===r.kind && S.psel.formed_at===r.formed_at ? 'sel':''}" data-key="${r.symbol}|${r.kind}|${r.formed_at}">
@@ -739,7 +759,7 @@ function renderPatterns(err){
     <td><span class="score ${r.side==='long'?'up':'dn'}" title="${r.score} of 8">${[1,2,3,4,5,6,7,8].map(k=>`<i class="${r.score>=k?'on':''}"></i>`).join('')}</span></td>
     <td class="mono" title="${r.confidence ? esc(r.confidence.basis) : 'no history yet'}">${PK.confLabel(r.confidence)}</td>
     <td class="mono mut">${PK.ageLabel(r.age_min, r.triggered_at)}</td></tr>`).join('');
-  $('pempty').textContent = err ? `could not load patterns: ${err}` : S.ppending ? 'preparing this day (patterns, outcomes, history)… refreshing' : rows.length ? '' : `no patterns formed by ${at}${S.pquick!=='all'||ScanFilter.isActive(S.filter)?' that pass the filters':''}`;
+  $('pempty').textContent = err ? `could not load patterns: ${err}` : S.ppending ? 'preparing this day (patterns, outcomes, history)… refreshing' : rows.length ? '' : `no patterns formed by ${at}${S.pquick!=='all'||ScanFilter.isActive(S.filter)||S.screen?' that pass the filters':''}`;
   renderPatternDetail();
 }
 const stateChip = s => s==='triggered' ? '<span class="chip trig">TRIGGERED</span>' : s==='failed' ? '<span class="chip fail">FAILED</span>' : s==='retest' ? '<span class="chip form" title="Same levels as a setup that failed in the last 12 bars">RETEST</span>' : '<span class="chip form">FORMING</span>';
@@ -959,7 +979,8 @@ function addWatch(sym){ if(!S.watch.includes(sym)) S.watch.unshift(sym); if(S.wa
 function setWatchList(list, group){ S.wgroup = group; S.watch = list.slice(0, 30); document.querySelectorAll('#wgroups .pill').forEach(p => p.classList.toggle('on', p.dataset.g === group)); if(group !== 'sector') $('wsector').value = ''; renderWatch(); loadWatch(); }
 $('wgroups').onclick = e => { const p = e.target.closest('.pill'); if(!p) return; const g = WK.groups(S.snap, S.prows, S.sectorsOf);
   if(p.dataset.g === 'mine'){ let mine = WK.DEFAULT; try{ mine = WK.load(localStorage.getItem('watch')); }catch(x){} setWatchList(mine, 'mine'); }
-  else if(p.dataset.g === 'picks') setWatchList(g.picks, 'picks'); else if(p.dataset.g === 'trig') setWatchList(g.trig, 'trig'); };
+  else if(p.dataset.g === 'picks') setWatchList(g.picks, 'picks'); else if(p.dataset.g === 'trig') setWatchList(g.trig, 'trig');
+  else if(p.dataset.g === 'screen'){ if(!S.screen){ S.screen = (S.screens[0]||{}).name || ''; $('pscreen').value = S.screen; } S.wgroup = 'screen'; document.querySelectorAll('#wgroups .pill').forEach(x => x.classList.toggle('on', x === p)); if(S.screenSet) setWatchList([...S.screenSet], 'screen'); else loadScreen(); } };
 $('wsector').onchange = () => { const sec = $('wsector').value; if(!sec) return; const g = WK.groups(S.snap, S.prows, S.sectorsOf); setWatchList(g.bySector[sec] || [], 'sector'); };
 document.querySelector('.wsort').onclick = e => { const b = e.target.closest('button'); if(!b) return; S.wsort = b.dataset.s; document.querySelectorAll('.wsort button').forEach(x => x.classList.toggle('on', x === b)); renderWatch(); };
 
@@ -984,7 +1005,7 @@ matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => { if
 
 (async () => {
   try{ const ins = await api('/api/instruments'); ins.forEach(i => { S.lots[i.symbol] = i.lot_size; S.sectorsOf[i.symbol] = i.sector; }); }catch(e){}
-  populateSectors();
+  populateSectors(); loadScreens();
   try{ const d = await api('/api/days'); S.days = d.days; S.live = d.live; S.expiry = d.expiry; }catch(e){ S.days = []; }
   populateDays(); loadStats(); setInterval(loadStats, 300000);
   if(S.view !== 'scanner'){ document.querySelectorAll('.tab').forEach(b => b.classList.toggle('on', b.dataset.view === S.view)); $('scannerView').hidden = true; $('patternsView').hidden = S.view !== 'patterns'; $('deskView').hidden = S.view !== 'desk'; $('watchView').hidden = S.view !== 'watch'; if(S.view === 'patterns') loadPatternStats(); else if(S.view === 'desk') loadDesk(); else { loadWatch(); loadPatterns(); loadDesk(); } }

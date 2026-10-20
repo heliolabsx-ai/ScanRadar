@@ -11,6 +11,7 @@ import live_patterns as lp
 import desk
 import live_desk as ld
 import watch as wt
+import screens as sc
 from core.patterns import detector_hash
 from core.notify import telegram
 
@@ -340,6 +341,42 @@ async def scan_stats(days: int = 20):
         with connect() as con:
             return al.scan_stats(con, days)
     return await asyncio.get_running_loop().run_in_executor(None, q)
+
+
+# ---------- Screens (daily-timeframe filters) ----------
+@app.get("/api/screens")
+async def screens_list():
+    return [{"name": s["name"], "description": s.get("description", ""), "rules": len(s["rules"])} for s, _ in sc.screen_files()]
+
+
+@app.get("/api/screen/{name}")
+async def screen_at(name: str, day: str | None = None, at: str | None = None):
+    found = next(((s, h) for s, h in sc.screen_files() if s["name"] == name), None)
+    if not found:
+        raise HTTPException(404, f"no screen named {name}")
+    screen, h = found
+    now = dt.datetime.now(IST)
+    if day:
+        try:
+            d, at_dt = rp.parse_replay_args(day, at or "15:30")
+        except rp.ReplayError as e:
+            raise HTTPException(400, str(e))
+    else:
+        d, at_dt = now.date(), now
+    live = d == now.date() and (not at or at_dt >= now - dt.timedelta(minutes=2))
+    minute = (now if live else at_dt).astimezone(IST).replace(second=0, microsecond=0)
+    key = f"screen:{name}:{h}:{d}:{minute.strftime('%H:%M')}"
+    cached = await R.get(key)
+    if cached:
+        return json.loads(cached)
+
+    def q():
+        with connect() as con:
+            return sc.passing(con, screen, d, minute)
+    syms = await asyncio.get_running_loop().run_in_executor(None, q)
+    res = {"name": name, "day": d.isoformat(), "at": minute.strftime("%H:%M"), "symbols": syms, "n": len(syms), "description": screen.get("description", "")}
+    await R.set(key, json.dumps(res), ex=60 if live else 7 * 86400)
+    return res
 
 
 # ---------- Watch board ----------

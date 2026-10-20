@@ -46,6 +46,7 @@ services:
     env_file: .env
     volumes:
       - ./scans:/app/scans:ro
+      - ./screens:/app/screens:ro
       - ./scripts:/app/scripts:ro
       - ./docs/superpowers/notes:/app/notes
     ports:

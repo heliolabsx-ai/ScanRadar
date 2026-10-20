@@ -1,0 +1,176 @@
+{
+  "name": "S0101",
+  "description": "Chartink translation (20 Oct 2026): today's range narrower than each of the last 7 days (NR7), red daily candle below yesterday's close, red week and red month, yesterday's volume > 10,000, daily SMA20 < SMA40 < SMA60, today's volume > 1.25x yesterday's. Today, this week and this month are forming bars.",
+  "match": "all",
+  "rules": [
+    {
+      "lhs": {
+        "d": 0,
+        "field": "range"
+      },
+      "op": "<",
+      "rhs": {
+        "d": 1,
+        "field": "range"
+      }
+    },
+    {
+      "lhs": {
+        "d": 0,
+        "field": "range"
+      },
+      "op": "<",
+      "rhs": {
+        "d": 2,
+        "field": "range"
+      }
+    },
+    {
+      "lhs": {
+        "d": 0,
+        "field": "range"
+      },
+      "op": "<",
+      "rhs": {
+        "d": 3,
+        "field": "range"
+      }
+    },
+    {
+      "lhs": {
+        "d": 0,
+        "field": "range"
+      },
+      "op": "<",
+      "rhs": {
+        "d": 4,
+        "field": "range"
+      }
+    },
+    {
+      "lhs": {
+        "d": 0,
+        "field": "range"
+      },
+      "op": "<",
+      "rhs": {
+        "d": 5,
+        "field": "range"
+      }
+    },
+    {
+      "lhs": {
+        "d": 0,
+        "field": "range"
+      },
+      "op": "<",
+      "rhs": {
+        "d": 6,
+        "field": "range"
+      }
+    },
+    {
+      "lhs": {
+        "d": 0,
+        "field": "range"
+      },
+      "op": "<",
+      "rhs": {
+        "d": 7,
+        "field": "range"
+      }
+    },
+    {
+      "lhs": {
+        "d": 0,
+        "field": "close"
+      },
+      "op": "<",
+      "rhs": {
+        "d": 0,
+        "field": "open"
+      }
+    },
+    {
+      "lhs": {
+        "d": 0,
+        "field": "close"
+      },
+      "op": "<",
+      "rhs": {
+        "d": 1,
+        "field": "close"
+      }
+    },
+    {
+      "lhs": {
+        "w": 0,
+        "field": "close"
+      },
+      "op": "<",
+      "rhs": {
+        "w": 0,
+        "field": "open"
+      }
+    },
+    {
+      "lhs": {
+        "m": 0,
+        "field": "close"
+      },
+      "op": "<",
+      "rhs": {
+        "m": 0,
+        "field": "open"
+      }
+    },
+    {
+      "lhs": {
+        "d": 1,
+        "field": "volume"
+      },
+      "op": ">",
+      "rhs": {
+        "number": 10000
+      }
+    },
+    {
+      "lhs": {
+        "d": 0,
+        "field": "close",
+        "sma": 20
+      },
+      "op": "<",
+      "rhs": {
+        "d": 0,
+        "field": "close",
+        "sma": 40
+      }
+    },
+    {
+      "lhs": {
+        "d": 0,
+        "field": "close",
+        "sma": 40
+      },
+      "op": "<",
+      "rhs": {
+        "d": 0,
+        "field": "close",
+        "sma": 60
+      }
+    },
+    {
+      "lhs": {
+        "d": 0,
+        "field": "volume"
+      },
+      "op": ">",
+      "rhs": {
+        "d": 1,
+        "field": "volume",
+        "mul": 1.25
+      }
+    }
+  ]
+}

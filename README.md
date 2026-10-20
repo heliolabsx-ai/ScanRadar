@@ -264,11 +264,25 @@ symbol's patterns, desk verdicts and rule alerts, and buttons into the other tab
 board follows the date and time slider like everything else; the list is saved in the
 browser. `GET /api/watch?symbols=A,B&day=&at=` serves it, up to 30 symbols per call.
 
-## 11. Adding a scan
+## 11. Screens (daily-timeframe filters)
+
+A screen is a Chartink-style set of conditions on **daily, weekly and monthly** bars that a
+stock passes or fails at a minute of the session, with today, this week and this month as
+forming bars. Screens live in `screens/*.json` (see `S0101.json`: NR7, red daily candle
+below yesterday's close, red week and month, SMA20 < SMA40 < SMA60, volume 1.25× yesterday).
+Sides are `{"d": N, "field": open|high|low|close|volume|range}` (N days ago, 0 = today),
+`{"w": N, ...}` weeks, `{"m": N, ...}` months, with optional `"sma": n` and `"mul": x`, or
+`{"number": x}`. The **Patterns** tab has a `screen:` selector that limits the rows to the
+stocks passing the chosen screen at the slider minute, and the **Watch** tab's `Screen`
+group loads those stocks onto the board. `GET /api/screens` lists them; `GET
+/api/screen/S0101?day&at` returns the passing symbols (cached a minute live, a week settled).
+Daily history comes from `candles_1d` (backfill), so a screen needs the backfill to have run.
+
+## 12. Adding a scan
 
 Create `scans/my_scan.json` (see the two examples). Sides are `{"number": x}`, `{"series": "prev_day_close|prev_day_high|prev_day_low"}`, or `{"off": N, "field": "open|high|low|close|volume|vwap|oi"}` where `off` 0 = forming candle, 1 = last closed, etc. Add `"sma": 13` or `"ema": 20` to an `off` side for a moving average of that field ending at that bar (Chartink's `Sma(Close, 13)`). Timeframes: 1m, 3m, 5m, 15m, 30m, 60m. Give the scan its own trade with `"trade": {"stop": SIDE | {"pct": 0.5}, "target": SIDE | {"pct": 1.2} | {"rr": 2.0}}` (for example the bar-2 high as the stop of a bounce-failure short, target at twice the risk): the engine, the replay, the outcomes, the rail stats, the dashboard R:R and the desk then all use those levels; a scan without `trade`, or a stop that resolves on the wrong side of the entry, falls back to the analytics' pivot levels (`levels: "pivot"` in the alert). `"alert": {"telegram": false}` records fires without messaging; `"desk": false` keeps the scan out of Claude's verdicts. Check a new scan's record before switching either on: `docker compose run --rm -T api python scripts/backtest_scan.py --scan "Name" --days 20`. The engine reloads the folder every minute.
 
-## 12. Known limits / to-do
+## 13. Known limits / to-do
 
 - Auto-login replays Kite's browser flow; if Zerodha changes the login page, fix `ingest/kite_auth.py`.
 - Volume delta uses the tick rule (uptick = buy); it is an approximation.
