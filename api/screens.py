@@ -44,8 +44,29 @@ def forming_day(con, day: dt.date, at: dt.datetime) -> dict[str, dict]:
         return {s: {"open": o, "high": h, "low": l, "close": c, "volume": int(v or 0)} for s, o, h, l, c, v in cur.fetchall()}
 
 
+def recent_days(con, after: dt.date, before: dt.date) -> dict[str, pd.DataFrame]:
+    """Sessions after the last backfilled daily bar and before `before`, aggregated from the
+    minute candles, so a screen never skips yesterday because the nightly backfill has not run."""
+    with con.cursor() as cur:
+        cur.execute("""SELECT symbol, (ts AT TIME ZONE 'Asia/Kolkata')::date AS d,
+                              (array_agg(open ORDER BY ts))[1], max(high), min(low), (array_agg(close ORDER BY ts DESC))[1], sum(volume)
+                       FROM candles_1m WHERE ts >= %s AND ts < %s GROUP BY symbol, d ORDER BY symbol, d""",
+                    (dt.datetime.combine(after + dt.timedelta(days=1), dt.time(0), IST), dt.datetime.combine(before, dt.time(0), IST)))
+        rows = cur.fetchall()
+    if not rows:
+        return {}
+    df = pd.DataFrame(rows, columns=["symbol", "day", "open", "high", "low", "close", "volume"])
+    df["volume"] = df.volume.fillna(0).astype(int)
+    return {s: g.drop(columns="symbol").set_index("day") for s, g in df.groupby("symbol")}
+
+
 def passing(con, screen: dict, day: dt.date, at: dt.datetime) -> list[str]:
     hist = load_daily(con, day, lookback_days(screen) + 5)
+    last_daily = max((d.index[-1] for d in hist.values()), default=None)
+    if last_daily is not None and last_daily < day - dt.timedelta(days=1):
+        for sym, g in recent_days(con, last_daily, day).items():
+            if sym in hist:
+                hist[sym] = pd.concat([hist[sym], g[g.index > hist[sym].index[-1]]])
     today = forming_day(con, day, at)
     out = []
     for sym, d in hist.items():
