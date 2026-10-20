@@ -202,6 +202,7 @@ table.pt{width:100%;border-collapse:collapse;font-size:12px}.pt th{font:600 10px
   <label>OI <select id="fOi"><option value="any">any</option><option value="buildup">build-up only</option></select></label>
   <label>VWAP <select id="fVwap"><option value="any">any side</option><option value="aligned">with direction</option></select></label>
   <label class="chk"><input id="fPicks" type="checkbox"> picks only</label>
+  <label>Screen <select id="pscreen" title="End-of-day screen (Chartink-style daily conditions): only stocks on its list are shown in every tab"><option value="">none</option></select></label><span class="mono mut" id="pscreenN"></span>
   <button id="fClear" title="Reset all filters">Clear</button>
   <span class="count" id="fCount"></span>
 </div>
@@ -220,7 +221,7 @@ table.pt{width:100%;border-collapse:collapse;font-size:12px}.pt th{font:600 10px
   <div class="panel">
     <p class="eyebrow"><span id="peyebrow">Pattern setups · 5m</span><span class="mono" id="pcounts"></span></p>
     <div class="pstats" id="pstats"></div>
-    <div class="pills"><span class="pill on" data-q="all">All</span><span class="pill" data-q="bottoms">Bottoms (BUY)</span><span class="pill" data-q="tops">Tops (SELL)</span><span class="pill" data-q="reversal">Reversal</span><span class="pill" data-q="continuation">Continuation</span><span class="pill" data-q="triggered">Triggered only</span><span class="pill" data-q="oi">OI confirmed</span><span class="pill" data-q="rr15">Min R:R 1.5</span><select id="pscreen" title="Daily-timeframe screen: only stocks passing it at this minute are shown"><option value="">screen: none</option></select><span class="mono mut" id="pscreenN"></span></div>
+    <div class="pills"><span class="pill on" data-q="all">All</span><span class="pill" data-q="bottoms">Bottoms (BUY)</span><span class="pill" data-q="tops">Tops (SELL)</span><span class="pill" data-q="reversal">Reversal</span><span class="pill" data-q="continuation">Continuation</span><span class="pill" data-q="triggered">Triggered only</span><span class="pill" data-q="oi">OI confirmed</span><span class="pill" data-q="rr15">Min R:R 1.5</span></div>
     <table class="pt"><thead><tr><th>Stock</th><th>Pattern</th><th>State</th><th>Side</th><th>Entry</th><th>Stop</th><th>Target</th><th>R:R</th><th>Score</th><th title="Recorded hit rate of this pattern in this score bucket over the last 42 sessions · sample">Conf</th><th>Age</th></tr></thead><tbody id="prows"></tbody></table>
     <div class="empty" id="pempty"></div>
     <p class="note mut" style="font-size:11px;line-height:1.5;margin-top:8px"><b>Forming</b> = shape complete, waiting for the confirming 5m close through the neckline. <b>Triggered</b> = that close happened; entry is its close, stop the pattern's extreme, target the measured move. <b>Failed</b> = closed back through the neckline within 3 bars. Score = confirmations ticked on the right.</p>
@@ -306,8 +307,10 @@ function populateSectors(){
   $('fSectors').size = 1; filterToForm();
 }
 ['fPmin','fPmax','fRvol','fRr','fOi','fVwap','fPicks','fSectors'].forEach(id => $(id).addEventListener('change', formToFilter));
-$('fClear').onclick = () => { S.filter = ScanFilter.defaults(); try{ localStorage.removeItem('filter'); }catch(e){} filterToForm(); renderCards(); renderAlerts(); };
-const shown = rows => rows.filter(r => ScanFilter.pass(r, S.filter));
+$('fClear').onclick = () => { S.filter = ScanFilter.defaults(); try{ localStorage.removeItem('filter'); }catch(e){} filterToForm(); S.screen = ''; S.screenSet = null; $('pscreen').value = ''; try{ localStorage.removeItem('screen'); }catch(e){} screenLabel(); renderCards(); renderAlerts(); if(S.view === 'patterns') renderPatterns(); else if(S.view === 'desk') renderDesk(); };
+const inScreen = sym => !S.screenSet || S.screenSet.has(sym);
+const shown = rows => rows.filter(r => ScanFilter.pass(r, S.filter) && inScreen(r.symbol));
+function screenLabel(){ $('pscreenN').textContent = S.screen ? (S.screenSet ? `${S.screenSet.size} on list · ${S.screenAt||''}` : 'computing…') : ''; }
 
 // ---------- rendering ----------
 function stab(a){
@@ -331,7 +334,7 @@ function renderCards(){
   $('sectors').innerHTML = Object.entries(s.sectors).sort((a,b)=>b[1]-a[1]).map(([k,v])=>{
     const w = Math.abs(v)/mx*50, l = v>=0?50:50-w;
     return `<div class="sector"><span>${k}</span><span class="bar"><i style="left:${l}%;width:${w}%;background:var(--${v>=0?'bull':'bear'})"></i></span><span class="v mono ${v>=0?'up':'dn'}">${sg(v)}%</span></div>`}).join('');
-  const fb = shown(s.bulls), fr = shown(s.bears), active = ScanFilter.isActive(S.filter);
+  const fb = shown(s.bulls), fr = shown(s.bears), active = ScanFilter.isActive(S.filter) || !!S.screenSet; screenLabel();
   $('bulls').innerHTML = fb.slice(0,15).map(a=>card(a,'bull')).join('') || (active ? '<div class="empty">no bulls pass the filter</div>' : '');
   $('bears').innerHTML = fr.slice(0,15).map(a=>card(a,'bear')).join('') || (active ? '<div class="empty">no bears pass the filter</div>' : '');
   $('bullhdr').textContent = active ? `${fb.length} of ${s.n_bull} shown` : `${s.n_bull} · top ${Math.min(3,s.n_bull)} picked`;
@@ -545,7 +548,7 @@ function outcomeLabel(o){
 function renderAlerts(){
   const at = S.at || '15:30';
   const bySym = {}; if(S.snap) [...S.snap.bulls, ...S.snap.bears].forEach(r => bySym[r.symbol] = r);
-  const rows = (S.alerts||[]).filter(a => (!S.day || a.ts.slice(11,16) <= at) && ScanFilter.passAlert(a, bySym, S.sectorsOf, S.filter));
+  const rows = (S.alerts||[]).filter(a => (!S.day || a.ts.slice(11,16) <= at) && ScanFilter.passAlert(a, bySym, S.sectorsOf, S.filter) && inScreen(a.symbol));
   $('alertsAt').textContent = S.day ? `· to ${at}` : '';
   $('alerts').innerHTML = (S.alertsPending ? '<div class="mut" style="padding:4px 0">computing replay alerts for this day…</div>' : '') +
     (rows.map(a => `<div class="alert" data-sym="${a.symbol}" data-at="${a.ts.slice(11,16)}"><span class="mono">${a.ts.slice(11,16)}</span><span>${a.scan}${a.source==='replay'?'<span class="tag">replay</span>':''}</span><b class="mono">${a.symbol}</b><span class="oc">₹${fmt(a.price)}${a.stop!=null&&a.target!=null&&a.price!==a.stop?` · R:R 1:${fmt(Math.abs(a.target-a.price)/Math.abs(a.price-a.stop),1)}`:''} · ${outcomeLabel(a.outcome)}</span></div>`).join('')
@@ -707,18 +710,18 @@ async function loadScreen(){
   if(!S.screen){ S.screenSet = null; return; }
   const live = S.following && !S.day; const day = S.day || todayIST(), at = S.at || '15:30';
   try{ const res = await api(live ? `/api/screen/${S.screen}` : `/api/screen/${S.screen}?day=${day}&at=${at}`);
-    if(res.name !== S.screen) return; S.screenSet = new Set(res.symbols); S.screenAt = res.at;
-    if(S.view === 'patterns') renderPatterns(); if(S.view === 'watch' && S.wgroup === 'screen') setWatchList(res.symbols, 'screen');
+    if(res.name !== S.screen) return; S.screenSet = new Set(res.symbols); S.screenAt = res.at; screenLabel();
+    if(S.view === 'patterns') renderPatterns(); else if(S.view === 'desk') renderDesk(); else if(S.view === 'watch'){ if(S.wgroup === 'screen') setWatchList(res.symbols, 'screen'); } else { renderCards(); renderAlerts(); }
   }catch(e){ S.screenSet = null; }
 }
 async function loadScreens(){
   try{ S.screens = await api('/api/screens'); }catch(e){ S.screens = []; }
-  const opts = '<option value="">screen: none</option>' + S.screens.map(s => `<option value="${s.name}" title="${esc(s.description)}">screen: ${s.name}</option>`).join('');
+  const opts = '<option value="">none</option>' + S.screens.map(s => `<option value="${s.name}" title="${esc(s.description)}">${s.name}</option>`).join('');
   $('pscreen').innerHTML = opts; $('pscreen').value = S.screens.some(s => s.name === S.screen) ? S.screen : ''; S.screen = $('pscreen').value;
   $('wscreenPill').hidden = !S.screens.length; $('wscreenPill').textContent = S.screen ? `Screen ${S.screen}` : 'Screen';
   if(S.screen) loadScreen();
 }
-$('pscreen').onchange = () => { S.screen = $('pscreen').value; S.screenSet = null; try{ localStorage.setItem('screen', S.screen); }catch(e){} $('wscreenPill').textContent = S.screen ? `Screen ${S.screen}` : 'Screen'; renderPatterns(); loadScreen(); };
+$('pscreen').onchange = () => { S.screen = $('pscreen').value; S.screenSet = null; try{ localStorage.setItem('screen', S.screen); }catch(e){} $('wscreenPill').textContent = S.screen ? `Screen ${S.screen}` : 'Screen'; screenLabel(); if(S.view === 'patterns') renderPatterns(); else if(S.view === 'desk') renderDesk(); else if(S.view === 'scanner'){ renderCards(); renderAlerts(); } loadScreen(); };
 async function loadPatterns(){
   const day = S.day || todayIST(), at = S.at || '15:30';
   if(S.screen) loadScreen();
@@ -748,8 +751,7 @@ function renderPatterns(err){
   const c = S.pcounts || {};
   $('pcounts').textContent = `${c.forming||0} forming${c.retest ? ` · ${c.retest} retest` : ''} · ${c.triggered||0} triggered · ${c.failed||0} failed`;
   document.querySelectorAll('.pill').forEach(p => p.classList.toggle('on', p.dataset.q === S.pquick));
-  const rows = PK.sortRows(PK.filterRows(S.prows, S.pquick, S.filter, S.sectorsOf)).filter(r => !S.screenSet || S.screenSet.has(r.symbol));
-  $('pscreenN').textContent = S.screen ? (S.screenSet ? `${S.screenSet.size} stocks pass ${S.screen} · ${S.screenAt||at}` : 'computing…') : '';
+  const rows = PK.sortRows(PK.filterRows(S.prows, S.pquick, S.filter, S.sectorsOf)).filter(r => inScreen(r.symbol)); screenLabel();
   if(S.psel && !rows.some(r => r.symbol === S.psel.symbol && r.kind === S.psel.kind && r.formed_at === S.psel.formed_at)) S.psel = null;
   if(!S.psel && rows.length) S.psel = rows[0];
   $('prows').innerHTML = rows.map(r => `<tr class="prow ${S.psel && S.psel.symbol===r.symbol && S.psel.kind===r.kind && S.psel.formed_at===r.formed_at ? 'sel':''}" data-key="${r.symbol}|${r.kind}|${r.formed_at}">
@@ -837,7 +839,7 @@ function renderDesk(err){
   $('dbudgetText').textContent = d.enabled ? `${b.text} · ${String(d.model).replace('claude-','')}` : 'desk off (no API key)';
   const c = d.calls || {};
   $('deyebrow').textContent = `Desk · verdicts as of ${at} · ${c.take||0} take · ${c.wait||0} wait · ${c.skip||0} skip${d.skipped ? ` · ${d.skipped} not judged` : ''}`;
-  const rows = d.verdicts.filter(v => !ScanFilter.isActive(S.filter) || ScanFilter.passAlert({symbol: v.symbol, price: (v.context&&v.context.ticket||{}).entry}, {}, S.sectorsOf, S.filter));
+  const rows = d.verdicts.filter(v => (!ScanFilter.isActive(S.filter) || ScanFilter.passAlert({symbol: v.symbol, price: (v.context&&v.context.ticket||{}).entry}, {}, S.sectorsOf, S.filter)) && inScreen(v.symbol));
   $('dverdicts').innerHTML = rows.map(verdictCard).join('');
   $('dempty').textContent = rows.length ? '' : d.enabled ? `no verdicts by ${at}${b.stopped ? ' · budget reached' : ''}` : 'Set ANTHROPIC_API_KEY on the VPS (bash configure-env.sh --set ANTHROPIC_API_KEY) and restart the api service.';
   const br = d.briefs && d.briefs[d.briefs.length-1];
