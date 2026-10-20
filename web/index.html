@@ -163,6 +163,15 @@ table.pt{width:100%;border-collapse:collapse;font-size:12px}.pt th{font:600 10px
 .lvls{display:grid;grid-template-columns:repeat(5,1fr);gap:6px}.lvls div{background:var(--bg);border:1px solid var(--line);border-radius:4px;padding:5px 6px;font:600 11px var(--mono)}.lvls b{display:block;font:500 9px var(--sans);letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}.lvls .here{border-color:var(--fg)}
 .wl{display:grid;grid-template-columns:auto 1fr auto auto;gap:6px 10px;font-size:11.5px;align-items:center}.wl .chipx{font:600 9.5px var(--mono);padding:1px 6px;border-radius:3px;border:1px solid var(--line);color:var(--muted)}.wl .chipx.trig{background:var(--fg);color:var(--bg);border-color:var(--fg)}
 .wbtn{display:flex;gap:6px;margin-top:12px}
+/* ---- chart pop-out ---- */
+.lightbox{position:fixed;inset:0;background:rgba(0,0,0,.72);display:flex;align-items:center;justify-content:center;z-index:80;padding:16px}
+.lightbox .box{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px 14px 14px;width:min(1300px,96vw);max-height:96vh;overflow:auto;box-shadow:0 30px 80px rgba(0,0,0,.6);animation:zoomin .25s cubic-bezier(.2,.7,.2,1)}
+@keyframes zoomin{from{transform:scale(.92);opacity:0}to{transform:none;opacity:1}}
+.lightbox .lhd{display:flex;align-items:baseline;gap:10px;margin-bottom:6px}.lightbox .lhd b{font:700 18px var(--mono)}.lightbox .lhd .mut{font:500 11px var(--mono)}.lightbox .lhd button{margin-left:auto}
+.lightbox canvas.chart{width:100%;height:auto;display:block;border:1px solid var(--line);border-radius:6px;background:var(--bg)}
+.lightbox .tfrow .tf{font-size:12px;padding:3px 10px}.lightbox .readout{font-size:12px}
+.expand{margin-left:6px;font:600 10.5px var(--mono);padding:2px 7px;color:var(--muted)}.expand:hover{color:var(--fg)}
+canvas.chart{cursor:zoom-in}.lightbox canvas.chart{cursor:crosshair}
 .score{display:inline-flex;gap:2px;vertical-align:middle}.score i{width:6px;height:6px;border-radius:50%;background:var(--line);display:block}.score i.on{background:currentColor}
 .why{margin-top:10px;font-size:11.5px;padding:8px;border-radius:4px;background:var(--bg);border:1px solid var(--line);line-height:1.6}.why ul{margin:4px 0 0;padding:0;list-style:none}.why b{font-family:var(--mono)}.ok::before{content:"✓ ";color:var(--bull)}.no::before{content:"· ";color:var(--muted)}
 .alerts{margin-top:12px}.alerts .list{max-height:460px;overflow:auto}
@@ -238,6 +247,7 @@ table.pt{width:100%;border-collapse:collapse;font-size:12px}.pt th{font:600 10px
   <div class="empty" id="wempty"></div>
   <p class="note mut" style="font-size:11px;line-height:1.5;margin-top:8px">Cards fill with the day's colour in proportion to the move; prices roll as they print. A pattern trigger or desk verdict flashes the card. Click a card for the full detail; ✕ removes it. The board re-ranks every five minutes or when you change the sort. The list is saved in this browser.</p>
 </div>
+<div class="lightbox" id="lightbox" hidden><div class="box" id="lightboxBody"><div class="lhd"><b id="lbSym"></b><span class="mut" id="lbSub"></span><button id="lbClose" title="Close (Esc)">Esc ✕</button></div><div class="tfrow"></div><canvas class="chart" width="1240" height="760"></canvas></div></div>
 <div class="wdrawer" id="wdrawer"><button class="close" id="wclose">Esc ✕</button><div id="wbody"></div></div>
 <div class="dgrid" id="deskView" hidden>
   <div class="panel">
@@ -414,8 +424,10 @@ async function renderDetail(){
 }
 function wireChart(a){
   const d = panelEl();
+  if(!S.lbA){ const row = d.querySelector('.tfrow'); if(row && !row.querySelector('.expand')){ const b = document.createElement('button'); b.className = 'expand'; b.title = 'Enlarge the chart (or click the chart)'; b.textContent = '⤢ enlarge'; row.insertBefore(b, row.querySelector('.readout')); } const b = d.querySelector('.expand'); if(b) b.onclick = () => openChartBig(a); }
   d.querySelectorAll('.tf').forEach(b => b.onclick = () => { S.tf = b.dataset.tf; try{ localStorage.setItem('tf', S.tf); }catch(e){} d.querySelectorAll('.tf').forEach(x=>x.classList.toggle('on', x.dataset.tf===S.tf)); hoverIdx = null; loadAndDraw(a); });
   const cv = d.querySelector('canvas');
+  if(!S.lbA) cv.onclick = () => openChartBig(a);
   cv.onpointermove = e => { const r = cv.getBoundingClientRect(); const px = (e.clientX - r.left) / r.width * cv.width; hoverIdx = px; drawChart(a); };
   cv.onpointerleave = () => { hoverIdx = null; drawChart(a); };
   loadAndDraw(a);
@@ -436,9 +448,9 @@ async function loadAndDraw(a){
 function drawChart(a){
   const cv = panelEl().querySelector('canvas'); if(!cv) return; const ctx = cv.getContext('2d');
   const C = k => getComputedStyle(document.documentElement).getPropertyValue(k).trim();
-  const W=cv.width, H=cv.height, pL=8, pR=70, pT=10, pB=18, gap=6, Hv=64, Ho=64, Hp=H-pT-pB-Hv-Ho-2*gap;
+  const big = cv.width > 900; const W=cv.width, H=cv.height, pL=8, pR=big?90:70, pT=10, pB=big?22:18, gap=6, Hv=big?110:64, Ho=big?110:64, Hp=H-pT-pB-Hv-Ho-2*gap;
   const yv0 = pT+Hp+gap, yo0 = yv0+Hv+gap;
-  ctx.clearRect(0,0,W,H); ctx.font='10px JetBrains Mono, monospace'; ctx.lineWidth=1;
+  ctx.clearRect(0,0,W,H); ctx.font=(big?'13px':'10px')+' JetBrains Mono, monospace'; ctx.lineWidth=big?1.4:1;
   const readout = panelEl().querySelector('.readout');
   const daily = curTf() === '1D';
   const bars = daily ? (dailyCache.bars||[]) : (chartCache.data ? resampleBrowser(cutAt(chartCache.data, S.at||'15:30'), TFMIN[curTf()]) : []);
@@ -702,7 +714,7 @@ function setView(v){
   if(v === 'patterns'){ loadPatterns(); loadPatternStats(); } else if(v === 'desk'){ loadDesk(); } else if(v === 'watch'){ loadWatch(); loadPatterns(); loadDesk(); } else { renderDetail(); }
 }
 document.querySelectorAll('.tab').forEach(b => b.onclick = () => setView(b.dataset.view));
-function panelEl(){ return S.view === 'patterns' ? $('pdetail') : S.view === 'watch' ? $('wbody') : $('detail'); }
+function panelEl(){ return S.lbA ? $('lightboxBody') : S.view === 'patterns' ? $('pdetail') : S.view === 'watch' ? $('wbody') : $('detail'); }
 
 S.screen = ''; S.screenSet = null; S.screenAt = ''; S.screens = [];
 try{ S.screen = localStorage.getItem('screen') || ''; }catch(e){}
@@ -985,6 +997,24 @@ $('wgroups').onclick = e => { const p = e.target.closest('.pill'); if(!p) return
   else if(p.dataset.g === 'screen'){ if(!S.screen){ S.screen = (S.screens[0]||{}).name || ''; $('pscreen').value = S.screen; } S.wgroup = 'screen'; document.querySelectorAll('#wgroups .pill').forEach(x => x.classList.toggle('on', x === p)); if(S.screenSet) setWatchList([...S.screenSet], 'screen'); else loadScreen(); } };
 $('wsector').onchange = () => { const sec = $('wsector').value; if(!sec) return; const g = WK.groups(S.snap, S.prows, S.sectorsOf); setWatchList(g.bySector[sec] || [], 'sector'); };
 document.querySelector('.wsort').onclick = e => { const b = e.target.closest('button'); if(!b) return; S.wsort = b.dataset.s; document.querySelectorAll('.wsort button').forEach(x => x.classList.toggle('on', x === b)); renderWatch(); };
+
+// ---------- chart pop-out ----------
+S.lbA = null;
+function openChartBig(a){
+  S.lbA = a; const lb = $('lightbox'); lb.hidden = false;
+  const r = rowFor(a.symbol); const pat = a.pattern;
+  $('lbSym').textContent = a.symbol;
+  $('lbSub').textContent = [S.sectorsOf[a.symbol] || '', r ? `₹${fmt(r.price)} · ${sg(r.pct)}% · rank #${r.rank}` : '', pat ? `${PK.kindLabel(pat.kind)} · ${pat.state}` : '', `as of ${S.at || (S.snap ? S.snap.ts.slice(11,16) : '')}`].filter(Boolean).join(' · ');
+  $('lightboxBody').querySelector('.tfrow').innerHTML = TFS.filter(t => !pat || t !== '1D').map(t=>`<button class="tf ${curTf()===t?'on':''}" data-tf="${t}">${t}</button>`).join('') + '<span class="readout mono"></span>';
+  hoverIdx = null; wireChart(a);
+}
+function closeChartBig(){
+  if(!S.lbA) return; S.lbA = null; $('lightbox').hidden = true; hoverIdx = null;
+  if(S.view === 'patterns') renderPatternDetail(); else if(S.view === 'watch'){ if(S.wsel) renderWatchDrawer(); } else renderDetail();
+}
+$('lbClose').onclick = closeChartBig;
+$('lightbox').addEventListener('click', e => { if(e.target === $('lightbox')) closeChartBig(); });
+document.addEventListener('keydown', e => { if(e.key === 'Escape') closeChartBig(); });
 
 // ---------- live feed ----------
 function onLiveSnapshot(snap){
