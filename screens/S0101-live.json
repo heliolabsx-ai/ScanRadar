@@ -1,0 +1,177 @@
+{
+  "name": "S0101-live",
+  "description": "S0101 evaluated the way Chartink runs it during the session: today is the forming daily candle, so the list changes minute by minute as today's range, close and volume develop, and names can drop off before the close. S0101 (without -live) is the end-of-day version fixed at the previous close.",
+  "match": "all",
+  "rules": [
+    {
+      "lhs": {
+        "d": 0,
+        "field": "range"
+      },
+      "op": "<",
+      "rhs": {
+        "d": 1,
+        "field": "range"
+      }
+    },
+    {
+      "lhs": {
+        "d": 0,
+        "field": "range"
+      },
+      "op": "<",
+      "rhs": {
+        "d": 2,
+        "field": "range"
+      }
+    },
+    {
+      "lhs": {
+        "d": 0,
+        "field": "range"
+      },
+      "op": "<",
+      "rhs": {
+        "d": 3,
+        "field": "range"
+      }
+    },
+    {
+      "lhs": {
+        "d": 0,
+        "field": "range"
+      },
+      "op": "<",
+      "rhs": {
+        "d": 4,
+        "field": "range"
+      }
+    },
+    {
+      "lhs": {
+        "d": 0,
+        "field": "range"
+      },
+      "op": "<",
+      "rhs": {
+        "d": 5,
+        "field": "range"
+      }
+    },
+    {
+      "lhs": {
+        "d": 0,
+        "field": "range"
+      },
+      "op": "<",
+      "rhs": {
+        "d": 6,
+        "field": "range"
+      }
+    },
+    {
+      "lhs": {
+        "d": 0,
+        "field": "range"
+      },
+      "op": "<",
+      "rhs": {
+        "d": 7,
+        "field": "range"
+      }
+    },
+    {
+      "lhs": {
+        "d": 0,
+        "field": "close"
+      },
+      "op": "<",
+      "rhs": {
+        "d": 0,
+        "field": "open"
+      }
+    },
+    {
+      "lhs": {
+        "d": 0,
+        "field": "close"
+      },
+      "op": "<",
+      "rhs": {
+        "d": 1,
+        "field": "close"
+      }
+    },
+    {
+      "lhs": {
+        "w": 0,
+        "field": "close"
+      },
+      "op": "<",
+      "rhs": {
+        "w": 0,
+        "field": "open"
+      }
+    },
+    {
+      "lhs": {
+        "m": 0,
+        "field": "close"
+      },
+      "op": "<",
+      "rhs": {
+        "m": 0,
+        "field": "open"
+      }
+    },
+    {
+      "lhs": {
+        "d": 1,
+        "field": "volume"
+      },
+      "op": ">",
+      "rhs": {
+        "number": 10000
+      }
+    },
+    {
+      "lhs": {
+        "d": 0,
+        "field": "close",
+        "sma": 20
+      },
+      "op": "<",
+      "rhs": {
+        "d": 0,
+        "field": "close",
+        "sma": 40
+      }
+    },
+    {
+      "lhs": {
+        "d": 0,
+        "field": "close",
+        "sma": 40
+      },
+      "op": "<",
+      "rhs": {
+        "d": 0,
+        "field": "close",
+        "sma": 60
+      }
+    },
+    {
+      "lhs": {
+        "d": 0,
+        "field": "volume"
+      },
+      "op": ">",
+      "rhs": {
+        "d": 1,
+        "field": "volume",
+        "mul": 1.25
+      }
+    }
+  ],
+  "basis": "intraday"
+}
