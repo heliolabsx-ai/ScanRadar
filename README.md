@@ -177,13 +177,20 @@ pattern's extreme and target = the nearest previous-day pivot beyond the
 neckline that is at least one pattern height away, else 1.5× the height, so
 R:R varies by setup. **Failed** = a close back through the neckline within
 three bars. A shape that re-forms on a failed setup's stop and neckline within
-12 bars is labelled **retest** rather than forming. The score counts eight
+12 bars is labelled **retest** rather than forming. No new trigger is taken after 14:00 (late triggers reached their target 24 % of the
+time against 36 % before 10:00; a shape still forming at 14:00 is dropped). Each row has
+two targets: **T1**, the measured move, where half is booked, and **T2**, the pivot or
+1.5× height, the runner; both are graded and the Conf column reads `T2% / T1 T1%`. The
+score counts nine
 confirmations: the day already moved at least 1 % by the second point, OI
 lower at the second point than the first, trigger volume at least 1.5× the
 day's 5-minute average, the sector agreeing with the direction, the trigger
 close on the right side of VWAP, exhaustion (the second point's bars traded
-less than the first's), breakout volume (the tick behind the gate) and
-breakout delta (tick-rule delta with the direction; zero on backfilled days).
+less than the first's), breakout volume (the tick behind the gate),
+breakout delta (tick-rule delta with the direction; zero on backfilled days) and *with the
+tape* (at least 45 % of stocks up on the day for a long, down for a short). The tab opens
+on **Trade grade**: recorded hit rate ≥ 45 % in the row's score bucket, score ≥ 5, not
+failed; **All** shows everything. Telegram and the desk use the same 45 % floor.
 The stats line splits the hit rate by whether the breakout-volume tick was
 present. Clicking a row draws the points, neckline, trigger bar and
 stop/target zones on the chart, and the panel lists the checks.
