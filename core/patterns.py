@@ -16,7 +16,7 @@ import hashlib, json, statistics
 import numpy as np, pandas as pd
 from .rules import resample
 
-VERSION = "patterns-v5"   # v4: volume ticks, breakout gate, retest, pivot targets; v5: head & shoulders, flags, ranges, triangles, opening-range breaks
+VERSION = "patterns-v6"   # v5: new shapes; v6: T1 measured-move target beside the pivot T2, no triggers after last_trigger, breadth ("with the tape") check
 # Tuned on 10 stored days (18 Oct 2026, docs/superpowers/notes/patterns-backtest-2026-10-18.md):
 # a 0.8% bounce between the points, >= 6 bars apart, on a day already moved >= 1%.
 DEFAULTS = {"tol": 0.004, "min_sep": 6, "max_sep": 36, "min_retrace": 0.008, "k": 2, "fail_bars": 3,
@@ -30,7 +30,10 @@ DEFAULTS = {"tol": 0.004, "min_sep": 6, "max_sep": 36, "min_retrace": 0.008, "k"
             "pole_bars": 6, "flag_min": 3, "flag_max": 10,
             "range_bars": 12,        # rectangles / triangles: structure spans at least this many bars, with three touches on one side
             "range_min": 0.006, "range_max": 0.02,
-            "orb_bars": 3, "orb_until": "10:30", "orb_min": 0.0025, "orb_max": 0.02}
+            "orb_bars": 3, "orb_until": "10:30", "orb_min": 0.0025, "orb_max": 0.02,
+            "last_trigger": "14:00",  # a shape not through its neckline by this minute is abandoned; late triggers reach targets 24 % of the time vs 36 % early
+            "t1_mult": 1.0,          # T1 = neckline + this x height (book half); T2 = pivot / target_mult (runner)
+            "tape_long": 0.45, "tape_short": 0.55}   # breadth check: share of stocks up on the day must be >= tape_long for longs, <= tape_short for shorts
 FIVE = pd.Timedelta(minutes=5)
 KINDS = {("long", 2): "double_bottom", ("long", 3): "triple_bottom", ("short", 2): "double_top", ("short", 3): "triple_top"}
 LABELS = {"double_bottom": "Double bottom", "triple_bottom": "Triple bottom", "double_top": "Double top", "triple_top": "Triple top",
@@ -39,7 +42,7 @@ LABELS = {"double_bottom": "Double bottom", "triple_bottom": "Triple bottom", "d
           "asc_triangle": "Ascending triangle", "desc_triangle": "Descending triangle",
           "orb_long": "Opening range break up", "orb_short": "Opening range break down"}
 CONTINUATION = {"bull_flag", "bear_flag", "range_break_long", "range_break_short", "asc_triangle", "desc_triangle", "orb_long", "orb_short"}
-CHECKS = 9                # 8 scored ticks + the confirming close
+CHECKS = 10               # 9 scored ticks + the confirming close
 BREAKOUT_VOL = 1.5        # the tick's threshold (the gate uses params["breakout_vol"])
 
 
@@ -124,6 +127,7 @@ class _Day:
         is the bar whose facts (day %, OI, volume ratio) describe the pattern's second point."""
         b, p = self.b, self.params
         target, basis = target_for(side, neck, height, self.ref, p)
+        t1 = neck + p.get("t1_mult", 1.0) * height if side == "long" else neck - p.get("t1_mult", 1.0) * height
         first = pts[0][0]
         facts = {"continuation": kind in CONTINUATION,
                  "day_pct_p2": float(b.day_pct.iloc[p2_idx]) if not np.isnan(b.day_pct.iloc[p2_idx]) else None,
@@ -132,8 +136,8 @@ class _Day:
                  "vol_p1": float(vol_p1), "vol_p2": float(vol_p2),
                  "vol_ratio_trigger": None, "vol_ratio_pat_trigger": None, "delta_trigger": None, "weak_closes": 0,
                  "vwap_ok_formed": bool(self.close[i] > self.vwap[i]) if side == "long" else bool(self.close[i] < self.vwap[i]),
-                 "vwap_ok_trigger": None, "sector_formed": None, "sector_trigger": None,
-                 "target_basis": basis, "height": float(height), **(extra or {})}
+                 "vwap_ok_trigger": None, "sector_formed": None, "sector_trigger": None, "breadth_formed": None, "breadth_trigger": None,
+                 "target_basis": basis, "height": float(height), "target1": float(t1), **(extra or {})}
         if retest is not None:
             fa = retest["formed_at"]
             facts["retest_of"] = fa.isoformat() if hasattr(fa, "isoformat") else str(fa)
@@ -338,6 +342,7 @@ def detect_day(df1m: pd.DataFrame, prev_close: float, params: dict = DEFAULTS, a
     confirmed: list = []
     pats: list[dict] = []
     orb_until = pd.Timestamp(f"{b.ts.iloc[0].date()} {params['orb_until']}", tz=b.ts.iloc[0].tz)
+    last_trigger = pd.Timestamp(f"{b.ts.iloc[0].date()} {params['last_trigger']}", tz=b.ts.iloc[0].tz) if params.get("last_trigger") else None
     orb_done = {"long": False, "short": False}
 
     def add(rec):
@@ -374,6 +379,9 @@ def detect_day(df1m: pd.DataFrame, prev_close: float, params: dict = DEFAULTS, a
             if p["abandoned_at"] is not None or p["superseded_at"] is not None or i <= p["formed_idx"]:
                 continue
             long = p["side"] == "long"
+            if p["triggered_at"] is None and last_trigger is not None and t > last_trigger:
+                p["abandoned_at"] = t                       # too late in the session to start a trade
+                continue
             if p["triggered_at"] is None:
                 reached = bool(hi[i] >= p["target"]) if long else bool(lo[i] <= p["target"])
                 through = (long and close[i] > p["neckline"]) or (not long and close[i] < p["neckline"])
@@ -480,7 +488,9 @@ def checks_for(f: dict, side: str, state: str) -> list[bool]:
     breakout_vol = trig and bv is not None and bv >= BREAKOUT_VOL
     d = f.get("delta_trigger")
     delta_ok = trig and d is not None and (d > 0 if long else d < 0)
-    return [bool(extended), oi_ok, bool(vol_ok), bool(sec_ok), vwap_ok, bool(exhaustion), bool(breakout_vol), bool(delta_ok), trig]
+    br = f.get("breadth_trigger") if trig else f.get("breadth_formed")
+    tape_ok = br is not None and (br >= DEFAULTS["tape_long"] if long else br <= DEFAULTS["tape_short"])
+    return [bool(extended), oi_ok, bool(vol_ok), bool(sec_ok), vwap_ok, bool(exhaustion), bool(breakout_vol), bool(delta_ok), bool(tape_ok), trig]
 
 
 def state_at(p: dict, at) -> str | None:
@@ -507,6 +517,8 @@ def as_of(patterns: list[dict], at, ctx: dict) -> list[dict]:
     at = pd.Timestamp(at)
     sector_at = ctx.get("sector_at")
     const = ctx.get("sector_pct")
+    breadth_at = ctx.get("breadth_at")
+    breadth_const = ctx.get("breadth")
     rows = []
     for p in patterns:
         state = state_at(p, at)
@@ -518,6 +530,10 @@ def as_of(patterns: list[dict], at, ctx: dict) -> list[dict]:
             f["sector_formed"] = sector_at(p["formed_at"]) if sector_at else const
         if trig and f.get("sector_trigger") is None:
             f["sector_trigger"] = sector_at(p["triggered_at"]) if sector_at else const
+        if f.get("breadth_formed") is None:
+            f["breadth_formed"] = breadth_at(p["formed_at"]) if breadth_at else breadth_const
+        if trig and f.get("breadth_trigger") is None:
+            f["breadth_trigger"] = breadth_at(p["triggered_at"]) if breadth_at else breadth_const
         checks = checks_for(f, p["side"], state)
         ref = p["entry"] if trig else p["neckline"]
         risk = abs(ref - p["stop"])
@@ -541,10 +557,12 @@ def summarise(rows: list[dict]) -> dict:
         trig = [r for r in rs if r.get("triggered_at")]
         outs = [r["outcome"] for r in trig if r.get("outcome")]
         hits = sum(1 for o in outs if o.get("hit") == "target"); stops = sum(1 for o in outs if o.get("hit") == "stop")
+        h1 = sum(1 for o in outs if o.get("hit_t1") == "target"); s1 = sum(1 for o in outs if o.get("hit_t1") == "stop")
         r30 = [o["r30"] for o in outs if o.get("r30") is not None]; r60 = [o["r60"] for o in outs if o.get("r60") is not None]
         tts = [o["tt_min"] for o in outs if o.get("tt_min") is not None]
         return {"triggers": len(trig), "forming_only": len(rs) - len(trig),
                 "hit_rate": hits / (hits + stops) * 100 if hits + stops else None, "decided": hits + stops,
+                "hit_rate_t1": h1 / (h1 + s1) * 100 if h1 + s1 else None, "decided_t1": h1 + s1,
                 "fail_rate": sum(1 for r in trig if r.get("failed_at")) / len(trig) * 100 if trig else None,
                 "avg_r30": sum(r30) / len(r30) if r30 else None, "avg_r60": sum(r60) / len(r60) if r60 else None,
                 "median_tt_min": statistics.median(tts) if tts else None}
@@ -574,7 +592,9 @@ def confidence(stats: dict, kind: str, score: int | None, state: str) -> dict | 
     if state in ("triggered", "failed") and score is not None:
         bucket = s.get("by_score", {}).get(f">={SCORE_SPLIT}" if score >= SCORE_SPLIT else f"<{SCORE_SPLIT}")
         if bucket and bucket.get("decided"):
-            return {"hit_rate": round(bucket["hit_rate"], 1), "n": bucket["decided"], "basis": f"score {'>=' if score >= SCORE_SPLIT else '<'}{SCORE_SPLIT}"}
+            return {"hit_rate": round(bucket["hit_rate"], 1), "n": bucket["decided"], "basis": f"score {'>=' if score >= SCORE_SPLIT else '<'}{SCORE_SPLIT}",
+                    "hit_rate_t1": round(bucket["hit_rate_t1"], 1) if bucket.get("hit_rate_t1") is not None else None}
     if s.get("decided"):
-        return {"hit_rate": round(s["hit_rate"], 1), "n": s["decided"], "basis": "all triggers"}
+        return {"hit_rate": round(s["hit_rate"], 1), "n": s["decided"], "basis": "all triggers",
+                "hit_rate_t1": round(s["hit_rate_t1"], 1) if s.get("hit_rate_t1") is not None else None}
     return None

@@ -11,7 +11,7 @@ from core.calendar import is_trading_day
 log = logging.getLogger("live_patterns")
 IST = dt.timezone(dt.timedelta(hours=5, minutes=30))
 START, END = dt.time(9, 20), dt.time(15, 20)
-MIN_CONF = float(os.environ.get("PATTERN_MIN_CONF", "40"))     # Telegram and desk only for shapes whose recorded hit rate clears this
+MIN_CONF = float(os.environ.get("PATTERN_MIN_CONF", "45"))     # Telegram and desk only for shapes whose recorded hit rate clears this
 
 
 def worth_telling(r: dict, min_conf: float = MIN_CONF) -> bool:
@@ -46,9 +46,13 @@ def new_triggers(seen: set, rows: list[dict]) -> list[dict]:
 def message(r: dict) -> str:
     side = "BUY" if r["side"] == "long" else "SELL"
     hhmm = str(r["triggered_at"])[11:16]
+    t1 = (r.get("facts") or {}).get("target1")
+    tgt = f"T1 ₹{t1:,.2f} · T2 ₹{r['target']:,.2f}" if t1 else f"target ₹{r['target']:,.2f}"
+    conf = r.get("confidence") or {}
+    rec = f" · {conf['hit_rate']:.0f}% hit" if conf.get("hit_rate") is not None else ""
     return (f"<b>{LABEL.get(r['kind'], r['kind'])} · {side}</b>\n"
-            f"{r['symbol']} entry ₹{r['entry']:,.2f} · stop ₹{r['stop']:,.2f} · target ₹{r['target']:,.2f} · "
-            f"R:R 1:{r['rr']:.1f} · score {r['score']}/5\n{hhmm} · scanradar.tech")
+            f"{r['symbol']} entry ₹{r['entry']:,.2f} · stop ₹{r['stop']:,.2f} · {tgt} · "
+            f"R:R 1:{r['rr']:.1f} · score {r['score']}/9{rec}\n{hhmm} · scanradar.tech")
 
 
 _st_cache: dict = {}

@@ -111,10 +111,11 @@ Task: judge one trigger. Return the structure only.
 - exit_rule: one sentence, a price or bar condition, earlier than the stop when the pattern is already failing.
 - book_half_at: a price to book half the position before the target when a known level (previous close/high/low, pivot, \
 VWAP, opening range) sits in the way, else null.
-Context fields: pattern triggers carry score 0-8 (checks, in order: day moved >=1 % by the second point, OI lower at the \
+Context fields: pattern triggers carry score 0-9 (checks, in order: day moved >=1 % by the second point, OI lower at the \
 second point, trigger volume >=1.5x the day's 5-minute average, sector agrees, trigger close on the right side of VWAP, \
 exhaustion = the second point's bars traded less than the first's, breakout volume = the confirming close traded >=1.5x the \
-median of the pattern's own bars, breakout delta = tick-rule delta with the direction) and the setup's recorded hit rate; rule alerts carry the scan's rules and its recorded hit rate. The ticket (entry, stop, target, size) is fixed."""
+median of the pattern's own bars, breakout delta = tick-rule delta with the direction, with the tape = market breadth agrees) \
+and the setup's recorded hit rate; the ticket may carry target1 (the measured move, where half is booked) beside target (the runner); rule alerts carry the scan's rules and its recorded hit rate. The ticket (entry, stop, target, size) is fixed."""
 
 BRIEF_SYSTEM = HOUSE + """
 
@@ -193,7 +194,7 @@ def verdict_context(trigger: dict, *, snap, sector_pct, bars, ref, lot, setup_st
     risk = abs(entry - stop)
     ctx = {"now": now_hhmm, "minutes_since_open": _mins(now_hhmm), "symbol": trigger["symbol"], "side": trigger["side"],
            "trigger": {k: trigger[k] for k in ("source", "kind", "label", "at", "score", "checks", "scan_rules", "tf", "levels") if k in trigger},
-           "ticket": {"entry": _r(entry), "stop": _r(stop), "target": _r(target), "rr": _r(abs(target - entry) / risk if risk else 0, 2),
+           "ticket": {"entry": _r(entry), "stop": _r(stop), "target": _r(target), "target1": _r(trigger.get("target1")), "rr": _r(abs(target - entry) / risk if risk else 0, 2),
                       "risk_pct": _r(risk / entry * 100 if entry else 0, 2), "size": size_for(entry, stop, lot)},
            "setup_record": setup_stats, "ranking_row": rank_row(snap, trigger["symbol"]),
            "sector": {"name": (ref or {}).get("sector"), "pct": _r(sector_pct)},

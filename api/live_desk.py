@@ -14,7 +14,7 @@ from core.backtest import outcome as grade
 log = logging.getLogger("live_desk")
 IST = dt.timezone(dt.timedelta(hours=5, minutes=30))
 START, END = dt.time(9, 20), dt.time(15, 45)
-MIN_CONF = float(os.environ.get("PATTERN_MIN_CONF", "40"))
+MIN_CONF = float(os.environ.get("PATTERN_MIN_CONF", "45"))
 REVIEW_AT = dt.time(15, 40)
 _stats_cache: dict = {}
 
@@ -85,7 +85,7 @@ def setup_stats(con, now: dt.datetime) -> tuple[dict, dict]:
 def pattern_record(r: dict, pat_stats: dict) -> dict:
     s = pat_stats.get(r["kind"]) or {}
     bucket = (s.get("by_score") or {}).get(">=5" if (r.get("score") or 0) >= 5 else "<5") or {}
-    return {"hit_rate_pct": desk._r(s.get("hit_rate")), "triggers_20d": s.get("triggers"), "avg_r30_pct": desk._r(s.get("avg_r30")),
+    return {"hit_rate_pct": desk._r(s.get("hit_rate")), "hit_rate_t1_pct": desk._r(s.get("hit_rate_t1")), "triggers_20d": s.get("triggers"), "avg_r30_pct": desk._r(s.get("avg_r30")),
             "median_min_to_target": s.get("median_tt_min"), "same_score_bucket": {"hit_rate_pct": desk._r(bucket.get("hit_rate")), "triggers": bucket.get("triggers")}}
 
 
@@ -141,7 +141,7 @@ def process_minute(con, R, day, at: dt.datetime, snap: dict | None, *, prepare=N
                 skip_row(cur, day, at, ref, r["symbol"], f"stale: triggered {desk._hhmm(r['triggered_at'])}, judged only within {desk.MAX_AGE_MIN} min"); con.commit(); continue
             trig = {"source": "pattern", "kind": r["kind"], "label": desk.LABEL.get(r["kind"], r["kind"]), "at": desk._hhmm(r["triggered_at"]),
                     "score": r.get("score"), "checks": r.get("checks"), "tf": "5m", "symbol": r["symbol"], "side": r["side"],
-                    "entry": r["entry"], "stop": r["stop"], "target": r["target"], "state": r["state"]}
+                    "entry": r["entry"], "stop": r["stop"], "target": r["target"], "target1": (r.get("facts") or {}).get("target1"), "state": r["state"]}
             rec = _verdict(cur, R, con, day=day, at=at, trigger=trig, ref=ref, snap=snap, refs=refs, lots=lots, record=pattern_record(r, pat_stats))
             con.commit(); done["verdicts"] += 1
             if rec.get("output"):

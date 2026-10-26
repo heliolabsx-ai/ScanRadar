@@ -22,8 +22,10 @@ def test_new_triggers_once():
 
 def test_message_format():
     m = message(row())
-    assert m == ("<b>Double bottom · BUY</b>\nTATASTEEL entry ₹174.90 · stop ₹172.35 · target ₹177.45 · R:R 1:1.0 · score 4/5\n"
+    assert m == ("<b>Double bottom · BUY</b>\nTATASTEEL entry ₹174.90 · stop ₹172.35 · target ₹177.45 · R:R 1:1.0 · score 4/9\n"
                  "10:25 · scanradar.tech")
+    m2 = message(row(facts={"target1": 176.0}, confidence={"hit_rate": 61.2}))
+    assert "T1 ₹176.00 · T2 ₹177.45" in m2 and "61% hit" in m2
     assert message(row(kind="double_top", triggered="11:05")).startswith("<b>Double top · SELL</b>")
 
 

@@ -169,7 +169,7 @@ def test_score_without_oi():
     d, pc = shaped_day(BOTTOM, oi=[0] * len(BOTTOM), vol=VOL)
     p = one(detect_day(d, pc, P), "double_bottom")
     r = as_of([p], at_bar(10), {"sector_pct": 0.5, "bars": bars5m(d, pc)})[0]
-    assert r["checks"][1] is False and r["score"] <= 7
+    assert r["checks"][1] is False and r["score"] <= 8
 
 
 def test_score_checks_order_and_count():
@@ -177,9 +177,11 @@ def test_score_checks_order_and_count():
     p = one(detect_day(d, pc, P), "double_bottom")
     r = as_of([p], at_bar(10), {"sector_pct": 0.5, "bars": bars5m(d, pc)})[0]
     # equal volume around both lows: no exhaustion; synthetic delta is 0: no delta tick
-    assert r["checks"] == [True, True, True, True, True, False, True, False, True] and r["score"] == 6 and r["rr"] > 0
+    assert r["checks"] == [True, True, True, True, True, False, True, False, False, True] and r["score"] == 6 and r["rr"] > 0   # no breadth given: tape tick false
     f = as_of([p], at_bar(9), {"sector_pct": 0.5, "bars": bars5m(d, pc)})[0]
-    assert f["state"] == "forming" and f["checks"][8] is False and f["checks"][6] is False
+    assert f["state"] == "forming" and f["checks"][9] is False and f["checks"][6] is False
+    rb = as_of([p], at_bar(10), {"sector_pct": 0.5, "breadth": 0.6})[0]
+    assert rb["checks"][8] is True and rb["score"] == 7
 
 
 def test_detector_hash_changes_with_params():

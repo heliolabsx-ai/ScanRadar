@@ -23,12 +23,12 @@ from patterns import UPSERT_SQL, row_to_record, patterns_for_day, upsert_pattern
 def fmt_table(summary: dict) -> str:
     def f(v, d=1, suf=""):
         return "—" if v is None else f"{v:.{d}f}{suf}"
-    lines = ["| kind | triggers | forming only | hit rate | failed ≤3 bars | avg r30 | avg r60 | median min to target | score≥5 triggers / hit | score<5 triggers / hit | breakout vol ✓ / hit | breakout vol ✗ / hit |",
-             "|---|---|---|---|---|---|---|---|---|---|---|---|"]
+    lines = ["| kind | triggers | forming only | T2 hit | T1 hit | failed ≤3 bars | avg r30 | avg r60 | median min to target | score≥5 triggers / hit | score<5 triggers / hit | breakout vol ✓ / hit | breakout vol ✗ / hit |",
+             "|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
     for k, s in summary.items():
         hi, lo = s["by_score"][">=5"], s["by_score"]["<5"]
         w, wo = s["by_volume"]["with"], s["by_volume"]["without"]
-        lines.append(f"| {k} | {s['triggers']} | {s['forming_only']} | {f(s['hit_rate'],0,'%')} | {f(s['fail_rate'],0,'%')} | {f(s['avg_r30'],2,'%')} | "
+        lines.append(f"| {k} | {s['triggers']} | {s['forming_only']} | {f(s['hit_rate'],0,'%')} | {f(s.get('hit_rate_t1'),0,'%')} | {f(s['fail_rate'],0,'%')} | {f(s['avg_r30'],2,'%')} | "
                      f"{f(s['avg_r60'],2,'%')} | {f(s['median_tt_min'],0)} | {hi['triggers']} / {f(hi['hit_rate'],0,'%')} | {lo['triggers']} / {f(lo['hit_rate'],0,'%')} | "
                      f"{w['triggers']} / {f(w['hit_rate'],0,'%')} | {wo['triggers']} / {f(wo['hit_rate'],0,'%')} |")
     return "\n".join(lines)

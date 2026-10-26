@@ -91,9 +91,9 @@ def test_continuation_checks_flip_extension_and_oi():
 
 def test_confidence_from_stats_buckets():
     st = {"double_bottom": {"hit_rate": 54.2, "decided": 200, "by_score": {">=5": {"hit_rate": 65.0, "decided": 120}, "<5": {"hit_rate": 43.0, "decided": 80}}}}
-    assert confidence(st, "double_bottom", 6, "triggered") == {"hit_rate": 65.0, "n": 120, "basis": "score >=5"}
+    assert confidence(st, "double_bottom", 6, "triggered") == {"hit_rate": 65.0, "n": 120, "basis": "score >=5", "hit_rate_t1": None}
     assert confidence(st, "double_bottom", 2, "failed")["hit_rate"] == 43.0
-    assert confidence(st, "double_bottom", 3, "forming") == {"hit_rate": 54.2, "n": 200, "basis": "all triggers"}
+    assert confidence(st, "double_bottom", 3, "forming") == {"hit_rate": 54.2, "n": 200, "basis": "all triggers", "hit_rate_t1": None}
     assert confidence(st, "bull_flag", 6, "triggered") is None and confidence({}, "x", 1, "forming") is None
 
 

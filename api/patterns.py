@@ -51,6 +51,20 @@ def sector_pct_map(frames: dict, refs: dict, at) -> dict:
     return {k: sum(v) / len(v) for k, v in acc.items()}
 
 
+def breadth_at_map(frames: dict, refs: dict, at) -> float | None:
+    """Share of stocks above their previous close at the last complete minute before `at`."""
+    up = n = 0
+    for s, df in frames.items():
+        ref = refs.get(s)
+        if not ref or not ref.get("prev_close"):
+            continue
+        k = int(df.ts.searchsorted(at, side="left"))
+        if not k:
+            continue
+        n += 1; up += float(df.close.iloc[k - 1]) > float(ref["prev_close"])
+    return up / n if n else None
+
+
 def _clean(p: dict) -> dict:
     return {k: v for k, v in p.items() if k not in INTERNAL or k == "facts"}
 
@@ -69,6 +83,14 @@ def detect_frames(frames: dict, refs: dict, at=None, params: dict | None = None)
             sec_cache[minute] = sector_pct_map(frames, refs, minute)
         return sec_cache[minute]
 
+    br_cache: dict = {}
+
+    def breadth_at(minute):
+        minute = pd.Timestamp(minute)
+        if minute not in br_cache:
+            br_cache[minute] = breadth_at_map(frames, refs, minute)
+        return br_cache[minute]
+
     records, rows = [], []
     for sym, df in frames.items():
         ref = refs.get(sym)
@@ -78,7 +100,7 @@ def detect_frames(frames: dict, refs: dict, at=None, params: dict | None = None)
         if not pats:
             continue
         sector = ref.get("sector", "OTHERS")
-        ctx = {"sector_at": lambda m, s=sector: sector_at(m).get(s)}
+        ctx = {"sector_at": lambda m, s=sector: sector_at(m).get(s), "breadth_at": breadth_at}
         for p in pats:
             know = p["triggered_at"] or p["formed_at"]
             v = as_of([p], know, ctx)

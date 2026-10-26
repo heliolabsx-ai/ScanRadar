@@ -6,7 +6,7 @@
 <meta name="theme-color" content="#111513">
 <script src="filter.js?v=412e789"></script>
 <script src="notify.js?v=412e789"></script>
-<script src="patterns.js?v=412e789"></script>
+<script src="patterns.js?v=v6"></script>
 <script src="desk.js?v=412e789"></script>
 <script src="watch.js?v=2adbbde"></script>
 <style>
@@ -230,7 +230,7 @@ canvas.chart{cursor:zoom-in}.lightbox canvas.chart{cursor:crosshair}
   <div class="panel">
     <p class="eyebrow"><span id="peyebrow">Pattern setups · 5m</span><span class="mono" id="pcounts"></span></p>
     <div class="pstats" id="pstats"></div>
-    <div class="pills"><span class="pill on" data-q="all">All</span><span class="pill" data-q="bottoms">Bottoms (BUY)</span><span class="pill" data-q="tops">Tops (SELL)</span><span class="pill" data-q="reversal">Reversal</span><span class="pill" data-q="continuation">Continuation</span><span class="pill" data-q="triggered">Triggered only</span><span class="pill" data-q="oi">OI confirmed</span><span class="pill" data-q="rr15">Min R:R 1.5</span></div>
+    <div class="pills"><span class="pill on" data-q="grade" title="Recorded hit rate ≥ 45 % in this score bucket, score ≥ 5, not failed">Trade grade</span><span class="pill" data-q="all">All</span><span class="pill" data-q="bottoms">Bottoms (BUY)</span><span class="pill" data-q="tops">Tops (SELL)</span><span class="pill" data-q="reversal">Reversal</span><span class="pill" data-q="continuation">Continuation</span><span class="pill" data-q="triggered">Triggered only</span><span class="pill" data-q="oi">OI confirmed</span><span class="pill" data-q="rr15">Min R:R 1.5</span></div>
     <table class="pt"><thead><tr><th>Stock</th><th>Pattern</th><th>State</th><th>Side</th><th>Entry</th><th>Stop</th><th>Target</th><th>R:R</th><th>Score</th><th title="Recorded hit rate of this pattern in this score bucket over the last 42 sessions · sample">Conf</th><th>Age</th></tr></thead><tbody id="prows"></tbody></table>
     <div class="empty" id="pempty"></div>
     <p class="note mut" style="font-size:11px;line-height:1.5;margin-top:8px"><b>Forming</b> = shape complete, waiting for the confirming 5m close through the neckline. <b>Triggered</b> = that close happened; entry is its close, stop the pattern's extreme, target the measured move. <b>Failed</b> = closed back through the neckline within 3 bars. Score = confirmations ticked on the right.</p>
@@ -705,7 +705,7 @@ function notifyFromLive(snap, alerts){
 
 // ---------- Patterns tab ----------
 S.view = location.hash === '#patterns' ? 'patterns' : location.hash === '#desk' ? 'desk' : location.hash === '#watch' ? 'watch' : 'scanner';
-S.prows = []; S.pcounts = {}; S.ppending = false; S.psel = null; S.pquick = 'all'; S.pstats = null; S.pseen = new Set(); S.pseeded = false;
+S.prows = []; S.pcounts = {}; S.ppending = false; S.psel = null; S.pquick = 'grade'; S.pstats = null; S.pseen = new Set(); S.pseeded = false;
 const PK = ScanPatterns;
 function setView(v){
   S.view = v; location.hash = v === 'patterns' ? '#patterns' : v === 'desk' ? '#desk' : v === 'watch' ? '#watch' : '';
@@ -754,7 +754,7 @@ function renderPatternStats(){
   const st = S.pstats || {};
   $('pstats').innerHTML = Object.entries(st).map(([k, s]) => {
     const hi = s.by_score['>=5'] || s.by_score['>=3'] || {}; const bv = s.by_volume || {}; const w = bv.with || {}, wo = bv.without || {};
-    return `<div><b>${PK.kindLabel(k)}</b> · ${s.triggers} triggers · ${s.hit_rate!=null?fmt(s.hit_rate,0)+'% hit':'no hits'} · ${s.avg_r30!=null?sg(s.avg_r30)+'% @30m':'—'}${s.median_tt_min!=null?` · median ${fmt(s.median_tt_min,0)} min to target`:''}${hi.triggers?` · score≥5: ${fmt(hi.hit_rate||0,0)}% of ${hi.triggers}`:''}${(w.triggers||wo.triggers)?` · breakout vol ✓ ${w.hit_rate!=null?fmt(w.hit_rate,0)+'%':'—'} of ${w.triggers||0} vs ✗ ${wo.hit_rate!=null?fmt(wo.hit_rate,0)+'%':'—'} of ${wo.triggers||0}`:''}</div>`;
+    return `<div><b>${PK.kindLabel(k)}</b> · ${s.triggers} triggers · ${s.hit_rate!=null?fmt(s.hit_rate,0)+'% hit T2':'no hits'}${s.hit_rate_t1!=null?` · ${fmt(s.hit_rate_t1,0)}% T1`:''} · ${s.avg_r30!=null?sg(s.avg_r30)+'% @30m':'—'}${s.median_tt_min!=null?` · median ${fmt(s.median_tt_min,0)} min to target`:''}${hi.triggers?` · score≥5: ${fmt(hi.hit_rate||0,0)}% of ${hi.triggers}`:''}${(w.triggers||wo.triggers)?` · breakout vol ✓ ${w.hit_rate!=null?fmt(w.hit_rate,0)+'%':'—'} of ${w.triggers||0} vs ✗ ${wo.hit_rate!=null?fmt(wo.hit_rate,0)+'%':'—'} of ${wo.triggers||0}`:''}</div>`;
   }).join('') || '<span class="mut">no graded triggers yet</span>';
 }
 function renderPatterns(err){
@@ -769,8 +769,8 @@ function renderPatterns(err){
   $('prows').innerHTML = rows.map(r => `<tr class="prow ${S.psel && S.psel.symbol===r.symbol && S.psel.kind===r.kind && S.psel.formed_at===r.formed_at ? 'sel':''}" data-key="${r.symbol}|${r.kind}|${r.formed_at}">
     <td class="mono" style="font-weight:700">${r.symbol}</td><td>${PK.kindLabel(r.kind)}</td><td>${stateChip(r.state)}${r.outcome && r.outcome.hit && r.outcome.hit!=='none' ? `<div class="mut" style="font-size:10px;margin-top:2px">${r.outcome.hit==='target'?'<span class=up>target hit</span>':'<span class=dn>stop hit</span>'}</div>` : ''}</td>
     <td><span class="chip ${r.side==='long'?'buy':'sell'}">${r.side==='long'?'BUY':'SELL'}</span></td>
-    <td class="mono">${fmt(r.entry!=null?r.entry:r.neckline)}</td><td class="mono dn">${fmt(r.stop)}</td><td class="mono up">${fmt(r.target)}</td><td class="mono">1:${fmt(r.rr,1)}</td>
-    <td><span class="score ${r.side==='long'?'up':'dn'}" title="${r.score} of 8">${[1,2,3,4,5,6,7,8].map(k=>`<i class="${r.score>=k?'on':''}"></i>`).join('')}</span></td>
+    <td class="mono">${fmt(r.entry!=null?r.entry:r.neckline)}</td><td class="mono dn">${fmt(r.stop)}</td><td class="mono up" title="T1 (book half) / T2 (runner)">${r.facts&&r.facts.target1?fmt(r.facts.target1)+' <span class=mut>/</span> ':''}${fmt(r.target)}</td><td class="mono">1:${fmt(r.rr,1)}</td>
+    <td><span class="score ${r.side==='long'?'up':'dn'}" title="${r.score} of 9">${[1,2,3,4,5,6,7,8,9].map(k=>`<i class="${r.score>=k?'on':''}"></i>`).join('')}</span></td>
     <td class="mono" title="${r.confidence ? esc(r.confidence.basis) : 'no history yet'}">${PK.confLabel(r.confidence)}</td>
     <td class="mono mut">${PK.ageLabel(r.age_min, r.triggered_at)}</td></tr>`).join('');
   $('pempty').textContent = err ? `could not load patterns: ${err}` : S.ppending ? 'preparing this day (patterns, outcomes, history)… refreshing' : rows.length ? '' : `no patterns formed by ${at}${S.pquick!=='all'||ScanFilter.isActive(S.filter)||S.screen?' that pass the filters':''}`;
@@ -793,11 +793,12 @@ function renderPatternDetail(){
     `Exhaustion: the ${long?'second low':'second high'}'s bars traded less volume than the first's`,
     `Breakout volume: the confirming close traded at least 1.5× the median of the pattern's bars`,
     `Breakout delta: ${long?'buying':'selling'} dominated the confirming bar (tick rule)`,
+    `With the tape: at least ${long?'45% of stocks up':'45% of stocks down'} on the day`,
     `Confirming 5m close ${long?'above':'below'} the neckline ${fmt(r.neckline)}`];
   d.innerHTML = `<p class="eyebrow"><span>${PK.kindLabel(r.kind)} · ${sector} ${dayPct?'· day '+dayPct:''}</span>${stateChip(r.state)}</p>
    <div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px"><div class="mono" style="font-weight:700;font-size:15px">${r.symbol}</div><span class="chip ${long?'buy':'sell'}" style="font-size:12px">${PK.actionLabel(r)}</span></div>
    <dl class="kv"><dt>Entry</dt><dd>${fmt(ref)}${r.entry==null?' <span class="mut">(neckline)</span>':''}</dd><dt>Stop</dt><dd class="dn">${fmt(r.stop)} <span class="mut">(${fmt(dist/ref*100)}%)</span></dd>
-    <dt>Target</dt><dd class="up">${fmt(r.target)}</dd><dt>R:R</dt><dd>1:${fmt(r.rr,1)}</dd>
+    <dt>T1 / T2</dt><dd class="up">${r.facts&&r.facts.target1?fmt(r.facts.target1)+' / ':''}${fmt(r.target)}</dd><dt>R:R</dt><dd>1:${fmt(r.rr,1)} <span class="mut">to T2</span></dd>
     <dt>Qty @ ₹${fmt(S.risk,0)}</dt><dd>${qty?qty.toLocaleString('en-IN')+' <span class="mut">('+qty/lot+' × '+lot+')</span>':'<span class="mut">'+(lot?'lot too large':'lot unknown')+'</span>'}</dd><dt>Confidence</dt><dd title="${r.confidence ? esc(r.confidence.basis) : ''}">${PK.confLabel(r.confidence)}${r.confidence ? ' <span class="mut">hit rate, 42d</span>' : ' <span class="mut">no history yet</span>'}</dd>
     ${r.outcome?`<dt>Outcome</dt><dd>${outcomeLabel(r.outcome)}</dd>`:''}</dl>
    <div class="tfrow">${TFS.filter(t=>t!=='1D').map(t=>`<button class="tf ${curTf()===t?'on':''}" data-tf="${t}">${t}</button>`).join('')}<span class="readout mono"></span></div>

@@ -30,7 +30,7 @@ def test_pattern_state_and_rows_at_states():
     row = rows_at([r], T("10:30"))[0]
     assert row["state"] == "failed" and row["age_min"] == 20 and row["rr"] == (102.0 - 100.5) / (100.5 - 98.0)
     forming = rows_at([r], T("10:05"))[0]
-    assert forming["checks"][8] is False and len(forming["checks"]) == 9 and forming["entry"] is None and forming["rr"] == (102.0 - 100.0) / (100.0 - 98.0)
+    assert forming["checks"][9] is False and len(forming["checks"]) == 10 and forming["entry"] is None and forming["rr"] == (102.0 - 100.0) / (100.0 - 98.0)
 
 
 def test_rows_at_hides_superseded_and_abandoned_after_minute():
@@ -69,14 +69,14 @@ def test_rows_at_forming_checks_come_from_facts_not_trigger_time():
     from patterns import rows_at
     facts = {"day_pct_p2": -1.5, "oi_p1": 100, "oi_p2": 90, "vol_ratio_p2": 1.0, "vol_ratio_trigger": 3.0,
              "vwap_ok_formed": False, "vwap_ok_trigger": True, "sector_formed": -0.2, "sector_trigger": 0.4}
-    facts.update(vol_p1=1000, vol_p2=800, vol_ratio_pat_trigger=2.0, delta_trigger=50)
-    r = stored(facts=facts, checks=[True] * 9, score=8)
+    facts.update(vol_p1=1000, vol_p2=800, vol_ratio_pat_trigger=2.0, delta_trigger=50, breadth_formed=0.3, breadth_trigger=0.6)
+    r = stored(facts=facts, checks=[True] * 10, score=9)
     forming = rows_at([r], T("10:05"))[0]
-    assert forming["checks"] == [True, True, False, False, False, True, False, False, False] and forming["score"] == 3
+    assert forming["checks"] == [True, True, False, False, False, True, False, False, False, False] and forming["score"] == 3
     trig = rows_at([r], T("10:10"))[0]
-    assert trig["checks"] == [True] * 9 and trig["score"] == 8
+    assert trig["checks"] == [True] * 10 and trig["score"] == 9
     old = stored(facts=None, checks=[True, False, True, True, True, True], score=4)       # a v3 row without facts
-    assert len(rows_at([old], T("10:10"))[0]["checks"]) == 9
+    assert len(rows_at([old], T("10:10"))[0]["checks"]) == 10
 
 
 def test_json_rows_use_iso_timestamps_in_both_paths():

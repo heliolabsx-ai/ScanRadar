@@ -135,4 +135,8 @@ def grade_pattern(df1m: pd.DataFrame, p: dict) -> dict | None:
     at = pd.Timestamp(p["triggered_at"])
     o = outcome(df1m, at, p["side"], float(p["entry"]), float(p["stop"]), float(p["target"]))
     o["tt_min"] = time_to_target_min(df1m, at, p["side"], float(p["target"]))
+    t1 = (p.get("facts") or {}).get("target1")
+    if t1 is not None:                                   # the measured move: book-half target, graded separately
+        o1 = outcome(df1m, at, p["side"], float(p["entry"]), float(p["stop"]), float(t1))
+        o["hit_t1"], o["tt1_min"] = o1["hit"], time_to_target_min(df1m, at, p["side"], float(t1))
     return o
