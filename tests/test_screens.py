@@ -49,3 +49,15 @@ def test_lookback_covers_sma_and_months():
     screen = json.load(open("screens/S0101.json"))
     assert lookback_days(screen) >= 61
     assert lookback_days({"rules": [{"lhs": {"m": 2, "field": "close"}, "op": ">", "rhs": {"number": 1}}]}) >= 3 * 23
+
+
+def test_prorate_scales_a_full_day_value_by_the_session_fraction():
+    d = daily(n=5)
+    d.loc[d.index[-1], "volume"] = 20_000                       # today so far: 20k; yesterday full day 50k
+    rule = {"rules": [{"lhs": {"d": 0, "field": "volume"}, "op": ">", "rhs": {"d": 1, "field": "volume", "mul": 1.25, "prorate": True}}]}
+    assert evaluate(rule, d, elapsed=1.0) is False              # 20k vs 62.5k at the close
+    assert evaluate(rule, d, elapsed=0.25) is True              # 20k vs 15.6k a quarter of the way in
+    plain = {"rules": [{"lhs": {"d": 0, "field": "volume"}, "op": ">", "rhs": {"d": 1, "field": "volume", "mul": 1.25}}]}
+    assert evaluate(plain, d, elapsed=0.25) is False            # without prorate the fraction is ignored
+    live = json.load(open("screens/S0101-live.json"))
+    assert any(r["rhs"].get("prorate") for r in live["rules"]) and live["basis"] == "intraday"

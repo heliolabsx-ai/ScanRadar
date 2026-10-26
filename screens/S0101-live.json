@@ -1,6 +1,6 @@
 {
   "name": "S0101-live",
-  "description": "S0101 evaluated the way Chartink runs it during the session: today is the forming daily candle, so the list changes minute by minute as today's range, close and volume develop, and names can drop off before the close. S0101 (without -live) is the end-of-day version fixed at the previous close.",
+  "description": "S0101 evaluated the way Chartink runs it during the session: today is the forming daily candle, re-evaluated every minute. Today's volume is compared with yesterday's prorated to the time of day (volume so far > 1.25x yesterday's x fraction of the session elapsed), otherwise the volume rule could only pass near the close. Names can drop off before the close. S0101 is the end-of-day version fixed at the previous close.",
   "match": "all",
   "rules": [
     {
@@ -169,7 +169,8 @@
       "rhs": {
         "d": 1,
         "field": "volume",
-        "mul": 1.25
+        "mul": 1.25,
+        "prorate": true
       }
     }
   ],

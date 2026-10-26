@@ -74,13 +74,16 @@ def passing(con, screen: dict, day: dt.date, at: dt.datetime) -> list[str]:
         for sym, g in recent_days(con, last_daily, day).items():
             if sym in hist:
                 hist[sym] = pd.concat([hist[sym], g[g.index > hist[sym].index[-1]]])
-    today = forming_day(con, day, at) if basis(screen) == "intraday" else {}
+    intraday = basis(screen) == "intraday"
+    today = forming_day(con, day, at) if intraday else {}
+    start = dt.datetime.combine(day, dt.time(9, 15), IST)
+    elapsed = min(1.0, max(1 / 375, (at.astimezone(IST) - start).total_seconds() / 60 / 375)) if intraday else 1.0
     out = []
     for sym, d in hist.items():
         t = today.get(sym)
         if t and t["open"] is not None:
             d = pd.concat([d, pd.DataFrame([t], index=[day])])
-        if evaluate(screen, d):
+        if evaluate(screen, d, elapsed):
             out.append(sym)
     return sorted(out)
 

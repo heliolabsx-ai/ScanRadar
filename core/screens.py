@@ -14,6 +14,8 @@ SIDE: {"number": x}
       {"m": N, "field": F}          N months ago (0 = this month, forming)
       + optional "sma": n (simple moving average of the field over n bars ending at that bar)
       + optional "mul": x (multiply the resolved value)
+      + optional "prorate": true (intraday only: scale a full-day value by the fraction of the
+        session elapsed, so "today's volume > 1.25x yesterday's" compares like with like at 11:00)
 """
 import operator as op
 import pandas as pd
@@ -47,7 +49,7 @@ def _period(daily: pd.DataFrame, rule: str) -> pd.DataFrame:
     return with_range(out)
 
 
-def _resolve(side: dict, frames: dict):
+def _resolve(side: dict, frames: dict, elapsed: float = 1.0):
     if "number" in side:
         return float(side["number"])
     key = "d" if "d" in side else "w" if "w" in side else "m" if "m" in side else None
@@ -70,17 +72,20 @@ def _resolve(side: dict, frames: dict):
         v = float(df[f].iloc[i])
     if "mul" in side:
         v *= float(side["mul"])
+    if side.get("prorate"):
+        v *= elapsed
     return v
 
 
-def evaluate(screen: dict, daily: pd.DataFrame) -> bool:
-    """`daily`: bars indexed by date, ascending, the last row the forming day (may be partial)."""
+def evaluate(screen: dict, daily: pd.DataFrame, elapsed: float = 1.0) -> bool:
+    """`daily`: bars indexed by date, ascending, the last row the forming day (may be partial).
+    `elapsed`: fraction of the session elapsed for the forming day (1.0 = complete)."""
     if daily is None or daily.empty:
         return False
     daily = with_range(daily)
     frames = {"d": daily, "w": weekly(daily), "m": monthly(daily)}
     try:
-        res = [OPS[r["op"]](_resolve(r["lhs"], frames), _resolve(r["rhs"], frames)) for r in screen["rules"]]
+        res = [OPS[r["op"]](_resolve(r["lhs"], frames, elapsed), _resolve(r["rhs"], frames, elapsed)) for r in screen["rules"]]
     except (IndexError, KeyError, TypeError, ValueError):
         return False
     return all(res) if screen.get("match", "all") == "all" else any(res)
