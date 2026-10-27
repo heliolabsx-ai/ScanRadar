@@ -7,7 +7,7 @@ they agree.
 """
 import pandas as pd
 from .asof import view_at
-from .rules import resample, evaluate
+from .rules import resample, evaluate, DAY_SERIES
 
 TF_MIN = {"1m": 1, "3m": 3, "5m": 5, "15m": 15, "30m": 30, "60m": 60}
 FIELDS = ("open", "high", "low", "close", "volume", "oi", "vwap")
@@ -15,10 +15,12 @@ FIELDS = ("open", "high", "low", "close", "volume", "oi", "vwap")
 
 def max_offset(scan: dict) -> int:
     """Bars back the rule needs to see: the offset plus any moving-average window.
-    An EMA depends on the whole history, so it asks for every bar of the day."""
+    An EMA or a day series (day_low/day_high) depends on the whole history, so it asks for every bar of the day."""
     need = 0
     for r in scan["rules"]:
         for side in (r["lhs"], r["rhs"]):
+            if side.get("series") in DAY_SERIES:
+                return 10_000
             if "field" not in side:
                 continue
             off = int(side.get("off", 0))

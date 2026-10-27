@@ -1,0 +1,21 @@
+{
+  "name": "B0101",
+  "side": "long",
+  "timeframe": "5m",
+  "match": "all",
+  "rules": [
+    {"lhs": {"off": 0, "field": "close"},  "op": ">",  "rhs": {"off": 1, "field": "high"}},
+    {"lhs": {"off": 0, "field": "close"},  "op": ">",  "rhs": {"off": 0, "field": "open"}},
+    {"lhs": {"off": 1, "field": "close"},  "op": "<",  "rhs": {"off": 1, "field": "open"}},
+    {"lhs": {"off": 0, "field": "volume"}, "op": ">",  "rhs": {"off": 1, "field": "volume"}},
+    {"lhs": {"off": 0, "field": "volume"}, "op": ">",  "rhs": {"off": 1, "field": "volume", "sma": 20, "mul": 3}},
+    {"lhs": {"series": "day_low"},         "op": "==", "rhs": {"off": 0, "field": "low"}},
+    {"lhs": {"off": 0, "field": "close"},  "op": ">",  "rhs": {"number": 2000}}
+  ],
+  "alert": {"telegram": true, "cooldown_min": 30},
+  "trade": {
+    "stop": {"off": 0, "field": "low"},
+    "target": {"rr": 2.0}
+  },
+  "note": "Chartink translation, 27 Oct 2026: a bullish bar that engulfs a red bar's high on a volume burst (3x the 20-bar average), printed at the day's low, price > 2000. Chartink [0] = forming bar = off 0, [-1] = off 1. Stop = the bar's low (the day low), target at twice the risk."
+}

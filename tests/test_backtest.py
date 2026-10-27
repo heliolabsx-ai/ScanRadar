@@ -114,3 +114,21 @@ def test_fast_replay_sees_enough_bars_for_a_moving_average(day):
     assert got == ref and len(got) > 0
     ema = {"timeframe": "5m", "rules": [{"lhs": {"off": 0, "field": "close"}, "op": ">", "rhs": {"off": 0, "field": "close", "ema": 5}}]}
     assert fires(ema, day, ctx, cooldown_min=0) == fires_naive(ema, day, ctx, cooldown_min=0)
+
+
+@pytest.mark.parametrize("seed", range(4))
+def test_fast_replay_sees_the_whole_day_for_a_day_series(seed):
+    """`day_low` needs every bar of the day, not just the rule's offsets: the fast path must match the naive one."""
+    at_low = {"name": "at the low", "timeframe": "5m", "match": "all",
+              "rules": [{"lhs": {"series": "day_low"}, "op": "==", "rhs": {"off": 0, "field": "low"}},
+                        {"lhs": {"off": 0, "field": "volume"}, "op": ">", "rhs": {"off": 1, "field": "volume", "sma": 5, "mul": 1.2}}]}
+    assert max_offset(at_low) == 10_000
+    d = synthetic_day(seed=seed, base_price=1200.0)
+    got, ref = fires(at_low, d, {}, cooldown_min=0), fires_naive(at_low, d, {}, cooldown_min=0)
+    assert got == ref
+
+
+def test_day_series_scan_fires_sometimes():
+    at_low = {"name": "at the low", "timeframe": "5m", "match": "all",
+              "rules": [{"lhs": {"series": "day_low"}, "op": "==", "rhs": {"off": 0, "field": "low"}}]}
+    assert sum(len(fires_naive(at_low, synthetic_day(seed=s, base_price=1200.0), {}, 0)) for s in range(4)) > 0

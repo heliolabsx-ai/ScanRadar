@@ -10,9 +10,11 @@ Scan JSON:
 SIDE is one of:
   {"number": 1000}
   {"series": "prev_day_close"}          (prev_day_close/high/low, vwap)
+  {"series": "day_low"}                 today's low (day_high) over the bars seen so far, forming bar included
   {"off": N, "field": "close"}          N candles back (0 = forming), field open/high/low/close/volume/vwap/oi
   {"off": N, "field": "close", "sma": 13}   simple moving average of the field over 13 bars ending at that bar
   {"off": N, "field": "close", "ema": 20}   exponential moving average (standard 2/(n+1) smoothing) ending at that bar
+Any side may carry "mul": x to scale the value (Chartink's `Sma(Volume, 20) * 3`).
 Optional "trade": {"stop": SIDE | {"pct": x}, "target": SIDE | {"pct": x} | {"rr": r}} — the scan's own levels (see trade_levels).
 """
 import operator as op
@@ -35,10 +37,22 @@ def resample(df1m: pd.DataFrame, tf: str) -> pd.DataFrame:
     return out
 
 
+DAY_SERIES = {"day_low": ("low", "min"), "day_high": ("high", "max")}
+
+
 def _resolve(side: dict, bars: pd.DataFrame, ctx: dict):
+    return _value(side, bars, ctx) * float(side.get("mul", 1))
+
+
+def _value(side: dict, bars: pd.DataFrame, ctx: dict):
     if "number" in side:
         return float(side["number"])
     if "series" in side:
+        if side["series"] in DAY_SERIES:
+            if len(bars) == 0:
+                raise IndexError
+            col, how = DAY_SERIES[side["series"]]
+            return float(getattr(bars[col], how)())
         return float(ctx[side["series"]])
     i = -1 - int(side.get("off", 0))
     if abs(i) > len(bars):
