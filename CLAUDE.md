@@ -90,6 +90,8 @@ docker run --rm caddy:2.8-alpine caddy hash-password --plaintext 'pw'   # → DA
 docker compose up -d --build
 docker compose logs -f ingest
 ```
+**Redeploying during market hours:** `docker compose up -d --build engine api` also recreates `ingest` (engine depends on it) — on 27 Oct 2026 that cost ~4 minutes of candles at 14:15. Use `docker compose up -d --build --no-deps engine api` in session, or deploy after 15:30.
+
 Verify: `https://scanradar.tech/api/health` → `{"ingest":"ready","ws":"connected"}` in market hours. Full walkthrough in `README.md`.
 
 ## Status (17 Oct 2026)

@@ -30,6 +30,8 @@ ticker = None
 lock = threading.Lock()
 ticks_seen = 0                      # ticks received since the socket opened (watchdog)
 last_tick_at: dt.datetime | None = None
+ws_connected_at: dt.datetime | None = None     # this process's socket, not the Redis key a previous process left behind
+SILENT_STATUS = "error: no ticks (holiday or dead feed)"
 from feed import feed_state, SILENT_AFTER_MIN   # noqa: E402  (pure, tested)
 
 
@@ -131,6 +133,8 @@ def on_ticks(ws, ticks):
 
 
 def on_connect(ws, response):
+    global ws_connected_at
+    ws_connected_at = dt.datetime.now(IST)
     eq = [s.eq_token for s in symbols.values()]
     fut = [s.fut_token for s in symbols.values()]
     ws.subscribe(eq + fut)
@@ -214,13 +218,17 @@ def watchdog():
     """Once a day: a connected socket with no ticks ten minutes into the session is reported,
     not restarted (an NSE holiday looks exactly like a dead feed from here)."""
     now = dt.datetime.now(IST)
-    if feed_state(now, R.get("ingest:ws"), last_tick_at) != "silent":
+    ws = R.get("ingest:ws") if ws_connected_at else None      # a stale "connected" from the previous process is not ours
+    if feed_state(now, ws, last_tick_at, ws_since=ws_connected_at) != "silent":
+        if last_tick_at and R.get("ingest:status") == SILENT_STATUS:
+            log.info("feed back: ticks flowing again")
+            R.set("ingest:status", "ready")
         return
     if R.set(f"ingest:silent:{now.date()}", "1", ex=86400, nx=True):
         msg = (f"no ticks since the open ({now:%H:%M}); socket connected, universe {len(symbols)}. "
                "NSE holiday today? (add it to NSE_HOLIDAYS) — otherwise the feed is dead: check Kite status / restart ingest")
         log.error("feed silent: %s", msg)
-        R.set("ingest:status", "error: no ticks (holiday or dead feed)")
+        R.set("ingest:status", SILENT_STATUS)
         telegram(f"<b>ScanRadar feed silent</b>\n{msg}")
 
 
