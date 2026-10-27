@@ -308,7 +308,13 @@ function formToFilter(){
   f.sectors = [...$('fSectors').selectedOptions].map(o => o.value);
   S.filter = f; try{ localStorage.setItem('filter', ScanFilter.save(f)); }catch(e){}
   $('filters').classList.toggle('on', ScanFilter.isActive(f));
+  renderFiltered();
+}
+function renderFiltered(){                       // the strip applies to every tab, so every tab redraws at once
   renderCards(); renderAlerts();
+  if(S.view === 'patterns' && typeof renderPatterns === 'function') renderPatterns();
+  else if(S.view === 'desk' && typeof renderDesk === 'function') renderDesk();
+  else if(S.view === 'watch' && typeof renderWatch === 'function') renderWatch();
 }
 function populateSectors(){
   const secs = [...new Set(Object.values(S.sectorsOf))].sort();
@@ -317,7 +323,8 @@ function populateSectors(){
   $('fSectors').size = 1; filterToForm();
 }
 ['fPmin','fPmax','fRvol','fRr','fOi','fVwap','fPicks','fSectors'].forEach(id => $(id).addEventListener('change', formToFilter));
-$('fClear').onclick = () => { S.filter = ScanFilter.defaults(); try{ localStorage.removeItem('filter'); }catch(e){} filterToForm(); S.screen = ''; S.screenSet = null; $('pscreen').value = ''; try{ localStorage.removeItem('screen'); }catch(e){} screenLabel(); renderCards(); renderAlerts(); if(S.view === 'patterns') renderPatterns(); else if(S.view === 'desk') renderDesk(); };
+['fPmin','fPmax','fRvol','fRr'].forEach(id => $(id).addEventListener('input', formToFilter));   // numbers apply as you type, not only on blur
+$('fClear').onclick = () => { S.filter = ScanFilter.defaults(); try{ localStorage.removeItem('filter'); }catch(e){} filterToForm(); S.screen = ''; S.screenSet = null; $('pscreen').value = ''; try{ localStorage.removeItem('screen'); }catch(e){} screenLabel(); renderFiltered(); };
 const inScreen = sym => !S.screenSet || S.screenSet.has(sym);
 const shown = rows => rows.filter(r => ScanFilter.pass(r, S.filter) && inScreen(r.symbol));
 function screenLabel(){ $('pscreenN').textContent = S.screen ? (S.screenSet ? `${S.screenSet.size} on list · ${S.screenAt||''}` : 'computing…') : ''; }
