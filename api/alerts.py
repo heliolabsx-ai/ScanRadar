@@ -5,8 +5,8 @@ import os, json, glob, hashlib, datetime as dt
 import pandas as pd
 from core.analytics import analyse
 from core.asof import view_at
-from core.rules import resample, trade_levels
-from core.backtest import fires, outcome
+from core.rules import resample, trade_levels, continuous, join_sessions
+from core.backtest import fires, outcome, prev_bars
 
 from replay import IST, SETTLED, day_is_settled  # noqa: F401  (re-exported for tests)
 
@@ -49,12 +49,31 @@ def _ctx(ref: dict) -> dict:
             "prev_day_low": ref.get("prev_low", 0)}
 
 
-def _trade_payload(sym: str, df: pd.DataFrame, ref: dict, ts: pd.Timestamp, side: str, price: float, scan: dict | None = None) -> dict:
+_PREV: dict = {}      # the previous session's frames for the day last asked about (continuous scans)
+
+
+def prev_session_frames(con, day: dt.date) -> dict:
+    """1-minute frames of the last stored session before `day` (empty when none)."""
+    if _PREV.get("day") == day:
+        return _PREV["frames"]
+    start, _ = ist_day_bounds(day)
+    with con.cursor() as cur:
+        cur.execute("SELECT max((ts AT TIME ZONE 'Asia/Kolkata')::date) FROM candles_1m WHERE symbol='RELIANCE' AND ts < %s", (start,))
+        prev = cur.fetchone()[0]
+    import replay as rp
+    frames = rp.load_day(con, prev) if prev else {}
+    _PREV.clear(); _PREV.update({"day": day, "frames": frames})
+    return frames
+
+
+def _trade_payload(sym: str, df: pd.DataFrame, ref: dict, ts: pd.Timestamp, side: str, price: float, scan: dict | None = None,
+                   prev1m: pd.DataFrame | None = None) -> dict:
     """Stop/target/outcome for a fire: the scan's own levels when it defines them and they
     resolve, else the analytics' pivot levels (basis "pivot")."""
     v = view_at(df, ts)
     if scan and scan.get("trade"):
-        lv = trade_levels(scan, resample(v, scan.get("timeframe", "5m")), _ctx(ref), float(price))
+        bars = join_sessions(prev_bars(scan, prev1m), resample(v, scan.get("timeframe", "5m")))
+        lv = trade_levels(scan, bars, _ctx(ref), float(price))
         if lv:
             return {"stop": lv["stop"], "target": lv["target"], "levels": lv["basis"], "outcome": outcome(df, ts, side, price, lv["stop"], lv["target"])}
     a = analyse(sym, v, ref)
@@ -106,16 +125,17 @@ def ensure_replay_alerts(con, day: dt.date, frames: dict, refs: dict, scans: lis
             cur.execute("DELETE FROM alerts WHERE source='replay' AND scan=%s AND ts>=%s AND ts<%s", (name, start, end))
             tf, side = scan.get("timeframe", "5m"), scan.get("side")
             cooldown = int(scan.get("alert", {}).get("cooldown_min", 30))
+            prev = prev_session_frames(con, day) if continuous(scan) else {}
             rows = []
             for sym, df in frames.items():
                 ref = refs.get(sym)
                 if not ref or not ref.get("prev_close"):
                     continue
-                for ts in fires(scan, df, _ctx(ref), cooldown):
+                for ts in fires(scan, df, _ctx(ref), cooldown, prev.get(sym)):
                     price = float(view_at(df, ts).close.iloc[-1])
                     payload = {"tf": tf, "scan_hash": h, "source": "replay", "side": side}
                     if side:
-                        payload.update(_trade_payload(sym, df, ref, ts, side, price, scan))
+                        payload.update(_trade_payload(sym, df, ref, ts, side, price, scan, prev.get(sym)))
                     rows.append((ts.to_pydatetime(), name, sym, price, json.dumps(payload, default=float)))
             if rows:
                 cur.executemany("INSERT INTO alerts(ts,scan,symbol,price,payload,source) VALUES(%s,%s,%s,%s,%s,'replay')", rows)

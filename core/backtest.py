@@ -7,7 +7,7 @@ they agree.
 """
 import pandas as pd
 from .asof import view_at
-from .rules import resample, evaluate, DAY_SERIES
+from .rules import resample, evaluate, DAY_SERIES, continuous, join_sessions
 
 TF_MIN = {"1m": 1, "3m": 3, "5m": 5, "15m": 15, "30m": 30, "60m": 60}
 FIELDS = ("open", "high", "low", "close", "volume", "oi", "vwap")
@@ -30,25 +30,35 @@ def max_offset(scan: dict) -> int:
     return need
 
 
-def fires_naive(scan: dict, df1m: pd.DataFrame, ctx: dict, cooldown_min: int) -> list[pd.Timestamp]:
+def prev_bars(scan: dict, prev1m: pd.DataFrame | None) -> pd.DataFrame | None:
+    """The previous session's bars a continuous scan sees in front of today's (None otherwise)."""
+    if not continuous(scan) or prev1m is None or len(prev1m) == 0:
+        return None
+    return resample(prev1m, scan.get("timeframe", "5m"))
+
+
+def fires_naive(scan: dict, df1m: pd.DataFrame, ctx: dict, cooldown_min: int, prev1m: pd.DataFrame | None = None) -> list[pd.Timestamp]:
     tf = scan.get("timeframe", "5m")
     cd = pd.Timedelta(minutes=cooldown_min)
+    pb = prev_bars(scan, prev1m)
     out: list[pd.Timestamp] = []
     for ts in df1m.ts:
         if out and ts - out[-1] < cd:
             continue
-        if evaluate(scan, resample(view_at(df1m, ts), tf), ctx):
+        if evaluate(scan, join_sessions(pb, resample(view_at(df1m, ts), tf)), ctx):
             out.append(ts)
     return out
 
 
-def fires(scan: dict, df1m: pd.DataFrame, ctx: dict, cooldown_min: int) -> list[pd.Timestamp]:
+def fires(scan: dict, df1m: pd.DataFrame, ctx: dict, cooldown_min: int, prev1m: pd.DataFrame | None = None) -> list[pd.Timestamp]:
     if df1m.empty:
         return []
     tf = scan.get("timeframe", "5m")
     tfm = TF_MIN[tf]
     k = max_offset(scan) + 1          # bars the rule can see
     cd = pd.Timedelta(minutes=cooldown_min)
+    pb = prev_bars(scan, prev1m)
+    P = 0 if pb is None else len(pb)   # previous-session bars in front of today's (continuous scans)
 
     ts = df1m.ts.reset_index(drop=True)
     anchor = ts.iloc[0].normalize() + pd.Timedelta(hours=9, minutes=15)
@@ -60,6 +70,8 @@ def fires(scan: dict, df1m: pd.DataFrame, ctx: dict, cooldown_min: int) -> list[
     full = resample(df1m, tf)
     full_win = ((full.ts - anchor) // pd.Timedelta(minutes=tfm)).to_numpy()
     full_rows = {f: full[f].to_numpy(dtype=float) for f in FIELDS}
+    if P:
+        full_rows = {f: list(pb[f].to_numpy(dtype=float)) + list(full_rows[f]) for f in FIELDS}
     full_cum_num = ((full.high + full.low + full.close) / 3 * full.volume).cumsum().to_numpy(dtype=float)
     full_cum_vol = full.volume.cumsum().to_numpy(dtype=float)
 
@@ -82,8 +94,10 @@ def fires(scan: dict, df1m: pd.DataFrame, ctx: dict, cooldown_min: int) -> list[
         cv = (full_cum_vol[done - 1] if done else 0.0) + f_vol
         forming = {"open": fo, "high": fh, "low": fl, "close": stub_open, "volume": f_vol, "oi": stub_oi,
                    "vwap": num / (cv if cv > 0 else 1.0)}
-        lo = max(0, done - (k - 1))
-        bars = pd.DataFrame({f: list(full_rows[f][lo:done]) + [forming[f]] for f in FIELDS})
+        end = P + done
+        lo = max(0, end - (k - 1))
+        bars = pd.DataFrame({f: list(full_rows[f][lo:end]) + [forming[f]] for f in FIELDS})
+        bars.attrs["session_start"] = max(0, P - lo)
         if (not out or ts.iloc[i] - out[-1] >= cd) and evaluate(scan, bars, ctx):
             out.append(ts.iloc[i])
         # fold this complete minute into the forming window for the next iteration

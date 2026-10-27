@@ -132,3 +132,28 @@ def test_day_series_scan_fires_sometimes():
     at_low = {"name": "at the low", "timeframe": "5m", "match": "all",
               "rules": [{"lhs": {"series": "day_low"}, "op": "==", "rhs": {"off": 0, "field": "low"}}]}
     assert sum(len(fires_naive(at_low, synthetic_day(seed=s, base_price=1200.0), {}, 0)) for s in range(4)) > 0
+
+
+@pytest.mark.parametrize("seed", range(4))
+def test_fast_replay_matches_naive_for_a_continuous_scan(seed):
+    cont = {"name": "cont", "timeframe": "5m", "continuous": True, "match": "all",
+            "rules": [{"lhs": {"off": 0, "field": "close"}, "op": ">", "rhs": {"off": 1, "field": "high"}},
+                      {"lhs": {"off": 0, "field": "volume"}, "op": ">", "rhs": {"off": 1, "field": "volume", "sma": 20, "mul": 1.1}},
+                      {"lhs": {"series": "day_low"}, "op": "==", "rhs": {"off": 0, "field": "low"}}]}
+    prev = synthetic_day(seed=seed + 50, base_price=1200.0, day="2026-10-26")
+    d = synthetic_day(seed=seed, base_price=1200.0)
+    got, ref = fires(cont, d, {}, cooldown_min=0, prev1m=prev), fires_naive(cont, d, {}, cooldown_min=0, prev1m=prev)
+    assert got == ref
+    plain = dict(cont, continuous=False)
+    assert fires(plain, d, {}, cooldown_min=0, prev1m=prev) == fires_naive(plain, d, {}, cooldown_min=0)   # prev ignored unless continuous
+
+
+def test_continuous_scan_can_fire_in_the_first_bars_of_the_day():
+    cont = {"name": "cont", "timeframe": "5m", "continuous": True, "match": "all",
+            "rules": [{"lhs": {"off": 0, "field": "close"}, "op": ">", "rhs": {"off": 1, "field": "close", "sma": 20}}]}
+    early = []
+    for seed in range(6):
+        prev = synthetic_day(seed=seed + 50, base_price=1200.0, day="2026-10-26")
+        d = synthetic_day(seed=seed, base_price=1200.0)
+        early += [t for t in fires_naive(cont, d, {}, 0, prev1m=prev) if t.strftime("%H:%M") < "09:25"]
+    assert early, "a continuous scan should be able to fire before its own session has 20 bars"

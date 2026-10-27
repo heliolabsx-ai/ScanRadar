@@ -66,3 +66,33 @@ def test_b0101_scan_translation():
     assert evaluate(scan, df3, {}) is False
     df4 = df.copy(); df4.loc[n - 1, "close"] = 1990.0     # under the price floor
     assert evaluate(scan, df4, {}) is False
+
+
+def test_join_sessions_puts_yesterday_in_front_and_day_series_stay_today_only():
+    from core.rules import join_sessions
+    prev = bars([50, 40, 60])            # yesterday: a low of 40 that must not leak into day_low
+    today = bars([70, 80])
+    b = join_sessions(prev, today)
+    assert len(b) == 5 and b.attrs["session_start"] == 3
+    assert _resolve({"off": 1, "field": "close"}, b, {}) == 70.0          # offsets simply continue into yesterday
+    assert _resolve({"off": 2, "field": "close"}, b, {}) == 60.0          # yesterday's last bar
+    assert _resolve({"series": "day_low"}, b, {}) == 70.0
+    assert _resolve({"series": "day_high"}, b, {}) == 80.0
+    assert _resolve({"off": 0, "field": "close", "sma": 5}, b, {}) == 60.0
+    plain = join_sessions(None, today)
+    assert plain.attrs["session_start"] == 0 and _resolve({"series": "day_low"}, plain, {}) == 70.0
+
+
+def test_b0101_fires_on_the_opening_bar_with_yesterday_in_front():
+    import json
+    from core.rules import join_sessions
+    scan = json.load(open("scans/B0101.json"))
+    assert scan.get("continuous") is True
+    n = 20
+    prev = pd.DataFrame({"ts": pd.date_range("2026-10-26 13:45", periods=n, freq="5min", tz="Asia/Kolkata"),
+                         "open": [2100.0] * n, "high": [2101.0] * n, "low": [2099.0] * n, "close": [2100.0] * n, "volume": [100] * n, "oi": 1, "vwap": 2100.0})
+    prev.loc[n - 1, ["open", "close", "high", "low", "volume"]] = [2100.0, 2095.0, 2102.0, 2094.0, 150]     # yesterday's last bar: red
+    first = pd.DataFrame({"ts": pd.date_range("2026-10-27 09:15", periods=1, freq="5min", tz="Asia/Kolkata"),
+                          "open": [2098.0], "high": [2110.0], "low": [2097.0], "close": [2108.0], "volume": [500], "oi": 1, "vwap": 2105.0})
+    assert evaluate(scan, join_sessions(prev, first), {}) is True
+    assert evaluate(scan, first, {}) is False                      # without yesterday there is no previous bar yet

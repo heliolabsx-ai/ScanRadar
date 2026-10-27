@@ -7,7 +7,7 @@ ScanRadar engine: every minute (on the ingest's 'candles:closed' signal)
 import os, json, glob, time, logging, datetime as dt
 import redis, psycopg, pandas as pd
 from analytics import analyse, score
-from rules import resample, evaluate, trade_levels
+from rules import resample, evaluate, trade_levels, continuous, join_sessions
 from notify import telegram
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
@@ -37,6 +37,30 @@ def load_today() -> dict[str, pd.DataFrame]:
                 frames[s] = pd.concat([g, live], ignore_index=True)
                 frames[s]["ts"] = pd.to_datetime(frames[s].ts, utc=True).dt.tz_convert("Asia/Kolkata")   # concat must stay datetime, never object
     return frames
+
+
+_PREV: dict = {}      # previous session's bars per timeframe, loaded once per day (continuous scans)
+
+
+def prev_session_bars(tf: str) -> dict[str, pd.DataFrame]:
+    """The last stored session's bars before today, resampled to `tf`, per symbol."""
+    today = dt.datetime.now(IST).date()
+    key = (today, tf)
+    if key in _PREV:
+        return _PREV[key]
+    start = dt.datetime.combine(today, dt.time(0), IST)
+    with psycopg.connect(DB) as con, con.cursor() as cur:
+        cur.execute("SELECT max((ts AT TIME ZONE 'Asia/Kolkata')::date) FROM candles_1m WHERE symbol='RELIANCE' AND ts < %s", (start,))
+        prev = cur.fetchone()[0]
+        out: dict[str, pd.DataFrame] = {}
+        if prev:
+            df = pd.read_sql("SELECT ts,symbol,open,high,low,close,volume,oi,delta FROM candles_1m WHERE ts >= %s AND ts < %s ORDER BY symbol, ts",
+                             con, params=(dt.datetime.combine(prev, dt.time(9, 15), IST), dt.datetime.combine(prev, dt.time(15, 31), IST)))
+            df["ts"] = pd.to_datetime(df.ts, utc=True).dt.tz_convert("Asia/Kolkata")
+            out = {s: resample(g.drop(columns="symbol").reset_index(drop=True), tf) for s, g in df.groupby("symbol")}
+    _PREV.clear(); _PREV[key] = out
+    log.info("previous session %s: %d symbols of %s bars for continuous scans", prev, len(out), tf)
+    return out
 
 
 def load_scans() -> list[dict]:
@@ -91,8 +115,9 @@ def run_once():
         for sc in scans:
             tf = sc.get("timeframe", "5m")
             cooldown = int(sc.get("alert", {}).get("cooldown_min", 30))
+            prev = prev_session_bars(tf) if continuous(sc) else {}
             for s, df in frames.items():
-                bars = resample(df, tf)
+                bars = join_sessions(prev.get(s), resample(df, tf))
                 ref = refs.get(s, {})
                 ctx = {"prev_day_close": ref.get("prev_close", 0), "prev_day_high": ref.get("prev_high", 0),
                        "prev_day_low": ref.get("prev_low", 0)}

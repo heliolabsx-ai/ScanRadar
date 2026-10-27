@@ -2,6 +2,7 @@
   "name": "B0101",
   "side": "long",
   "timeframe": "5m",
+  "continuous": true,
   "match": "all",
   "rules": [
     {"lhs": {"off": 0, "field": "close"},  "op": ">",  "rhs": {"off": 1, "field": "high"}},

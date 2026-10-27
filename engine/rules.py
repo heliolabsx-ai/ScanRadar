@@ -40,6 +40,22 @@ def resample(df1m: pd.DataFrame, tf: str) -> pd.DataFrame:
 DAY_SERIES = {"day_low": ("low", "min"), "day_high": ("high", "max")}
 
 
+def continuous(scan: dict) -> bool:
+    return bool(scan.get("continuous"))
+
+
+def join_sessions(prev: pd.DataFrame | None, today: pd.DataFrame) -> pd.DataFrame:
+    """Previous session's bars in front of today's; `attrs["session_start"]` marks where today begins
+    so the day series ignore yesterday. VWAP stays per session (each side was resampled on its own)."""
+    if prev is None or len(prev) == 0:
+        out = today
+        out.attrs["session_start"] = 0
+        return out
+    out = pd.concat([prev[today.columns.intersection(prev.columns)], today], ignore_index=True)
+    out.attrs["session_start"] = len(prev)
+    return out
+
+
 def _resolve(side: dict, bars: pd.DataFrame, ctx: dict):
     return _value(side, bars, ctx) * float(side.get("mul", 1))
 
@@ -49,10 +65,11 @@ def _value(side: dict, bars: pd.DataFrame, ctx: dict):
         return float(side["number"])
     if "series" in side:
         if side["series"] in DAY_SERIES:
-            if len(bars) == 0:
+            today = bars.iloc[int(bars.attrs.get("session_start", 0)):]
+            if len(today) == 0:
                 raise IndexError
             col, how = DAY_SERIES[side["series"]]
-            return float(getattr(bars[col], how)())
+            return float(getattr(today[col], how)())
         return float(ctx[side["series"]])
     i = -1 - int(side.get("off", 0))
     if abs(i) > len(bars):
