@@ -17,5 +17,5 @@
     "stop": {"off": 0, "field": "low"},
     "target": {"rr": 2.0}
   },
-  "note": "Chartink translation, 27 Oct 2026: a bullish bar that engulfs a red bar's high on a volume burst (3x the 20-bar average), printed at the day's low, price > 2000. Chartink [0] = forming bar = off 0, [-1] = off 1. Stop = the bar's low (the day low), target at twice the risk."
+  "note": "Chartink translation, 27 Oct 2026: a bullish bar that engulfs a red bar's high on a volume burst (3x the 20-bar average), printed at the day's low, price > 2000. Chartink [0] = forming bar = off 0, [-1] = off 1. Stop = the bar's low (the day low), target at twice the risk. Backtest 20 sessions (25 Sep-26 Oct 2026): 18 fires (0.9/day), target first 23%, stop first 10 of 13 decided, +0.20% at 30 min but -0.22% at 60 min, one lot per fire -11,263 INR; only the 14:00 hour was positive (6 fires, 50%). Telegram kept on because it is quiet and the desk sees it; treat the record as weak until the stop is revisited."
 }
