@@ -211,7 +211,7 @@ canvas.chart{cursor:zoom-in}.lightbox canvas.chart{cursor:crosshair}
   <label>OI <select id="fOi"><option value="any">any</option><option value="buildup">build-up only</option></select></label>
   <label>VWAP <select id="fVwap"><option value="any">any side</option><option value="aligned">with direction</option></select></label>
   <label class="chk"><input id="fPicks" type="checkbox"> picks only</label>
-  <label>Screen <select id="pscreen" title="End-of-day screen (Chartink-style daily conditions): only stocks on its list are shown in every tab"><option value="">none</option></select></label><span class="mono mut" id="pscreenN"></span>
+  <label>Screen <select id="pscreen" title="A daily screen (Chartink-style conditions) or a rule scan: only stocks on its list — passing the screen, or fired on by the scan so far that day — are shown in every tab"><option value="">none</option></select></label><span class="mono mut" id="pscreenN"></span>
   <button id="fClear" title="Reset all filters">Clear</button>
   <span class="count" id="fCount"></span>
 </div>
@@ -735,7 +735,11 @@ async function loadScreen(){
 }
 async function loadScreens(){
   try{ S.screens = await api('/api/screens'); }catch(e){ S.screens = []; }
-  const opts = '<option value="">none</option>' + S.screens.map(s => `<option value="${s.name}" title="${esc(s.description)}">${s.name}</option>`).join('');
+  const opt = s => `<option value="${s.name}" title="${esc(s.description)}">${s.name}</option>`;
+  const scr = S.screens.filter(s => s.kind !== 'scan'), scn = S.screens.filter(s => s.kind === 'scan');
+  const opts = '<option value="">none</option>'
+    + (scr.length ? `<optgroup label="Screens (daily)">${scr.map(opt).join('')}</optgroup>` : '')
+    + (scn.length ? `<optgroup label="Scans (fired by the as-of minute)">${scn.map(opt).join('')}</optgroup>` : '');
   $('pscreen').innerHTML = opts; $('pscreen').value = S.screens.some(s => s.name === S.screen) ? S.screen : ''; S.screen = $('pscreen').value;
   $('wscreenPill').hidden = !S.screens.length; $('wscreenPill').textContent = S.screen ? `Screen ${S.screen}` : 'Screen';
   if(S.screen) loadScreen();

@@ -359,15 +359,21 @@ async def scan_stats(days: int = 20):
 # ---------- Screens (daily-timeframe filters) ----------
 @app.get("/api/screens")
 async def screens_list():
-    return [{"name": s["name"], "description": s.get("description", ""), "rules": len(s["rules"])} for s, _ in sc.screen_files()]
+    """Daily screens first, then the rule scans (selecting a scan keeps the stocks it fired on by the as-of minute)."""
+    screens = [{"name": s["name"], "description": s.get("description", ""), "rules": len(s["rules"]), "kind": "screen"} for s, _ in sc.screen_files()]
+    names = {x["name"] for x in screens}
+    scans = [{"name": s["name"], "description": s.get("note", ""), "rules": len(s["rules"]), "kind": "scan", "side": s.get("side")}
+             for s, _ in al.scan_files() if s["name"] not in names]
+    return screens + scans
 
 
 @app.get("/api/screen/{name}")
 async def screen_at(name: str, day: str | None = None, at: str | None = None):
     found = next(((s, h) for s, h in sc.screen_files() if s["name"] == name), None)
-    if not found:
-        raise HTTPException(404, f"no screen named {name}")
-    screen, h = found
+    scan = None if found else next((s for s, _ in al.scan_files() if s["name"] == name), None)
+    if not found and not scan:
+        raise HTTPException(404, f"no screen or scan named {name}")
+    screen, h = found or (scan, "scan")
     now = dt.datetime.now(IST)
     if day:
         try:
@@ -382,6 +388,13 @@ async def screen_at(name: str, day: str | None = None, at: str | None = None):
         last = await R.get("live:ts")                      # after the close the screen is as of the last live minute
         if last:
             minute = min(minute, dt.datetime.fromisoformat(last).astimezone(IST).replace(second=0, microsecond=0) + dt.timedelta(minutes=1))
+    if scan:                                               # a rule scan: the stocks it fired on so far that day
+        def qs():
+            with connect() as con:
+                return sc.fired(con, name, d, minute)
+        syms = await asyncio.get_running_loop().run_in_executor(None, qs)
+        return {"name": name, "day": d.isoformat(), "at": f"fired by {minute.strftime('%H:%M')}", "basis": "scan", "side": scan.get("side"),
+                "symbols": syms, "n": len(syms), "description": scan.get("note", "")}
     eod = sc.basis(screen) == "eod"
     key = f"screen:{name}:{h}:{d}:{'eod' if eod else minute.strftime('%H:%M')}"
     cached = await R.get(key)

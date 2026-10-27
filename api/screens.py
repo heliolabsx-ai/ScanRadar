@@ -96,3 +96,18 @@ def as_of_label(con, screen: dict, day: dt.date, minute: dt.datetime) -> str:
                     (dt.datetime.combine(day, dt.time(0), IST), day))
         last = cur.fetchone()[0]
     return f"close of {last.strftime('%a %d %b')}" if last else "previous close"
+
+
+# ---------- rule scans as screens: the stocks a scan fired on, by the as-of minute ----------
+def fired_symbols(rows, minute: dt.datetime) -> list[str]:
+    """Distinct symbols of alert rows (ts, symbol) at or before `minute` (minute start), sorted."""
+    cut = minute.replace(second=0, microsecond=0) + dt.timedelta(minutes=1)
+    return sorted({sym for ts, sym in rows if ts < cut})
+
+
+def fired(con, scan_name: str, day: dt.date, minute: dt.datetime) -> list[str]:
+    start = dt.datetime.combine(day, dt.time(0), IST)
+    with con.cursor() as cur:
+        cur.execute("SELECT ts, symbol FROM alerts WHERE scan=%s AND ts >= %s AND ts < %s",
+                    (scan_name, start, start + dt.timedelta(days=1)))
+        return fired_symbols(cur.fetchall(), minute)

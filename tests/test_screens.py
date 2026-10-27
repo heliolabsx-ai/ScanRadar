@@ -61,3 +61,14 @@ def test_prorate_scales_a_full_day_value_by_the_session_fraction():
     assert evaluate(plain, d, elapsed=0.25) is False            # without prorate the fraction is ignored
     live = json.load(open("screens/S0101-live.json"))
     assert any(r["rhs"].get("prorate") for r in live["rules"]) and live["basis"] == "intraday"
+
+
+def test_scan_fired_symbols_cut_at_the_as_of_minute():
+    from api.screens import fired_symbols
+    IST = dt.timezone(dt.timedelta(hours=5, minutes=30))
+    T = lambda h, m: dt.datetime(2026, 10, 23, h, m, tzinfo=IST)   # noqa: E731
+    rows = [(T(11, 9), "INDIGO"), (T(11, 9), "INDIGO"), (T(14, 53), "KAYNES"), (T(14, 54), "DIXON")]
+    assert fired_symbols(rows, T(11, 9)) == ["INDIGO"]              # the fire minute itself counts
+    assert fired_symbols(rows, T(11, 8)) == []
+    assert fired_symbols(rows, T(14, 53)) == ["INDIGO", "KAYNES"]
+    assert fired_symbols(rows, T(15, 30)) == ["DIXON", "INDIGO", "KAYNES"]
