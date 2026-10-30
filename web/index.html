@@ -480,8 +480,14 @@ function drawChart(a){
     ctx.fillStyle=C('--line'); ctx.globalAlpha=.45; ctx.fillRect(xi(0),y(a.orH),xi(15)-xi(0),y(a.orL)-y(a.orH)); ctx.globalAlpha=1;
     const ref = chartCache.ref||{};
     const levels = [['R2',a.R2,'--bull'],['R1',a.R1,'--bull'],['S1',a.S1,'--amber'],['S2',a.S2,'--amber'],['PC',a.price-a.chg,'--muted']];
-    if(ref.prev_high) levels.push(['PDH',+ref.prev_high,'--muted'],['PDL',+ref.prev_low,'--muted']);
-    levels.forEach(([nm,p,c])=>{ if(p<lo||p>hi) return; ctx.strokeStyle=C(c); ctx.setLineDash(nm.startsWith('PD')?[1,3]:[3,3]); ctx.beginPath(); ctx.moveTo(pL,y(p)); ctx.lineTo(W-pR,y(p)); ctx.stroke(); ctx.setLineDash([]); ctx.fillStyle=C(c); ctx.fillText(`${nm} ${fmt(p)}`,W-pR+4,y(p)+3); });
+    if(ref.prev_high) levels.push(['PDH',+ref.prev_high,'--bull'],['PDL',+ref.prev_low,'--bear']);
+    levels.forEach(([nm,p,c])=>{ if(p<lo||p>hi) return; const yy=y(p);
+      if(nm.startsWith('PD')){                               // previous-day high/low: solid line, soft band, filled tag (as on the Watch cards)
+        const col=C(c); ctx.strokeStyle=col; ctx.globalAlpha=.2; ctx.lineWidth=8; ctx.beginPath(); ctx.moveTo(pL,yy); ctx.lineTo(W-pR,yy); ctx.stroke(); ctx.globalAlpha=1;
+        ctx.lineWidth=1.6; ctx.beginPath(); ctx.moveTo(pL,yy); ctx.lineTo(W-pR,yy); ctx.stroke(); ctx.lineWidth=1;
+        const t=`${nm} ${fmt(p)}`, tw=ctx.measureText(t).width+8; ctx.fillStyle=col; ctx.beginPath(); ctx.roundRect(W-pR+2, yy-7, tw, 14, 3); ctx.fill();
+        ctx.fillStyle=nm==='PDH'?'#07140c':'#1a0707'; ctx.fillText(t, W-pR+6, yy+3); return; }
+      ctx.strokeStyle=C(c); ctx.setLineDash([3,3]); ctx.beginPath(); ctx.moveTo(pL,yy); ctx.lineTo(W-pR,yy); ctx.stroke(); ctx.setLineDash([]); ctx.fillStyle=C(c); ctx.fillText(`${nm} ${fmt(p)}`,W-pR+4,yy+3); });
     ctx.strokeStyle=C('--vwap'); ctx.lineWidth=1.2; ctx.setLineDash([2,2]); ctx.beginPath();
     vwapSeries(mins).forEach((p,k)=>{ const yy=y(p.v); k?ctx.lineTo(xi(p.i),yy):ctx.moveTo(xi(p.i),yy); }); ctx.stroke(); ctx.setLineDash([]); ctx.lineWidth=1;
   }
