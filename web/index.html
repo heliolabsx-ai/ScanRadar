@@ -715,7 +715,7 @@ S.view = location.hash === '#patterns' ? 'patterns' : location.hash === '#desk' 
 S.prows = []; S.pcounts = {}; S.ppending = false; S.psel = null; S.pquick = 'grade'; S.pstats = null; S.pseen = new Set(); S.pseeded = false;
 const PK = ScanPatterns;
 function setView(v){
-  S.view = v; location.hash = v === 'patterns' ? '#patterns' : v === 'desk' ? '#desk' : v === 'watch' ? '#watch' : '';
+  S.view = v; if(v === 'watch') setTimeout(wloop, 0); location.hash = v === 'patterns' ? '#patterns' : v === 'desk' ? '#desk' : v === 'watch' ? '#watch' : '';
   document.querySelectorAll('.tab').forEach(b => b.classList.toggle('on', b.dataset.view === v));
   $('scannerView').hidden = v !== 'scanner'; $('patternsView').hidden = v !== 'patterns'; $('deskView').hidden = v !== 'desk'; $('watchView').hidden = v !== 'watch';
   if(v === 'patterns'){ loadPatterns(); loadPatternStats(); } else if(v === 'desk'){ loadDesk(); } else if(v === 'watch'){ loadWatch(); loadPatterns(); loadDesk(); } else { renderDetail(); }
@@ -923,44 +923,76 @@ function wcard(r, ev){
   return `<div class="hd"><b>${r.symbol}</b><span class="sec">${esc(r.sector||'')}</span><span class="px ${up?'up':'dn'}">${d.map(x=>`<i class="${x.changed?'r':''}">${x.ch}</i>`).join('')}</span><span class="pct ${up?'up':'dn'}">${sg(r.pct)}%</span><span class="x" data-wx="${r.symbol}" title="Remove ${r.symbol} from the board">✕</span></div>
    <div class="rk">${r.rank ? `rank <b>#${r.rank}</b> · p${fmt(r.pctile||0,0)}${r.picked?' · <b class=up>PICKED</b>':''}` : '<span class="mut">outside the top 40</span>'} · <span class="held">${r.n_min} min</span></div>
    <div class="wpos"><div class="track"></div><span class="lvl" style="left:${pos(r.prev_low)}%">PDL</span><span class="lvl" style="left:${pos(r.prev_close)}%">PC</span><span class="lvl vw" style="left:${pos(r.vwap)}%">VWAP</span><span class="lvl" style="left:${pos(r.prev_high)}%">PDH</span><i class="cur" style="left:${pos(r.price)}%"></i></div>
-   <canvas class="sp" width="560" height="120" title="Last two hours, 5-minute candles, VWAP dashed, previous-day high and low dotted"></canvas>
+   <canvas class="sp" width="560" height="120" title="Last two hours, 5-minute candles, VWAP dashed, previous-day high (green) and low (red) with a glow that widens when price is at the level"></canvas>
    <div class="wst"><div>OI<span><i class="chip ${r.oi_cls}" style="font-size:9.5px;padding:1px 6px">${esc(r.oi_label)}</i></span></div><div>RVOL<span class="${r.rvol>=1.5?'up':''}">${fmt(r.rvol,1)}×</span></div><div>Δ buy/sell<span>${WK.deltaShare(r)!=null?WK.deltaShare(r)+'%':'—'}</span>${WK.deltaShare(r)!=null?`<div class="wdl"><i style="width:${WK.deltaShare(r)}%"></i></div>`:''}</div></div>
    <div class="wev">${ev.map(e=>`<span class="${e.k}">${esc(e.t)}</span>`).join('')}</div>`;
 }
 const cssVar = k => getComputedStyle(document.documentElement).getPropertyValue(k).trim();
 function wspark(c, r){
-  const C = cssVar; const ctx = c.getContext('2d'), W = c.width, H = c.height, bars = r.bars5 || [];
+  const C = cssVar; const W = c.width, H = c.height, bars = r.bars5 || [];
+  const base = c._base || (c._base = document.createElement('canvas')); base.width = W; base.height = H; const ctx = base.getContext('2d');
+  const arm = (y, L, last) => { c._anim = {y, lines: L.lines, last, t0: performance.now()}; wframe(c, performance.now()); wloop(); };
   if(bars.length >= 2){                                       // 5-minute candles, the forming one last, VWAP dashed
     const L = WK.levels(Math.min(...bars.map(b=>b.l), r.vwap), Math.max(...bars.map(b=>b.h), r.vwap), bars[bars.length-1].c, r), lo = L.lo, hi = L.hi, y = v => H-6-(v-lo)/((hi-lo)||1)*(H-12);
     const n = Math.max(bars.length, 24), slot = W/n, bw = Math.max(3, slot*0.62), x0 = W - bars.length*slot;
     ctx.clearRect(0,0,W,H); ctx.lineWidth = 1.5; ctx.strokeStyle = C('--vwap'); ctx.setLineDash([4,4]); ctx.beginPath(); ctx.moveTo(0,y(r.vwap)); ctx.lineTo(W,y(r.vwap)); ctx.stroke(); ctx.setLineDash([]);
-    wlevels(c, ctx, W, H, y, L.lines);
     bars.forEach((b,i) => { const up = b.c >= b.o, col = up ? C('--bull') : C('--bear'), x = x0 + i*slot + slot/2;
       ctx.strokeStyle = col; ctx.fillStyle = col; ctx.lineWidth = 1.2; ctx.beginPath(); ctx.moveTo(x, y(b.h)); ctx.lineTo(x, y(b.l)); ctx.stroke();
       const top = y(Math.max(b.o,b.c)), hgt = Math.max(1.5, y(Math.min(b.o,b.c)) - top);
       if(up){ ctx.fillStyle = C('--panel'); ctx.fillRect(x-bw/2, top, bw, hgt); ctx.strokeRect(x-bw/2, top, bw, hgt); } else ctx.fillRect(x-bw/2, top, bw, hgt); });
-    return;
+    arm(y, L, bars[bars.length-1].c); return;
   }
-  const h = r.spark || []; if(h.length < 2) return;
+  const h = r.spark || []; if(h.length < 2){ c._anim = null; c.getContext('2d').clearRect(0,0,W,H); return; }
   const L = WK.levels(Math.min(...h, r.vwap), Math.max(...h, r.vwap), h[h.length-1], r), lo = L.lo, hi = L.hi, y = v => H-6-(v-lo)/((hi-lo)||1)*(H-12), x = i => i/(h.length-1)*W;
   ctx.clearRect(0,0,W,H); ctx.lineWidth = 2; ctx.strokeStyle = C('--vwap'); ctx.setLineDash([4,4]); ctx.beginPath(); ctx.moveTo(0,y(r.vwap)); ctx.lineTo(W,y(r.vwap)); ctx.stroke(); ctx.setLineDash([]);
-  wlevels(c, ctx, W, H, y, L.lines);
   const up = h[h.length-1] >= h[0]; ctx.strokeStyle = up ? C('--bull') : C('--bear');
   const g = ctx.createLinearGradient(0,0,0,H); g.addColorStop(0, up?'rgba(61,220,132,.25)':'rgba(255,107,107,.25)'); g.addColorStop(1,'rgba(0,0,0,0)');
   ctx.beginPath(); h.forEach((v,i)=> i?ctx.lineTo(x(i),y(v)):ctx.moveTo(x(i),y(v))); ctx.stroke(); ctx.lineTo(W,H); ctx.lineTo(0,H); ctx.closePath(); ctx.fillStyle = g; ctx.fill();
   ctx.fillStyle = up?C('--bull'):C('--bear'); ctx.beginPath(); ctx.arc(x(h.length-1), y(h[h.length-1]), 4, 0, 7); ctx.fill();
+  arm(y, L, h[h.length-1]);
 }
-// Previous-day high (bull) and low (bear) as dotted lines with a price tag; a level outside the chart's range
-// is printed at the edge with an arrow so the card still says where it is.
-function wlevels(c, ctx, W, H, y, lines){
-  const C = cssVar, k = W / Math.max(1, c.clientWidth || W);   // canvas px per CSS px, so the tag reads at ~9.5px on screen whatever the card width
-  ctx.font = `600 ${(9.5*k).toFixed(1)}px ` + (C('--mono') || 'monospace'); ctx.textBaseline = 'middle';
-  lines.forEach(l => { const col = l.k === 'PDH' ? C('--bull') : C('--bear'); ctx.strokeStyle = col; ctx.fillStyle = col; ctx.lineWidth = Math.max(1, k);
-    const tag = `${l.k} ${Number(l.v).toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2})}`;
-    if(l.shown){ const yy = Math.round(y(l.v)) + 0.5; ctx.setLineDash([2*k,3*k]); ctx.beginPath(); ctx.moveTo(0,yy); ctx.lineTo(W,yy); ctx.stroke(); ctx.setLineDash([]);
-      ctx.textAlign = 'left'; ctx.fillText(tag, 4*k, l.k === 'PDH' ? yy - 6.5*k : yy + 6.5*k); }
-    else { ctx.globalAlpha = 0.75; ctx.textAlign = 'right'; ctx.fillText(l.k === 'PDH' ? `${tag} ▲` : `${tag} ▼`, W - 4*k, l.k === 'PDH' ? 7*k : H - 7*k); ctx.globalAlpha = 1; } });
+// Previous-day high (bull) and low (bear) on the card chart: a solid line with a breathing glow and a filled price
+// tag; within WNEAR of the price the glow widens into a band and the tag reads AT PDH / AT PDL. A level outside the
+// chart's range is printed at the edge with an arrow and its distance. The static picture (candles, VWAP) lives in
+// c._base; wframe repaints it and draws the live layer on top; wloop runs ~20 frames a second while the board shows.
+const WNEAR = 0.003;
+function wframe(c, now){
+  const A = c._anim; if(!A || !c._base) return; const ctx = c.getContext('2d'), W = c.width, H = c.height, C = cssVar;
+  const k = W / Math.max(1, c.clientWidth || W);                 // canvas px per CSS px
+  ctx.clearRect(0,0,W,H); ctx.drawImage(c._base, 0, 0);
+  const ph = (now - A.t0) / 2400 * Math.PI * 2, breathe = (1 - Math.cos(ph)) / 2;   // 0..1..0 every 2.4 s
+  ctx.font = `700 ${(9.5*k).toFixed(1)}px ` + (C('--mono') || 'monospace'); ctx.textBaseline = 'middle';
+  A.lines.forEach(l => {
+    const hiLvl = l.k === 'PDH', col = hiLvl ? C('--bull') : C('--bear'), ink = hiLvl ? '#07140c' : '#1a0707';
+    const dist = A.last ? (l.v - A.last) / A.last : 0, near = Math.abs(dist) <= WNEAR;
+    const price = Number(l.v).toLocaleString('en-IN', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+    const tag = near ? `AT ${l.k} ${price}` : `${l.k} ${price}`;
+    const pill = (text, x, yy, align) => { const w = ctx.measureText(text).width + 10*k, hh = 15*k, px = align === 'right' ? x - w : x;
+      ctx.globalAlpha = 1; ctx.fillStyle = col; ctx.beginPath(); ctx.roundRect(px, yy - hh/2, w, hh, 3*k); ctx.fill(); ctx.fillStyle = ink; ctx.textAlign = 'left'; ctx.fillText(text, px + 5*k, yy + 0.5*k); };
+    ctx.strokeStyle = col; ctx.fillStyle = col;
+    if(l.shown){
+      const yy = Math.round(A.y(l.v)) + 0.5;
+      ctx.globalAlpha = near ? 0.28 + 0.3*breathe : 0.14 + 0.22*breathe; ctx.lineWidth = (near ? 14 + 12*breathe : 7 + 6*breathe) * k;   // the glow
+      ctx.beginPath(); ctx.moveTo(0, yy); ctx.lineTo(W, yy); ctx.stroke();
+      ctx.globalAlpha = 1; ctx.lineWidth = 1.8*k; ctx.beginPath(); ctx.moveTo(0, yy); ctx.lineTo(W, yy); ctx.stroke();   // the line
+      pill(tag, W - 4*k, Math.min(H - 9*k, Math.max(9*k, yy)), 'right');
+      if(near){ ctx.globalAlpha = 0.5 + 0.5*breathe; ctx.textAlign = 'left'; ctx.fillStyle = col; ctx.fillText(hiLvl ? '▲ testing PDH' : '▼ testing PDL', 4*k, yy + (hiLvl ? 12*k : -12*k)); ctx.globalAlpha = 1; }
+    } else {                                                      // off the chart: glow the edge faintly, tag with arrow and distance
+      const edgeY = hiLvl ? 0 : H; ctx.globalAlpha = 0.1 + 0.15*breathe; ctx.lineWidth = 10*k; ctx.beginPath(); ctx.moveTo(0, edgeY); ctx.lineTo(W, edgeY); ctx.stroke();
+      pill(`${l.k} ${price} ${hiLvl ? '▲' : '▼'} ${Math.abs(dist*100).toFixed(1)}%`, W - 4*k, hiLvl ? 9*k : H - 9*k, 'right');
+    }
+  });
+  ctx.globalAlpha = 1;
 }
+function wloop(){
+  if(S.wraf) return;
+  const step = now => { S.wraf = 0; if(S.view !== 'watch' || document.hidden) return;
+    const cs = [...document.querySelectorAll('#wgrid canvas.sp')].filter(c => c._anim); if(!cs.length) return;
+    if(!S.wlast || now - S.wlast >= 50){ S.wlast = now; cs.forEach(c => wframe(c, now)); }
+    S.wraf = requestAnimationFrame(step); };
+  S.wraf = requestAnimationFrame(step);
+}
+document.addEventListener('visibilitychange', () => { if(!document.hidden) wloop(); });
 function renderWatch(){
   const grid = $('wgrid'); $('wat').textContent = S.wat ? `as of ${S.wat}` : '';
   const rows = S.watch.map(s => S.wrows[s]).filter(Boolean).map(r => ({...r, events: WK.events(r.symbol, S.prows, S.desk && S.desk.verdicts)}));
