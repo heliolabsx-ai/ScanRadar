@@ -715,7 +715,7 @@ S.view = location.hash === '#patterns' ? 'patterns' : location.hash === '#desk' 
 S.prows = []; S.pcounts = {}; S.ppending = false; S.psel = null; S.pquick = 'grade'; S.pstats = null; S.pseen = new Set(); S.pseeded = false;
 const PK = ScanPatterns;
 function setView(v){
-  S.view = v; if(v === 'watch') setTimeout(wloop, 0); location.hash = v === 'patterns' ? '#patterns' : v === 'desk' ? '#desk' : v === 'watch' ? '#watch' : '';
+  S.view = v; location.hash = v === 'patterns' ? '#patterns' : v === 'desk' ? '#desk' : v === 'watch' ? '#watch' : '';
   document.querySelectorAll('.tab').forEach(b => b.classList.toggle('on', b.dataset.view === v));
   $('scannerView').hidden = v !== 'scanner'; $('patternsView').hidden = v !== 'patterns'; $('deskView').hidden = v !== 'desk'; $('watchView').hidden = v !== 'watch';
   if(v === 'patterns'){ loadPatterns(); loadPatternStats(); } else if(v === 'desk'){ loadDesk(); } else if(v === 'watch'){ loadWatch(); loadPatterns(); loadDesk(); } else { renderDetail(); }
@@ -923,7 +923,7 @@ function wcard(r, ev){
   return `<div class="hd"><b>${r.symbol}</b><span class="sec">${esc(r.sector||'')}</span><span class="px ${up?'up':'dn'}">${d.map(x=>`<i class="${x.changed?'r':''}">${x.ch}</i>`).join('')}</span><span class="pct ${up?'up':'dn'}">${sg(r.pct)}%</span><span class="x" data-wx="${r.symbol}" title="Remove ${r.symbol} from the board">✕</span></div>
    <div class="rk">${r.rank ? `rank <b>#${r.rank}</b> · p${fmt(r.pctile||0,0)}${r.picked?' · <b class=up>PICKED</b>':''}` : '<span class="mut">outside the top 40</span>'} · <span class="held">${r.n_min} min</span></div>
    <div class="wpos"><div class="track"></div><span class="lvl" style="left:${pos(r.prev_low)}%">PDL</span><span class="lvl" style="left:${pos(r.prev_close)}%">PC</span><span class="lvl vw" style="left:${pos(r.vwap)}%">VWAP</span><span class="lvl" style="left:${pos(r.prev_high)}%">PDH</span><i class="cur" style="left:${pos(r.price)}%"></i></div>
-   <canvas class="sp" width="560" height="120" title="Last two hours, 5-minute candles, VWAP dashed, previous-day high (green) and low (red) with a glow that widens when price is at the level"></canvas>
+   <canvas class="sp" width="560" height="120" title="Last two hours, 5-minute candles, VWAP dashed, previous-day high (green) and low (red); the band widens when price is at the level"></canvas>
    <div class="wst"><div>OI<span><i class="chip ${r.oi_cls}" style="font-size:9.5px;padding:1px 6px">${esc(r.oi_label)}</i></span></div><div>RVOL<span class="${r.rvol>=1.5?'up':''}">${fmt(r.rvol,1)}×</span></div><div>Δ buy/sell<span>${WK.deltaShare(r)!=null?WK.deltaShare(r)+'%':'—'}</span>${WK.deltaShare(r)!=null?`<div class="wdl"><i style="width:${WK.deltaShare(r)}%"></i></div>`:''}</div></div>
    <div class="wev">${ev.map(e=>`<span class="${e.k}">${esc(e.t)}</span>`).join('')}</div>`;
 }
@@ -931,7 +931,7 @@ const cssVar = k => getComputedStyle(document.documentElement).getPropertyValue(
 function wspark(c, r){
   const C = cssVar; const W = c.width, H = c.height, bars = r.bars5 || [];
   const base = c._base || (c._base = document.createElement('canvas')); base.width = W; base.height = H; const ctx = base.getContext('2d');
-  const arm = (y, L, last) => { c._anim = {y, lines: L.lines, last, t0: performance.now()}; wframe(c, performance.now()); wloop(); };
+  const arm = (y, L, last) => { c._anim = {y, lines: L.lines, last}; wframe(c); };
   if(bars.length >= 2){                                       // 5-minute candles, the forming one last, VWAP dashed
     const L = WK.levels(Math.min(...bars.map(b=>b.l), r.vwap), Math.max(...bars.map(b=>b.h), r.vwap), bars[bars.length-1].c, r), lo = L.lo, hi = L.hi, y = v => H-6-(v-lo)/((hi-lo)||1)*(H-12);
     const n = Math.max(bars.length, 24), slot = W/n, bw = Math.max(3, slot*0.62), x0 = W - bars.length*slot;
@@ -951,16 +951,16 @@ function wspark(c, r){
   ctx.fillStyle = up?C('--bull'):C('--bear'); ctx.beginPath(); ctx.arc(x(h.length-1), y(h[h.length-1]), 4, 0, 7); ctx.fill();
   arm(y, L, h[h.length-1]);
 }
-// Previous-day high (bull) and low (bear) on the card chart: a solid line with a breathing glow and a filled price
-// tag; within WNEAR of the price the glow widens into a band and the tag reads AT PDH / AT PDL. A level outside the
-// chart's range is printed at the edge with an arrow and its distance. The static picture (candles, VWAP) lives in
-// c._base; wframe repaints it and draws the live layer on top; wloop runs ~20 frames a second while the board shows.
+// Previous-day high (bull) and low (bear) on the card chart: a solid line with a soft glow band and a filled price
+// tag; within WNEAR of the price the band widens and the tag reads AT PDH / AT PDL. A level outside the chart's
+// range is printed at the edge with an arrow and its distance. The candles and VWAP are painted into c._base first
+// so the level layer can be redrawn on top without recomputing them. No animation (Saurabh, 30 Oct 2026).
 const WNEAR = 0.003;
-function wframe(c, now){
+function wframe(c){
   const A = c._anim; if(!A || !c._base) return; const ctx = c.getContext('2d'), W = c.width, H = c.height, C = cssVar;
   const k = W / Math.max(1, c.clientWidth || W);                 // canvas px per CSS px
   ctx.clearRect(0,0,W,H); ctx.drawImage(c._base, 0, 0);
-  const ph = (now - A.t0) / 2400 * Math.PI * 2, breathe = (1 - Math.cos(ph)) / 2;   // 0..1..0 every 2.4 s
+  const breathe = 0.5;
   ctx.font = `700 ${(9.5*k).toFixed(1)}px ` + (C('--mono') || 'monospace'); ctx.textBaseline = 'middle';
   A.lines.forEach(l => {
     const hiLvl = l.k === 'PDH', col = hiLvl ? C('--bull') : C('--bear'), ink = hiLvl ? '#07140c' : '#1a0707';
@@ -984,15 +984,6 @@ function wframe(c, now){
   });
   ctx.globalAlpha = 1;
 }
-function wloop(){
-  if(S.wraf) return;
-  const step = now => { S.wraf = 0; if(S.view !== 'watch' || document.hidden) return;
-    const cs = [...document.querySelectorAll('#wgrid canvas.sp')].filter(c => c._anim); if(!cs.length) return;
-    if(!S.wlast || now - S.wlast >= 50){ S.wlast = now; cs.forEach(c => wframe(c, now)); }
-    S.wraf = requestAnimationFrame(step); };
-  S.wraf = requestAnimationFrame(step);
-}
-document.addEventListener('visibilitychange', () => { if(!document.hidden) wloop(); });
 function renderWatch(){
   const grid = $('wgrid'); $('wat').textContent = S.wat ? `as of ${S.wat}` : '';
   const rows = S.watch.map(s => S.wrows[s]).filter(Boolean).map(r => ({...r, events: WK.events(r.symbol, S.prows, S.desk && S.desk.verdicts)}));
