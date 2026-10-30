@@ -47,6 +47,20 @@
     return Math.round(50 + 50 * x);
   }
 
+  // Previous-day high/low on the card chart. The y-range grows to take a level in only when it sits within
+  // `band` of the last price (default 2 %), so a far-away level never squashes the candles; a level outside
+  // the range is still reported (shown: false) so the chart can print it at the edge with an arrow.
+  function levels(lo, hi, last, row, band) {
+    band = band == null ? 0.02 : band;
+    const out = [];
+    [['PDH', row && row.prev_high], ['PDL', row && row.prev_low]].forEach(([k, v]) => {
+      if (v == null || !isFinite(v)) return;
+      if (last && Math.abs(v - last) / last <= band) { lo = Math.min(lo, v); hi = Math.max(hi, v); }
+      out.push({ k, v });
+    });
+    return { lo, hi, lines: out.map(l => ({ ...l, shown: l.v >= lo && l.v <= hi })) };
+  }
+
   function position(row, v) { const lo = row.prev_low || row.prev_close * 0.985, hi = row.prev_high || row.prev_close * 1.015; return Math.max(2, Math.min(98, (v - lo) / ((hi - lo) || 1) * 100)); }
 
   function groups(snap, prows, sectorsOf) {
@@ -56,5 +70,5 @@
     return { picks, trig, bySector };
   }
 
-  root.ScanWatch = { load, save, digits, heat, order, events, position, groups, deltaShare, DEFAULT };
+  root.ScanWatch = { load, save, digits, heat, order, events, position, groups, deltaShare, levels, DEFAULT };
 })(typeof window !== 'undefined' ? window : globalThis);

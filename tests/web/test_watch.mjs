@@ -46,3 +46,17 @@ test('position and groups', () => {
   const g = W.groups({ bulls: [{ symbol: 'A', picked: true }, { symbol: 'B', picked: false }], bears: [] }, [{ symbol: 'C', triggered_at: 'x' }], { A: 'IT', C: 'IT', D: 'BANK' });
   assert.deepEqual(g.picks, ['A']); assert.deepEqual(g.trig, ['C']); assert.deepEqual(g.bySector.IT, ['A', 'C']);
 });
+
+test('prev-day levels widen the chart range only when they are near the price', () => {
+  const row = { prev_high: 101.8, prev_low: 98.2 };
+  let r = W.levels(99, 101, 100, row);                      // both within 2 % of 100 -> range grows to hold them
+  assert.equal(r.lo, 98.2); assert.equal(r.hi, 101.8);
+  assert.deepEqual(r.lines, [{ k: 'PDH', v: 101.8, shown: true }, { k: 'PDL', v: 98.2, shown: true }]);
+  r = W.levels(99, 101, 100, { prev_high: 110, prev_low: 90 }); // far away -> range untouched, lines reported as off-chart
+  assert.equal(r.lo, 99); assert.equal(r.hi, 101);
+  assert.deepEqual(r.lines.map(l => l.shown), [false, false]);
+  r = W.levels(99, 101, 100, { prev_high: 100.5, prev_low: 90 }); // a level already inside the range is shown without widening
+  assert.equal(r.hi, 101); assert.deepEqual(r.lines.map(l => [l.k, l.shown]), [['PDH', true], ['PDL', false]]);
+  r = W.levels(99, 101, 100, { prev_close: 100 });            // no prev-day levels -> nothing to draw
+  assert.deepEqual(r.lines, []); assert.equal(r.lo, 99);
+});
