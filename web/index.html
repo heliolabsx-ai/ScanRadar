@@ -9,6 +9,7 @@
 <script src="patterns.js?v=v6"></script>
 <script src="desk.js?v=412e789"></script>
 <script src="watch.js?v=7685032"></script>
+<script src="trades.js?v=5e3d8fa"></script>
 <style>
 /* Layout: control strip → sector/breadth rail → bull/bear card grid → detail panel with canvas chart. Terminal-style data UI. */
 :root{
@@ -163,6 +164,40 @@ table.pt{width:100%;border-collapse:collapse;font-size:12px}.pt th{font:600 10px
 .lvls{display:grid;grid-template-columns:repeat(5,1fr);gap:6px}.lvls div{background:var(--bg);border:1px solid var(--line);border-radius:4px;padding:5px 6px;font:600 11px var(--mono)}.lvls b{display:block;font:500 9px var(--sans);letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}.lvls .here{border-color:var(--fg)}
 .wl{display:grid;grid-template-columns:auto 1fr auto auto;gap:6px 10px;font-size:11.5px;align-items:center}.wl .chipx{font:600 9.5px var(--mono);padding:1px 6px;border-radius:3px;border:1px solid var(--line);color:var(--muted)}.wl .chipx.trig{background:var(--fg);color:var(--bg);border-color:var(--fg)}
 .wbtn{display:flex;gap:6px;margin-top:12px}
+/* ---- Trades tab ---- */
+.ttop{display:flex;gap:10px;align-items:flex-start;margin-bottom:12px}
+.ttiles{flex:1;min-width:0;display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:10px}
+@media (max-width:1100px){.ttiles{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media (max-width:600px){.ttiles{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.kpi{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:8px 10px;min-width:0}
+.kpi .l{font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.kpi .n{font:600 16px var(--mono);font-variant-numeric:tabular-nums;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
+.kpi .n small{font:500 11px var(--mono);color:var(--muted)}
+.kpi .n[data-edit]{cursor:pointer;display:inline-block;border-bottom:1px dashed var(--line)}.kpi .n[data-edit]:hover{border-bottom-color:var(--fg)}
+.kpi .n input{width:100%;font:600 14px var(--mono)}
+.kpi .sub{color:var(--muted);font-size:11px;margin-top:2px}
+.kpi .meter{height:6px;background:var(--line);border-radius:3px;margin-top:6px;overflow:hidden}.kpi .meter i{display:block;height:100%;background:var(--accent)}.kpi .meter.am i{background:var(--amber)}.kpi .meter.dn i{background:var(--bear)}
+#tgear{font-size:15px;padding:5px 9px}
+#riskChip{font:600 11px var(--mono);padding:4px 9px;border:1px solid var(--line);background:var(--panel);color:var(--fg)}
+.tset{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:8px 14px;margin-bottom:12px}
+.tset label{flex-direction:column;align-items:stretch;gap:3px}
+.tset input,.tset select{width:100%;font:500 12px var(--mono);background:var(--panel);color:var(--fg);border:1px solid var(--line);border-radius:4px;padding:4px 6px}
+.tset .btns{grid-column:1/-1;display:flex;gap:6px;align-items:center}
+.tset .err{grid-column:1/-1;color:var(--bear);font-size:12px}.tset .err:empty{display:none}
+.twrap{overflow-x:auto}
+tr.trow{cursor:pointer}tr.trow:hover td,tr.trow.sel td{background:var(--bg)}tr.trow.blocked td{opacity:.55}tr.trow.blocked:hover td,tr.trow.blocked.sel td{opacity:.8}
+.pt td .u{display:block;font-size:10.5px;margin-top:1px}
+.side{font:700 10px var(--mono);border-radius:3px;padding:0 4px;margin-left:4px;vertical-align:middle}.side.L{background:var(--bull-soft);color:var(--bull)}.side.S{background:var(--bear-soft);color:var(--bear)}
+.mb{display:inline-flex;width:70px;height:8px;background:var(--line);border-radius:2px;overflow:hidden;vertical-align:middle;margin-right:5px}.mb i{display:block;height:100%;min-width:0}
+.mb .t,.obar .t{background:var(--bull)}.mb .s,.obar .s{background:var(--bear)}.mb .n{background:transparent}
+.tv{font-size:11px}.tv.coin{color:var(--amber)}.tv.flat{color:var(--vwap)}.tv.edge{color:var(--bull)}.tv.bad{color:var(--bear)}.tv.none{color:var(--muted)}
+.gate{font:700 10.5px var(--mono);border-radius:3px;padding:1px 6px}.gate.pass{background:var(--bull-soft);color:var(--bull)}.gate.block{background:var(--bear-soft);color:var(--bear)}.gate.off{color:var(--muted)}
+.obar{display:flex;height:22px;border-radius:5px;overflow:hidden;font:600 10.5px var(--mono);margin:6px 0;background:var(--line)}.obar span{display:flex;align-items:center;padding-left:5px;white-space:nowrap;overflow:hidden;min-width:0}.obar .t,.obar .s{color:var(--bg)}.obar .n{background:var(--line);color:var(--fg)}
+.sqs{display:flex;gap:3px;align-items:center;flex-wrap:wrap;margin-top:6px;font-size:10.5px}.sq{display:inline-block;width:12px;height:12px;border-radius:2px;background:var(--line)}.sq.target{background:var(--bull)}.sq.stop{background:var(--bear)}.sqs .mut{margin-left:6px}
+#tradesView .eyebrow{display:flex;justify-content:space-between;gap:8px}
+#tdrawer button:disabled{opacity:.5;cursor:default}#tdrawer button:disabled:hover{border-color:var(--line)}
+#tdrawer:not(.open){box-shadow:none;visibility:hidden}
+pre.tticket{background:var(--bg);border:1px dashed var(--line);border-radius:6px;padding:8px 10px;margin:0;font:500 12px/1.6 var(--mono);white-space:pre-wrap;word-break:break-word;color:var(--fg)}
 /* ---- chart pop-out ---- */
 .lightbox{position:fixed;inset:0;background:rgba(0,0,0,.72);display:flex;align-items:center;justify-content:center;z-index:80;padding:16px}
 .lightbox .box{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px 14px 14px;width:min(1300px,96vw);max-height:96vh;overflow:auto;box-shadow:0 30px 80px rgba(0,0,0,.6);animation:zoomin .25s cubic-bezier(.2,.7,.2,1)}
@@ -186,12 +221,12 @@ canvas.chart{cursor:zoom-in}.lightbox canvas.chart{cursor:crosshair}
 </style></head><body>
 <div class="top">
   <h1>ScanRadar</h1>
-  <span class="tabs"><button class="tab on" data-view="scanner">Scanner</button><button class="tab" data-view="patterns">Patterns</button><button class="tab" data-view="desk">Desk</button><button class="tab" data-view="watch">Watch</button></span>
+  <span class="tabs"><button class="tab on" data-view="scanner">Scanner</button><button class="tab" data-view="patterns">Patterns</button><button class="tab" data-view="desk">Desk</button><button class="tab" data-view="watch">Watch</button><button class="tab" data-view="trades">Trades</button></span>
   <span class="daypick" id="daypick"><button class="nav" id="dayPrev" title="Previous session">‹</button><button class="cur" id="dayBtn" title="Choose a session" aria-haspopup="listbox"><b id="dayLbl">—</b><small id="dayTag"></small></button><button class="nav" id="dayNext" title="Next session">›</button><div class="daymenu" id="dayMenu" hidden role="listbox"></div></span><select id="day" title="Session" aria-hidden="true" tabindex="-1"></select>
   <span class="clock mono" id="clock">--:--</span>
   <span class="st" id="status"><i class="dot"></i><span id="statusText">WAITING</span></span>
   <button id="live" class="primary" hidden title="Return to the live feed">● Live</button>
-  <label>Risk ₹ <input id="risk" type="number" min="100" step="100" value="2000" title="Rupees risked per trade; sizes the quantity in the detail panel"></label>
+  <button class="chip" id="riskChip" title="Max loss per trade; change it on the Trades tab">₹2,000 / trade</button>
   <button id="theme" title="Toggle light / dark">◐</button>
   <button id="notify" title="Mac notifications for new alerts and new picks on the live feed">🔔 Notify: off</button>
   <select id="notifyTone" title="Notification sound: System plays the alert sound picked in macOS System Settings › Notifications (Glass, Tink…); Chime is a soft two-note tone"><option value="system">♪ System sound</option><option value="chime">♪ Chime</option><option value="none">♪ Silent</option></select>
@@ -247,6 +282,28 @@ canvas.chart{cursor:zoom-in}.lightbox canvas.chart{cursor:crosshair}
   <div class="empty" id="wempty"></div>
   <p class="note mut" style="font-size:11px;line-height:1.5;margin-top:8px">Cards fill with the day's colour in proportion to the move; prices roll as they print. A pattern trigger or desk verdict flashes the card. Click a card for the full detail; ✕ removes it. The board re-ranks every five minutes or when you change the sort. The list is saved in this browser.</p>
 </div>
+<div id="tradesView" hidden>
+  <div class="ttop"><div class="ttiles" id="ttiles"></div><button id="tgear" title="Trade settings: capital, max loss, day limits, product, flat-by time">⚙</button></div>
+  <div class="panel tset" id="tsettings" hidden>
+    <p class="eyebrow" style="grid-column:1/-1">Trade settings · cash shares, sized by the max loss at the stop</p>
+    <label>Capital ₹<input id="ts_capital" type="number" min="1" step="10000"></label>
+    <label>Max loss per trade ₹<input id="ts_max_loss" type="number" min="1" step="100"></label>
+    <label>Day loss limit ₹<input id="ts_day_loss" type="number" min="1" step="500"></label>
+    <label>Max trades a day<input id="ts_max_trades" type="number" min="1" step="1"></label>
+    <label>Max in one name (share of capital, 0–1)<input id="ts_position_cap" type="number" min="0.05" max="1" step="0.05"></label>
+    <label>Product<select id="ts_product"><option value="intraday">intraday</option><option value="delivery">delivery</option></select></label>
+    <label>Flat by (HH:MM)<input id="ts_flat_by" type="text" maxlength="5" placeholder="15:20" autocomplete="off"></label>
+    <div class="btns"><button class="primary" id="tsSave">Save</button><button id="tsCancel">Cancel</button></div>
+    <div class="err" id="tserr"></div>
+  </div>
+  <div class="panel">
+    <p class="eyebrow"><span id="teyebrow">Trades</span><span class="mono" id="tcounts"></span></p>
+    <div class="twrap"><table class="pt" id="trows"><thead><tr><th>Time</th><th>Stock</th><th>Setup</th><th>Entry<br><span style="text-transform:none;letter-spacing:0">stop / T1</span></th><th title="Rest of the day replayed from past sessions: T1 first / stop first, in %. A record of past sessions, not a forecast.">Replays<br><span style="text-transform:none;letter-spacing:0">T1 / stop</span></th><th>Shares<br><span style="text-transform:none;letter-spacing:0">position</span></th><th>Risk ₹</th><th>Gate</th><th>Outcome</th></tr></thead><tbody id="tqueue"></tbody></table></div>
+    <div class="empty" id="tempty"></div>
+    <p class="note mut" style="font-size:11px;line-height:1.5;margin-top:8px">Grey rows were blocked by the day rules. Every pattern trigger and rule alert with a stop and a target lands here at its minute; live, the newest row is on top and the outcome fills in as the day goes. <b>Replays</b> = the rest of the day re-run from past sessions, and the same plan on each past session: a record, not a forecast. Shares are cash shares sized by the max loss at the stop, capped by the share of capital in one name. Nothing here places an order.</p>
+  </div>
+</div>
+<div class="wdrawer" id="tdrawer"><button class="close" id="tclose">Esc ✕</button><div id="tdbody"></div></div>
 <div class="lightbox" id="lightbox" hidden><div class="box" id="lightboxBody"><div class="lhd"><b id="lbSym"></b><span class="mut" id="lbSub"></span><button id="lbClose" title="Close (Esc)">Esc ✕</button></div><div class="tfrow"></div><canvas class="chart" width="1240" height="760"></canvas></div></div>
 <div class="wdrawer" id="wdrawer"><button class="close" id="wclose">Esc ✕</button><div id="wbody"></div></div>
 <div class="dgrid" id="deskView" hidden>
@@ -282,10 +339,9 @@ $('theme').onclick = () => {
   const next = cur === 'dark' ? 'light' : 'dark';
   document.documentElement.dataset.theme = next;
   try{ localStorage.setItem('theme', next); }catch(e){}
-  if(S.view === 'patterns') renderPatternDetail(); else renderDetail();
+  if(S.view === 'patterns') renderPatternDetail(); else if(S.view === 'trades'){ if(S.tsel != null) renderTradeDrawer(); } else renderDetail();
 };
-try{ const r = +localStorage.getItem('risk'); if(r>0){ S.risk = r; $('risk').value = r; } }catch(e){}
-$('risk').onchange = () => { S.risk = Math.max(100, +$('risk').value || 2000); $('risk').value = S.risk; try{ localStorage.setItem('risk', S.risk); }catch(e){} if(S.view === 'patterns') renderPatternDetail(); else renderDetail(); };
+$('riskChip').onclick = () => { setView('trades'); openTradeSettings(); };   // S.risk = the server's max loss per trade (Trades settings)
 
 // ---------- status ----------
 function setStatus(text, cls){ $('statusText').textContent = text; $('status').className = 'st ' + (cls||''); if(typeof syncDayUI === 'function' && $('dayLbl')) syncDayUI(); }
@@ -315,6 +371,7 @@ function renderFiltered(){                       // the strip applies to every t
   if(S.view === 'patterns' && typeof renderPatterns === 'function') renderPatterns();
   else if(S.view === 'desk' && typeof renderDesk === 'function') renderDesk();
   else if(S.view === 'watch' && typeof renderWatch === 'function') renderWatch();
+  else if(S.view === 'trades' && typeof renderTrades === 'function') renderTrades();
 }
 function populateSectors(){
   const secs = [...new Set(Object.values(S.sectorsOf))].sort();
@@ -449,7 +506,7 @@ async function loadAndDraw(a){
       if(chartCache.key !== key || S.following){ const r = await api(`/api/candles/${a.symbol}?day=${day}`); chartCache.key = key; chartCache.data = r.candles; chartCache.ref = r.ref || {}; chartCache.delta = r.delta_available; }
     }
   }catch(e){ return; }
-  const stillCurrent = S.view === 'patterns' ? (S.psel && S.psel.symbol === a.symbol) : S.view === 'watch' ? S.wsel === a.symbol : S.selected === a.symbol;
+  const stillCurrent = S.view === 'patterns' ? (S.psel && S.psel.symbol === a.symbol) : S.view === 'watch' ? S.wsel === a.symbol : S.view === 'trades' ? !!(tradeSel() && tradeSel().symbol === a.symbol) : S.selected === a.symbol;
   if(stillCurrent) drawChart(a);
 }
 function drawChart(a){
@@ -472,6 +529,7 @@ function drawChart(a){
   const mins = chartCache.data && !daily ? cutAt(chartCache.data, S.at||'15:30') : [];
   const lv = (daily || a.minimal) ? [] : [a.R2,a.R1,a.S1,a.S2];
   if(a.pattern && !daily) lv.push(a.pattern.stop, a.pattern.target, a.pattern.neckline);
+  if(a.trade && !daily) [a.trade.entry, a.trade.stop, a.trade.target, a.trade.target2].forEach(p => { if(p != null) lv.push(+p); });
   let lo = Math.min(...bars.map(b=>b.l), ...lv), hi = Math.max(...bars.map(b=>b.h), ...lv); const pd=(hi-lo)*.05||1; lo-=pd; hi+=pd;
   const y = p => pT + (1-(p-lo)/(hi-lo))*Hp;
   // ---- overlays (intraday only, from 1-minute data)
@@ -490,6 +548,16 @@ function drawChart(a){
       ctx.strokeStyle=C(c); ctx.setLineDash([3,3]); ctx.beginPath(); ctx.moveTo(pL,yy); ctx.lineTo(W-pR,yy); ctx.stroke(); ctx.setLineDash([]); ctx.fillStyle=C(c); ctx.fillText(`${nm} ${fmt(p)}`,W-pR+4,yy+3); });
     ctx.strokeStyle=C('--vwap'); ctx.lineWidth=1.2; ctx.setLineDash([2,2]); ctx.beginPath();
     vwapSeries(mins).forEach((p,k)=>{ const yy=y(p.v); k?ctx.lineTo(xi(p.i),yy):ctx.moveTo(xi(p.i),yy); }); ctx.stroke(); ctx.setLineDash([]); ctx.lineWidth=1;
+  }
+  // ---- trade levels (Trades tab): entry, stop, T1, T2 from the trigger minute on
+  if(a.trade && !daily){
+    const t = a.trade, xt = xi(hhmmToMin(String(t.ts).slice(11,16)));
+    const zone = (p1,p2,col) => { ctx.fillStyle=C(col); ctx.globalAlpha=.35; ctx.fillRect(xt, Math.min(y(p1),y(p2)), W-pR-xt, Math.abs(y(p1)-y(p2))); ctx.globalAlpha=1; };
+    zone(t.entry, t.target, '--bull-soft'); zone(t.entry, t.stop, '--bear-soft');
+    [['ENTRY',t.entry,'--fg'],['STOP',t.stop,'--bear'],['T1',t.target,'--bull'],['T2',t.target2,'--bull']].forEach(([nm,p,c]) => { if(p == null) return;
+      ctx.strokeStyle=C(c); ctx.setLineDash(nm==='ENTRY'?[]:[4,3]); ctx.beginPath(); ctx.moveTo(xt,y(p)); ctx.lineTo(W-pR,y(p)); ctx.stroke(); ctx.setLineDash([]); ctx.fillStyle=C(c); ctx.fillText(`${nm} ${fmt(p)}`, W-pR+4, y(p)+3); });
+    ctx.strokeStyle=C('--accent'); ctx.setLineDash([2,2]); ctx.beginPath(); ctx.moveTo(xt,pT); ctx.lineTo(xt,pT+Hp); ctx.stroke(); ctx.setLineDash([]);
+    ctx.fillStyle=C('--accent'); ctx.fillText(`${t.side==='long'?'BUY':'SELL'} ${String(t.ts).slice(11,16)}`, xt+4, pT+10);
   }
   // ---- candles + volume
   const vmax = Math.max(...bars.map(b=>b.v||0), 1);
@@ -561,7 +629,7 @@ function renderAll(){
   $('clock').textContent = S.at || S.snap.ts.slice(11,16);
   renderCards(); renderAlerts(); renderFoot();
   if(!S.selected && S.snap.bulls[0]) S.selected = S.snap.bulls[0].symbol;
-  if(S.view === 'patterns') loadPatterns(); else if(S.view === 'desk') loadDesk(); else if(S.view === 'watch'){ loadWatch(); loadPatterns(); loadDesk(); } else renderDetail();
+  if(S.view === 'patterns') loadPatterns(); else if(S.view === 'desk') loadDesk(); else if(S.view === 'watch'){ loadWatch(); loadPatterns(); loadDesk(); } else if(S.view === 'trades'){ loadTrades(); loadPatterns(); } else renderDetail();
 }
 function outcomeLabel(o){
   if(o === null) return '<span class="mut">—</span>';
@@ -717,17 +785,18 @@ function notifyFromLive(snap, alerts){
 }
 
 // ---------- Patterns tab ----------
-S.view = location.hash === '#patterns' ? 'patterns' : location.hash === '#desk' ? 'desk' : location.hash === '#watch' ? 'watch' : 'scanner';
+S.view = location.hash === '#patterns' ? 'patterns' : location.hash === '#desk' ? 'desk' : location.hash === '#watch' ? 'watch' : location.hash === '#trades' ? 'trades' : 'scanner';
 S.prows = []; S.pcounts = {}; S.ppending = false; S.psel = null; S.pquick = 'grade'; S.pstats = null; S.pseen = new Set(); S.pseeded = false;
 const PK = ScanPatterns;
 function setView(v){
-  S.view = v; location.hash = v === 'patterns' ? '#patterns' : v === 'desk' ? '#desk' : v === 'watch' ? '#watch' : '';
+  if(v !== 'trades' && S.tsel != null) closeTradeDrawer();
+  S.view = v; location.hash = v === 'patterns' ? '#patterns' : v === 'desk' ? '#desk' : v === 'watch' ? '#watch' : v === 'trades' ? '#trades' : '';
   document.querySelectorAll('.tab').forEach(b => b.classList.toggle('on', b.dataset.view === v));
-  $('scannerView').hidden = v !== 'scanner'; $('patternsView').hidden = v !== 'patterns'; $('deskView').hidden = v !== 'desk'; $('watchView').hidden = v !== 'watch';
-  if(v === 'patterns'){ loadPatterns(); loadPatternStats(); } else if(v === 'desk'){ loadDesk(); } else if(v === 'watch'){ loadWatch(); loadPatterns(); loadDesk(); } else { renderDetail(); }
+  $('scannerView').hidden = v !== 'scanner'; $('patternsView').hidden = v !== 'patterns'; $('deskView').hidden = v !== 'desk'; $('watchView').hidden = v !== 'watch'; $('tradesView').hidden = v !== 'trades';
+  if(v === 'patterns'){ loadPatterns(); loadPatternStats(); } else if(v === 'desk'){ loadDesk(); } else if(v === 'watch'){ loadWatch(); loadPatterns(); loadDesk(); } else if(v === 'trades'){ renderTrades(); loadTrades(); loadPatterns(); } else { renderDetail(); }
 }
 document.querySelectorAll('.tab').forEach(b => b.onclick = () => setView(b.dataset.view));
-function panelEl(){ return S.lbA ? $('lightboxBody') : S.view === 'patterns' ? $('pdetail') : S.view === 'watch' ? $('wbody') : $('detail'); }
+function panelEl(){ return S.lbA ? $('lightboxBody') : S.view === 'patterns' ? $('pdetail') : S.view === 'watch' ? $('wbody') : S.view === 'trades' ? $('tdrawer') : $('detail'); }
 
 S.screen = ''; S.screenSet = null; S.screenAt = ''; S.screens = [];
 try{ S.screen = localStorage.getItem('screen') || ''; }catch(e){}
@@ -736,7 +805,7 @@ async function loadScreen(){
   const live = S.following && !S.day; const day = S.day || todayIST(), at = S.at || '15:30';
   try{ const res = await api(live ? `/api/screen/${S.screen}` : `/api/screen/${S.screen}?day=${day}&at=${at}`);
     if(res.name !== S.screen) return; S.screenSet = new Set(res.symbols); S.screenAt = res.at; screenLabel();
-    if(S.view === 'patterns') renderPatterns(); else if(S.view === 'desk') renderDesk(); else if(S.view === 'watch'){ if(S.wgroup === 'screen') setWatchList(res.symbols, 'screen'); } else { renderCards(); renderAlerts(); }
+    if(S.view === 'patterns') renderPatterns(); else if(S.view === 'desk') renderDesk(); else if(S.view === 'watch'){ if(S.wgroup === 'screen') setWatchList(res.symbols, 'screen'); } else if(S.view === 'trades') renderTrades(); else { renderCards(); renderAlerts(); }
   }catch(e){ S.screenSet = null; }
 }
 async function loadScreens(){
@@ -750,7 +819,7 @@ async function loadScreens(){
   $('wscreenPill').hidden = !S.screens.length; $('wscreenPill').textContent = S.screen ? `Screen ${S.screen}` : 'Screen';
   if(S.screen) loadScreen();
 }
-$('pscreen').onchange = () => { S.screen = $('pscreen').value; S.screenSet = null; try{ localStorage.setItem('screen', S.screen); }catch(e){} $('wscreenPill').textContent = S.screen ? `Screen ${S.screen}` : 'Screen'; screenLabel(); if(S.view === 'patterns') renderPatterns(); else if(S.view === 'desk') renderDesk(); else if(S.view === 'scanner'){ renderCards(); renderAlerts(); } loadScreen(); };
+$('pscreen').onchange = () => { S.screen = $('pscreen').value; S.screenSet = null; try{ localStorage.setItem('screen', S.screen); }catch(e){} $('wscreenPill').textContent = S.screen ? `Screen ${S.screen}` : 'Screen'; screenLabel(); if(S.view === 'patterns') renderPatterns(); else if(S.view === 'desk') renderDesk(); else if(S.view === 'trades') renderTrades(); else if(S.view === 'scanner'){ renderCards(); renderAlerts(); } loadScreen(); };
 async function loadPatterns(){
   const day = S.day || todayIST(), at = S.at || '15:30';
   if(S.screen) loadScreen();
@@ -758,7 +827,7 @@ async function loadPatterns(){
     const res = await api(`/api/patterns?day=${day}&at=${at}`);
     if((S.day || todayIST()) !== day || (S.at || '15:30') !== at) return;
     S.prows = res.rows; S.pcounts = res.counts; S.ppending = res.pending;
-    if(S.view === 'patterns') renderPatterns(); else if(S.view === 'watch') renderWatch();
+    if(S.view === 'patterns') renderPatterns(); else if(S.view === 'watch') renderWatch(); else if(S.view === 'trades') renderTrades();
     notifyPatterns(res.rows);
     if(S.ppending){ clearTimeout(S.ptimer); S.ptimer = setTimeout(loadPatterns, 10000); }
   }catch(e){ S.prows = []; S.pcounts = {}; if(S.view === 'patterns') renderPatterns(e.message); }
@@ -1052,6 +1121,213 @@ $('wgroups').onclick = e => { const p = e.target.closest('.pill'); if(!p) return
 $('wsector').onchange = () => { const sec = $('wsector').value; if(!sec) return; const g = WK.groups(S.snap, S.prows, S.sectorsOf); setWatchList(g.bySector[sec] || [], 'sector'); };
 document.querySelector('.wsort').onclick = e => { const b = e.target.closest('button'); if(!b) return; S.wsort = b.dataset.s; document.querySelectorAll('.wsort button').forEach(x => x.classList.toggle('on', x === b)); renderWatch(); };
 
+// ---------- Trades tab ----------
+// Settings, the day's ledger tiles, the sized and gated queue, and a drawer with the ticket and the paper log.
+// Pure logic lives in trades.js (ScanTrades); this block renders and wires. Nothing here places an order.
+const TK = ScanTrades;
+const TDEFAULTS = {capital:500000, max_loss:2000, day_loss:6000, max_trades:5, position_cap:0.6, product:'intraday', flat_by:'15:20'};
+const TFIELDS = ['capital','max_loss','day_loss','max_trades','position_cap','product','flat_by'];
+S.tsettings = {...TDEFAULTS}; S.trows = []; S.tledger = null; S.tapplied = false; S.trulesFrom = '2026-11-03'; S.tpending = false; S.terr = ''; S.tsel = null; S.tmsg = null;
+const tradeSel = () => S.tsel == null ? null : (S.trows || []).find(r => r.id === S.tsel) || null;
+const tTime = r => String(r.ts).slice(11,16);
+function applyTradeSettings(s){
+  S.tsettings = {...TDEFAULTS, ...(s || {})}; S.risk = +S.tsettings.max_loss || TDEFAULTS.max_loss;
+  $('riskChip').textContent = `${TK.inr(S.risk)} / trade`;
+}
+async function loadTradeSettings(){
+  try{ applyTradeSettings(await api('/api/trades/settings')); }catch(e){ applyTradeSettings(TDEFAULTS); }
+  if(S.view === 'trades') renderTrades();
+}
+async function loadTrades(){
+  const day = S.day || todayIST(), at = S.at || '15:30';
+  const current = () => (S.day || todayIST()) === day && (S.at || '15:30') === at;
+  try{
+    const res = await api(`/api/trades?day=${day}&at=${at}`);
+    if(!current()) return;
+    S.trows = res.rows || []; S.tledger = res.ledger || null; S.tapplied = !!res.applied; S.trulesFrom = res.rules_from || S.trulesFrom; S.tpending = !!res.pending; S.terr = '';
+    if(res.settings) applyTradeSettings(res.settings);
+    if(S.view === 'trades') renderTrades();
+    if(S.tpending){ clearTimeout(S.ttimer); S.ttimer = setTimeout(loadTrades, 10000); }
+  }catch(e){
+    if(!current()) return;
+    S.trows = []; S.tledger = null; S.tpending = false; S.tapplied = day >= S.trulesFrom; S.terr = String(e.message).split(' ')[0];
+    if(S.view === 'trades') renderTrades();
+  }
+}
+// "Double top" + score from the pattern row, or the scan name of a rule alert, from the row's ref
+function tradeSetup(r){
+  const ref = String(r.ref || '');
+  if(ref.startsWith('pattern:')){
+    const [sym, kind, formed] = ref.slice(8).split('|');
+    const p = (S.prows || []).find(x => x.symbol === sym && x.kind === kind && String(x.formed_at).slice(11,16) === formed);
+    return {label: PK.kindLabel(kind), score: p ? p.score : null};
+  }
+  if(ref.startsWith('alert:')){ const id = +ref.slice(6); const a = (S.alerts || []).find(x => x.id === id); return {label: a ? a.scan : 'rule alert', score: null}; }
+  return {label: r.source || '—', score: null};
+}
+function tradeTile(t){
+  const split = (t.key === 'day_risk' || t.key === 'trades') && t.value.includes(' / ');
+  const [v, of] = split ? t.value.split(' / ') : [t.value, null];
+  const edit = t.key === 'capital' || t.key === 'max_loss';
+  return `<div class="kpi" data-k="${t.key}"><div class="l">${esc(t.label)}</div>
+    <div class="n ${t.cls||''}"${edit ? ` data-edit="${t.key}" title="Click to change; Enter saves, Esc cancels"` : ''}>${esc(v)}${of != null ? ` <small>/ ${esc(of)}</small>` : ''}</div>
+    ${t.pct != null ? `<div class="meter ${t.cls||''}"><i style="width:${t.pct}%"></i></div>` : ''}<div class="sub">${esc(t.sub)}</div></div>`;
+}
+function renderTradeTiles(){
+  if($('ttiles').querySelector('input')) return;            // an in-place edit is open: leave it alone
+  $('ttiles').innerHTML = TK.tiles(S.tledger, S.tsettings, S.tapplied, S.trulesFrom).map(tradeTile).join('');
+}
+function oddsMini(odds){
+  if(!odds || !odds.mc) return `<span class="mut">—</span><span class="u tv none">${TK.verdictWord(odds)}</span>`;
+  const b = TK.oddsBar(odds);                                // segments may sum to 99.99: flex, never widths
+  return `<span class="mb" title="Rest of the day replayed: T1 first ${b.target} % · stop first ${b.stop} % · neither ${b.none} %"><i class="t" style="flex:${b.target} 0 0"></i><i class="s" style="flex:${b.stop} 0 0"></i><i class="n" style="flex:${b.none} 0 0"></i></span><span class="mono">${TK.oddsPair(odds)}</span><span class="u tv ${TK.verdictClass(odds)}">${TK.verdictWord(odds)}</span>`;
+}
+function tradeOutcome(r){
+  const o = r.outcome, paper = r.paper ? ' <span class="tag" title="Logged as a paper trade">paper</span>' : '';
+  if(!o) return `<span class="mut">open</span>${paper}`;
+  const hit = o.hit === 'target' ? '<span class="up">T1 hit</span>' : o.hit === 'stop' ? '<span class="dn">stopped</span>' : '<span class="mut">flat</span>';
+  const pnl = r.gate === 'BLOCK' && !r.paper ? '' : ` <span class="mono ${o.pnl_inr > 0 ? 'up' : o.pnl_inr < 0 ? 'dn' : 'mut'}">${TK.inr(o.pnl_inr)}</span>`;
+  return hit + pnl + paper;
+}
+function tradeRow(r){
+  const st = tradeSetup(r), g = TK.gateLabel(r), sz = r.size || {}, long = r.side === 'long';
+  return `<tr class="trow${r.gate === 'BLOCK' ? ' blocked' : ''}${S.tsel === r.id ? ' sel' : ''}" data-id="${r.id}">
+    <td class="mono">${tTime(r)}</td>
+    <td style="white-space:nowrap"><b class="mono">${esc(r.symbol)}</b><span class="side ${long?'L':'S'}">${long?'L':'S'}</span></td>
+    <td>${esc(st.label)}${st.score != null ? ` <span class="mut">· ${st.score}</span>` : ''}</td>
+    <td class="mono">${fmt(r.entry)}<span class="u mut">${fmt(r.stop)} / ${fmt(r.target)}</span></td>
+    <td style="white-space:nowrap">${oddsMini(r.odds)}</td>
+    <td class="mono">${sz.shares != null ? Number(sz.shares).toLocaleString('en-IN') + ' sh' : '—'}<span class="u mut">${TK.inr(sz.position_inr)}</span></td>
+    <td class="mono">${TK.inr(sz.risk_inr)}</td>
+    <td><span class="gate ${g.cls}">${g.text}</span>${g.reason ? `<span class="u mut">${esc(g.reason)}</span>` : ''}</td>
+    <td>${tradeOutcome(r)}</td></tr>`;
+}
+function renderTrades(){
+  const at = S.at || '15:30', all = S.trows || [];
+  renderTradeTiles();
+  const rows = TK.orderRows(TK.filterRows(all, S.filter, S.sectorsOf).filter(r => inScreen(r.symbol)), S.mode); screenLabel();
+  const pass = all.filter(r => r.gate === 'PASS').length, block = all.filter(r => r.gate === 'BLOCK').length;
+  $('teyebrow').textContent = `Trades · sized and gated queue · as of ${at}`;
+  $('tcounts').textContent = all.length ? `${rows.length < all.length ? `${rows.length} of ` : ''}${all.length} rows · ${pass} pass · ${block} blocked` : '';
+  $('tqueue').innerHTML = rows.map(tradeRow).join('');
+  $('tempty').textContent = S.terr ? `could not load the trades: ${S.terr}` : S.tpending ? 'preparing this day (trade rows, replays, outcomes)… refreshing'
+    : rows.length ? '' : all.length ? `no trades by ${at} pass the filters` : `no trades by ${at}`;
+  if(S.tsel != null && $('tdrawer').classList.contains('open')) renderTradeDrawer();
+}
+const LIMITED = {max_loss: 'sized by the max loss', position_cap: 'capped by the share of capital in one name', zero_distance: 'stop equals entry', delivery_no_short: 'delivery: no shorts'};
+function renderTradeDrawer(){
+  const r = tradeSel(), d = $('tdbody');
+  if(!r){ d.dataset.id = ''; d.innerHTML = `<h2>Trade</h2><div class="mut">not in the queue at ${S.at || '15:30'}</div>`; return; }
+  const keepNote = d.dataset.id === String(r.id) && $('tnote') ? $('tnote').value : ''; d.dataset.id = String(r.id);
+  const st = tradeSetup(r), long = r.side === 'long', o = r.odds, m = o && o.mc, p = o && o.past, sz = r.size || {}, s = S.tsettings;
+  const live = S.following && !S.day;
+  let odds;
+  if(m){
+    const b = TK.oddsBar(o), n = p ? (p.target||0) + (p.stop||0) + (p.none||0) : 0, word = TK.verdictWord(o);
+    odds = `<h3>Rest of the day, ${Number(m.paths||0).toLocaleString('en-IN')} replays from ${m.sessions} past sessions</h3>
+     <div class="obar"><span class="t" style="flex:${b.target} 0 0">T1 ${b.target} %</span><span class="s" style="flex:${b.stop} 0 0">stop ${b.stop} %</span><span class="n" style="flex:${b.none} 0 0">flat ${b.none} %</span></div>
+     <div class="mono mut" style="font-size:11px">${m.avg_r != null ? `avg ${sg(m.avg_r,2)} R` : ''}${m.median_tt_min != null ? ` · median ${m.median_tt_min} min to T1` : ''}${m.bars_left != null ? ` · ${m.bars_left} bars of 5m left to ${esc(s.flat_by)}` : ''}</div>
+     ${p ? `<h3>Same plan on the last ${n} past sessions</h3>
+     <div><b class="up">${p.target||0} target</b> · <b class="dn">${p.stop||0} stop</b> · <b class="mut">${p.none||0} flat</b></div>
+     <div class="sqs">${(p.last||[]).map(([day, res, min]) => `<i class="sq ${esc(res)}" title="${esc(day)} · ${res === 'none' ? 'flat' : esc(res)} · ${min} min"></i>`).join('')}${(p.last||[]).length ? `<span class="mut">last ${p.last.length} sessions, oldest first</span>` : ''}</div>` : ''}
+     <div class="tv ${TK.verdictClass(o)}" style="margin-top:8px;font-size:12px"><b>${esc(word.charAt(0).toUpperCase() + word.slice(1))}.</b> ${esc(o.sentence || '')}</div>`;
+  } else odds = `<h3>Replays</h3><div class="mut">no replay history for this setup at ${tTime(r)}</div>`;
+  const tk = TK.ticket(r, s), cut = tk.indexOf(' · BLOCKED: ');
+  const ticket = esc(cut >= 0 ? tk.slice(0, cut) : tk)
+    + `\n${Number(sz.shares||0).toLocaleString('en-IN')} shares · position ${TK.inr(sz.position_inr)} · ${esc(LIMITED[sz.limited_by] || '')} · flat by ${esc(s.flat_by)}`
+    + (cut >= 0 ? `\n<span class="dn">${esc(tk.slice(cut + 3))}</span>` : '');
+  const out = r.outcome;
+  const mins = out && out.settled_at ? Math.round((Date.parse(out.settled_at) - Date.parse(r.ts)) / 60000) : null;
+  const what = out ? `What happened: ${out.hit === 'target' ? 'T1 hit' : out.hit === 'stop' ? 'stopped' : `flat at ${esc(s.flat_by)}`}${mins != null && out.hit !== 'none' ? ` after ${mins} min` : ''} · exit ${fmt(out.exit_px)} · ${TK.inr(out.pnl_inr)} on ${Number(sz.shares||0).toLocaleString('en-IN')} shares` : 'What happened: still open at this minute.';
+  const msg = S.tmsg && S.tmsg.id === r.id ? S.tmsg.text : '';
+  d.innerHTML = `<h2>${esc(r.symbol)} <span class="side ${long?'L':'S'}">${long?'L':'S'}</span> <span class="mut" style="font:400 12px var(--sans)">${esc(st.label)}${st.score != null ? ` · ${st.score}` : ''} · ${tTime(r)}</span></h2>
+   <div class="sub">${r.source === 'alert' ? 'rule alert' : 'pattern trigger'} · ${esc(S.sectorsOf[r.symbol] || '')} · entry ${fmt(r.entry)} · stop ${fmt(r.stop)} · T1 ${fmt(r.target)}${r.target2 != null ? ` · T2 ${fmt(r.target2)}` : ''} · R:R 1:${fmt(r.rr,2)} · gate <span class="gate ${TK.gateLabel(r).cls}">${TK.gateLabel(r).text}</span></div>
+   <div class="tfrow">${TFS.map(t=>`<button class="tf ${curTf()===t?'on':''}" data-tf="${t}">${t}</button>`).join('')}<span class="readout mono"></span></div>
+   <canvas class="chart" width="620" height="430"></canvas>
+   ${odds}
+   <h3>Ticket</h3>
+   <pre class="tticket">${ticket}</pre>
+   <h3>Paper log</h3>
+   ${r.paper ? `<div class="mono" style="font-size:12px">logged at ${esc(String(r.paper.logged_at).slice(11,16))}${r.paper.note ? ` · ${esc(r.paper.note)}` : ''}</div>` : ''}
+   <div class="ask"><input id="tnote" maxlength="200" placeholder="note (optional): why you took it, what you saw" autocomplete="off"></div>
+   <div class="wbtn"><button id="tpaper"${r.paper || !live ? ' disabled' : ''} title="${r.paper ? 'Already logged' : live ? 'Record this row as a paper trade: it then counts in the day risk and P&amp;L tiles' : 'Paper trades are logged on the live feed only'}">${r.paper ? 'Logged as paper trade' : 'Log as paper trade'}</button><button id="taskdesk" title="Open the Desk tab with this ticket in the question box">Ask the desk</button></div>
+   <div class="mut" style="font-size:11px;margin-top:8px">${msg ? esc(msg) + ' · ' : ''}${what}</div>`;
+  if(keepNote) $('tnote').value = keepNote;
+  wireChart({symbol: r.symbol, minimal: true, price: r.entry, stop: r.stop, target: r.target, trade: r});
+  $('tpaper').onclick = () => logPaper(r);
+  $('taskdesk').onclick = () => { const q = TK.ticket(r, S.tsettings) + ' — take, wait or skip?'; setView('desk'); $('dq').value = q; $('dq').focus(); };
+}
+function openTradeDrawer(id){
+  S.tsel = id; $('tdrawer').classList.add('open');
+  document.querySelectorAll('#tqueue tr.trow').forEach(t => t.classList.toggle('sel', +t.dataset.id === id));
+  hoverIdx = null; renderTradeDrawer();
+}
+function closeTradeDrawer(){
+  S.tsel = null; $('tdrawer').classList.remove('open');
+  document.querySelectorAll('#tqueue tr.trow.sel').forEach(t => t.classList.remove('sel'));
+}
+async function logPaper(r){
+  const b = $('tpaper'); if(b) b.disabled = true;
+  try{
+    const res = await fetch(`/api/trades/${r.id}/paper`, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({note: ($('tnote') ? $('tnote').value : '').trim()})});
+    if(!res.ok){ let det = ''; try{ det = (await res.json()).detail || ''; }catch(e){} throw new Error(`${res.status}${det ? ' ' + det : ''}`); }
+    S.tmsg = {id: r.id, text: 'logged as a paper trade'}; if($('tnote')) $('tnote').value = '';
+  }catch(e){ S.tmsg = {id: r.id, text: `could not log: ${e.message}`}; if(b) b.disabled = false; }
+  if(S.tsel === r.id) renderTradeDrawer();
+  loadTrades();
+}
+// ---- settings: the gear form and the two in-place tiles
+function openTradeSettings(err, draft){
+  const s = {...S.tsettings, ...(draft || {})};
+  TFIELDS.forEach(k => { $('ts_' + k).value = s[k] == null ? '' : s[k]; });
+  $('tserr').textContent = err || ''; $('tsettings').hidden = false; $('tgear').classList.add('primary');
+  if(!err) $('ts_capital').focus();
+}
+function closeTradeSettings(){ $('tsettings').hidden = true; $('tserr').textContent = ''; $('tgear').classList.remove('primary'); }
+function readTradeSettings(){
+  const num = k => { const v = $('ts_' + k).value.trim(); return v === '' ? null : Number(v); };
+  return {capital: num('capital'), max_loss: num('max_loss'), day_loss: num('day_loss'), max_trades: num('max_trades'),
+          position_cap: num('position_cap'), product: $('ts_product').value, flat_by: $('ts_flat_by').value.trim()};
+}
+async function saveTradeSettings(body){
+  const res = await fetch('/api/trades/settings', {method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
+  let out = null; try{ out = await res.json(); }catch(e){}
+  if(!res.ok){
+    const det = out && out.detail != null ? (typeof out.detail === 'string' ? out.detail : JSON.stringify(out.detail)) : '';
+    throw new Error(res.status === 400 && det ? det : `could not save: ${res.status}${det ? ' ' + det : ''}`);
+  }
+  applyTradeSettings(out); renderTrades(); loadTrades();     // the tiles, the header chip and the open drawer follow the new numbers
+  return out;
+}
+$('tgear').onclick = () => $('tsettings').hidden ? openTradeSettings() : closeTradeSettings();
+$('tsCancel').onclick = closeTradeSettings;
+$('tsSave').onclick = async () => {
+  $('tsSave').disabled = true; $('tserr').textContent = '';
+  try{ await saveTradeSettings(readTradeSettings()); closeTradeSettings(); }catch(e){ $('tserr').textContent = e.message; }
+  $('tsSave').disabled = false;
+};
+$('tsettings').addEventListener('keydown', e => { if(e.key === 'Enter' && e.target.matches('input')) $('tsSave').click(); else if(e.key === 'Escape'){ e.stopPropagation(); closeTradeSettings(); } });
+$('ttiles').onclick = e => {
+  const n = e.target.closest('[data-edit]'); if(!n || n.querySelector('input')) return;
+  const k = n.dataset.edit, cur = S.tsettings[k];
+  n.innerHTML = `<input type="number" min="1" step="${k === 'capital' ? 10000 : 100}" value="${esc(cur)}" aria-label="${esc(k)}">`;
+  const inp = n.querySelector('input'); inp.focus(); inp.select();
+  let done = false;
+  const finish = async save => {
+    if(done) return; done = true;
+    const raw = inp.value.trim(), v = Number(raw);
+    n.textContent = '…';                                     // drop the input so the tiles can redraw
+    if(!save || raw === '' || v === cur){ renderTradeTiles(); return; }
+    try{ await saveTradeSettings({...S.tsettings, [k]: v}); }
+    catch(err){ renderTradeTiles(); openTradeSettings(err.message, {[k]: raw}); }
+  };
+  inp.onkeydown = ev => { if(ev.key === 'Enter') finish(true); else if(ev.key === 'Escape'){ ev.stopPropagation(); finish(false); } };
+  inp.onblur = () => finish(true);
+};
+$('tqueue').onclick = e => { const tr = e.target.closest('tr.trow'); if(tr) openTradeDrawer(+tr.dataset.id); };
+$('tclose').onclick = closeTradeDrawer;
+document.addEventListener('keydown', e => { if(e.key === 'Escape' && !S.lbA && S.tsel != null) closeTradeDrawer(); });
+
 // ---------- chart pop-out ----------
 S.lbA = null;
 function openChartBig(a){
@@ -1064,7 +1340,7 @@ function openChartBig(a){
 }
 function closeChartBig(){
   if(!S.lbA) return; S.lbA = null; $('lightbox').hidden = true; hoverIdx = null;
-  if(S.view === 'patterns') renderPatternDetail(); else if(S.view === 'watch'){ if(S.wsel) renderWatchDrawer(); } else renderDetail();
+  if(S.view === 'patterns') renderPatternDetail(); else if(S.view === 'watch'){ if(S.wsel) renderWatchDrawer(); } else if(S.view === 'trades'){ if(S.tsel != null) renderTradeDrawer(); } else renderDetail();
 }
 $('lbClose').onclick = closeChartBig;
 $('lightbox').addEventListener('click', e => { if(e.target === $('lightbox')) closeChartBig(); });
@@ -1080,21 +1356,21 @@ function onLiveSnapshot(snap){
 }
 function connect(){
   const ws = new WebSocket((location.protocol==='https:'?'wss://':'ws://')+location.host+'/ws/scan');
-  ws.onmessage = e => { const m = JSON.parse(e.data); if(m && m.type === 'patterns'){ loadPatterns(); return; } if(m && m.type === 'desk'){ loadDesk(); return; } onLiveSnapshot(m); if(S.view === 'watch' && S.following) loadWatch(); };
+  ws.onmessage = e => { const m = JSON.parse(e.data); if(m && m.type === 'patterns'){ loadPatterns(); return; } if(m && m.type === 'desk'){ loadDesk(); return; } if(m && m.type === 'trades'){ if(S.view === 'trades') loadTrades(); return; } onLiveSnapshot(m); if(S.view === 'watch' && S.following) loadWatch(); };
   ws.onclose = () => { if(S.following && S.liveSnap) setStatus('RECONNECTING','warn'); setTimeout(connect, 3000); };
 }
 document.addEventListener('click', e => {
   const c = e.target.closest('.card'); if(c){ S.selected = c.dataset.sym; renderCards(); renderDetail(); return; }
   const r = e.target.closest('.alert'); if(r){ S.selected = r.dataset.sym; enterReplay(S.day || todayIST(), r.dataset.at); }
 });
-matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => { if(S.view === 'patterns') renderPatternDetail(); else renderDetail(); });
+matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => { if(S.view === 'patterns') renderPatternDetail(); else if(S.view === 'trades'){ if(S.tsel != null) renderTradeDrawer(); } else renderDetail(); });
 
 (async () => {
   try{ const ins = await api('/api/instruments'); ins.forEach(i => { S.lots[i.symbol] = i.lot_size; S.sectorsOf[i.symbol] = i.sector; }); }catch(e){}
-  populateSectors(); loadScreens();
+  populateSectors(); loadScreens(); loadTradeSettings();
   try{ const d = await api('/api/days'); S.days = d.days; S.live = d.live; S.expiry = d.expiry; }catch(e){ S.days = []; }
   populateDays(); loadStats(); setInterval(loadStats, 300000);
-  if(S.view !== 'scanner'){ document.querySelectorAll('.tab').forEach(b => b.classList.toggle('on', b.dataset.view === S.view)); $('scannerView').hidden = true; $('patternsView').hidden = S.view !== 'patterns'; $('deskView').hidden = S.view !== 'desk'; $('watchView').hidden = S.view !== 'watch'; if(S.view === 'patterns') loadPatternStats(); else if(S.view === 'desk') loadDesk(); else { loadWatch(); loadPatterns(); loadDesk(); } }
+  if(S.view !== 'scanner'){ document.querySelectorAll('.tab').forEach(b => b.classList.toggle('on', b.dataset.view === S.view)); $('scannerView').hidden = true; $('patternsView').hidden = S.view !== 'patterns'; $('deskView').hidden = S.view !== 'desk'; $('watchView').hidden = S.view !== 'watch'; $('tradesView').hidden = S.view !== 'trades'; if(S.view === 'patterns') loadPatternStats(); else if(S.view === 'desk') loadDesk(); else if(S.view === 'trades'){ renderTrades(); loadTrades(); loadPatterns(); } else { loadWatch(); loadPatterns(); loadDesk(); } }
   connect();
   let liveSnap = null;
   try{ liveSnap = await api('/api/scan'); }catch(e){}
