@@ -55,3 +55,9 @@ test('alert and pattern messages carry the replay odds when present', () => {
   assert.equal(p.at, '13:25');
   assert.equal(N.patternMessage({ ...r, odds: null }, 'Triple top').body, 'LT  SELL  ₹3,793.70  ·  13:25');
 });
+
+test('break alerts never notify', () => {
+  const seen = new Set();
+  const out = N.newAlerts(seen, [{ scan: 'PDH break', symbol: 'X', ts: '2026-10-30T15:05:00+05:30' }, { scan: 'PDH fade', symbol: 'X', ts: '2026-10-30T15:15:00+05:30' }]);
+  assert.deepEqual(out.map(a => a.scan), ['PDH fade']);
+});

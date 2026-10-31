@@ -5,10 +5,10 @@
 <link rel="icon" type="image/svg+xml" href="favicon.svg">
 <meta name="theme-color" content="#111513">
 <script src="filter.js?v=412e789"></script>
-<script src="notify.js?v=ec9593b"></script>
+<script src="notify.js?v=df9a38f"></script>
 <script src="patterns.js?v=v6"></script>
 <script src="desk.js?v=ec9593b"></script>
-<script src="watch.js?v=ec9593b"></script>
+<script src="watch.js?v=df9a38f"></script>
 <script src="trades.js?v=5e3d8fa"></script>
 <style>
 /* Layout: control strip → sector/breadth rail → bull/bear card grid → detail panel with canvas chart. Terminal-style data UI. */
@@ -155,7 +155,7 @@ table.pt{width:100%;border-collapse:collapse;font-size:12px}.pt th{font:600 10px
 .wc canvas.sp{width:100%;height:56px;display:block}
 .wst{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-top:6px}.wst div{font:500 10px var(--sans);letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}.wst span{display:block;font:600 12px var(--mono);color:var(--fg);letter-spacing:0;text-transform:none;margin-top:1px}
 .wdl{height:5px;border-radius:3px;background:var(--bear);overflow:hidden;margin-top:4px}.wdl i{display:block;height:100%;background:var(--bull);transition:width .6s}
-.wev{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;min-height:20px}.wev span{font:600 10px var(--mono);padding:2px 7px;border-radius:4px;border:1px solid var(--line);color:var(--fg);animation:pop .4s ease}.wev .form{color:var(--muted)}.wev .fail{color:var(--muted);text-decoration:line-through}.wev .trig{background:var(--fg);color:var(--bg);border-color:var(--fg)}.wev .take{background:var(--bull);color:#0b1a10;border-color:var(--bull)}.wev .skip{background:var(--bear);color:#fff;border-color:var(--bear)}.wev .wait{background:var(--amber);color:#1a1300;border-color:var(--amber)}
+.wev{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;min-height:20px}.wev span{font:600 10px var(--mono);padding:2px 7px;border-radius:4px;border:1px solid var(--line);color:var(--fg);animation:pop .4s ease}.wev .form{color:var(--muted)}.wev .fail{color:var(--muted);text-decoration:line-through}.wev .trig{background:var(--fg);color:var(--bg);border-color:var(--fg)}.wev .take{background:var(--bull);color:#0b1a10;border-color:var(--bull)}.wev .skip{background:var(--bear);color:#fff;border-color:var(--bear)}.wev .wait{background:var(--amber);color:#1a1300;border-color:var(--amber)}.wev .brk{color:var(--muted);border-style:dashed}.wev .fade.short{background:var(--bear-soft);color:var(--bear);border-color:var(--bear)}.wev .fade.long{background:var(--bull-soft);color:var(--bull);border-color:var(--bull)}
 @keyframes pop{from{transform:scale(.6);opacity:0}to{transform:scale(1);opacity:1}}
 .wdrawer{position:fixed;top:0;right:0;height:100vh;width:min(600px,100vw);background:var(--panel);border-left:1px solid var(--line);box-shadow:-20px 0 50px rgba(0,0,0,.45);transform:translateX(100%);transition:transform .35s cubic-bezier(.2,.7,.2,1);z-index:60;overflow:auto;padding:14px 16px}
 .wdrawer.open{transform:none}.wdrawer .close{position:absolute;top:10px;right:12px}
@@ -583,10 +583,11 @@ function drawChart(a){
     const at = S.at||'15:30';
     S.alerts.filter(al => al.symbol===a.symbol && al.ts.slice(11,16) <= at).forEach(al => {
       const i = hhmmToMin(al.ts.slice(11,16)); const m = (chartCache.data||[]).find(c=>minIdx(c)===i); if(!m) return;
-      const xx = xi(i)+ (W-pL-pR)/375*0.5; const longish = al.side==='long';
-      ctx.fillStyle = longish ? C('--bull') : C('--bear'); ctx.beginPath();
-      if(longish){ const yy=y(m.l)+4; ctx.moveTo(xx,yy); ctx.lineTo(xx-4,yy+7); ctx.lineTo(xx+4,yy+7); }
-      else { const yy=y(m.h)-4; ctx.moveTo(xx,yy); ctx.lineTo(xx-4,yy-7); ctx.lineTo(xx+4,yy-7); }
+      const xx = xi(i)+ (W-pL-pR)/375*0.5; const longish = al.side==='long', kind = ScanWatch.alertKind(al.scan);
+      const hw = kind==='fade' ? 5 : 4, ht = kind==='fade' ? 9 : 7;   // PD break note: grey; PD fade: a larger red/green one
+      ctx.fillStyle = kind==='brk' ? C('--muted') : longish ? C('--bull') : C('--bear'); ctx.beginPath();
+      if(longish){ const yy=y(m.l)+4; ctx.moveTo(xx,yy); ctx.lineTo(xx-hw,yy+ht); ctx.lineTo(xx+hw,yy+ht); }
+      else { const yy=y(m.h)-4; ctx.moveTo(xx,yy); ctx.lineTo(xx-hw,yy-ht); ctx.lineTo(xx+hw,yy-ht); }
       ctx.closePath(); ctx.fill();
     });
   }
@@ -1015,7 +1016,7 @@ function wcard(r, ev){
    <div class="wpos"><div class="track"></div><span class="lvl" style="left:${pos(r.prev_low)}%">PDL</span><span class="lvl" style="left:${pos(r.prev_close)}%">PC</span><span class="lvl vw" style="left:${pos(r.vwap)}%">VWAP</span><span class="lvl" style="left:${pos(r.prev_high)}%">PDH</span><i class="cur" style="left:${pos(r.price)}%"></i></div>
    <canvas class="sp" width="560" height="120" title="Last two hours, 5-minute candles, VWAP dashed, previous-day high (green) and low (red); the band widens when price is at the level"></canvas>
    <div class="wst"><div>OI<span><i class="chip ${r.oi_cls}" style="font-size:9.5px;padding:1px 6px">${esc(r.oi_label)}</i></span></div><div>RVOL<span class="${r.rvol>=1.5?'up':''}">${fmt(r.rvol,1)}×</span></div><div>Δ buy/sell<span>${WK.deltaShare(r)!=null?WK.deltaShare(r)+'%':'—'}</span>${WK.deltaShare(r)!=null?`<div class="wdl"><i style="width:${WK.deltaShare(r)}%"></i></div>`:''}</div></div>
-   <div class="wev">${ev.map(e=>`<span class="${e.k}">${esc(e.t)}</span>`).join('')}</div>`;
+   <div class="wev">${ev.map(e=>`<span class="${e.k}${e.s?' '+e.s:''}">${esc(e.t)}</span>`).join('')}</div>`;
 }
 const cssVar = k => getComputedStyle(document.documentElement).getPropertyValue(k).trim();
 function wspark(c, r){
@@ -1076,7 +1077,7 @@ function wframe(c){
 }
 function renderWatch(){
   const grid = $('wgrid'); $('wat').textContent = S.wat ? `as of ${S.wat}` : '';
-  const rows = S.watch.map(s => S.wrows[s]).filter(Boolean).map(r => ({...r, events: WK.events(r.symbol, S.prows, S.desk && S.desk.verdicts)}));
+  const rows = S.watch.map(s => S.wrows[s]).filter(Boolean).map(r => ({...r, events: WK.events(r.symbol, S.prows, S.desk && S.desk.verdicts, (S.alerts||[]).filter(x => !S.day || x.ts.slice(11,16) <= (S.at||'15:30')))}));
   const missing = S.watch.filter(s => !S.wrows[s]);
   const minuteIdx = hhmmToMin(S.wat || S.at || '09:15');
   const o = WK.order(rows, S.wsort, S.wcache, minuteIdx, 5); S.wcache = o.cache;

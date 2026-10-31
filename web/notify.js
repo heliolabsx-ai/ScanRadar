@@ -6,12 +6,15 @@
   const hhmm = ts => ts.slice(11, 16);
   const inr = n => '₹' + Number(n).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
+  // The PDH/PDL break note is quiet: marked seen, never a notification (its fade is the alarm).
+  const quiet = a => /^PD[HL] break$/.test(a.scan || '');
+
   // rows newest-first; marks everything seen; returns the unseen ones unless seeding
   function newAlerts(seen, rows, opts = {}) {
     const fresh = [];
     for (const a of rows) {
       const k = key(a);
-      if (!seen.has(k)) { seen.add(k); if (!opts.seed) fresh.push(a); }
+      if (!seen.has(k)) { seen.add(k); if (!opts.seed && !quiet(a)) fresh.push(a); }
     }
     return fresh;
   }

@@ -69,3 +69,12 @@ test('a pattern chip carries the replay odds when the row has them', () => {
   assert.ok(W.events('A', prows, [])[0].t.endsWith(' · 39/42'));
   assert.ok(!W.events('A', [{ ...prows[0], odds: null }], [])[0].t.includes('/'));
 });
+test('alert chips for PD break and fade', () => {
+  const als = [{ scan: 'PDH break', symbol: 'X', side: 'short', ts: '2026-10-30T15:05:00+05:30' },
+               { scan: 'PDH fade', symbol: 'X', side: 'short', ts: '2026-10-30T15:15:00+05:30', odds: { mc: { target_pct: 61.2, stop_pct: 28.9 }, verdict: 'edge' } },
+               { scan: 'B0101', symbol: 'X', side: 'long', ts: '2026-10-30T10:00:00+05:30' }];
+  assert.equal(W.alertKind('PDL break'), 'brk'); assert.equal(W.alertKind('PDH fade'), 'fade'); assert.equal(W.alertKind('B0101'), null);
+  const ev = W.events('X', [], [], als);
+  assert.deepEqual(ev.map(e => e.k + '|' + e.t), ['fade|PDH FADE · SELL 15:15 · 61/29']);     // the fade replaces the break; B0101 is not a chip
+  assert.deepEqual(W.events('X', [], [], als.slice(0, 1)).map(e => e.t), ['ABOVE PDH 15:05']);
+});

@@ -28,9 +28,22 @@
     return { cache: next, rows: [...rows].sort((a, b) => (pos[a.symbol] ?? 999) - (pos[b.symbol] ?? 999)) };
   }
 
-  // Event chips for a symbol from the day's pattern rows and desk verdicts (newest first, max 3).
-  function events(symbol, prows, verdicts) {
+  // Rule-alert family for chips and chart markers: the quiet PDH/PDL break note, the loud fade alarm, or null.
+  function alertKind(scan) { return /^PD[HL] break$/.test(scan || '') ? 'brk' : /^PD[HL] fade$/.test(scan || '') ? 'fade' : null; }
+
+  // Event chips for a symbol from the day's pattern rows, desk verdicts and PD break/fade alerts (newest first, max 3).
+  // A fade chip for the stock replaces its break chip; alerts of other scans are not chips.
+  function events(symbol, prows, verdicts, alerts) {
     const out = [];
+    const mine = (alerts || []).filter(a => a.symbol === symbol && alertKind(a.scan));
+    const faded = mine.some(a => alertKind(a.scan) === 'fade');
+    mine.forEach(a => {
+      const lvl = a.scan.slice(0, 3), at = String(a.ts).slice(11, 16);
+      if (alertKind(a.scan) === 'brk') { if (!faded) out.push({ k: 'brk', t: `${lvl === 'PDH' ? 'ABOVE' : 'BELOW'} ${lvl} ${at}`, ts: String(a.ts) }); return; }
+      const side = a.side === 'short' ? ' · SELL' : a.side === 'long' ? ' · BUY' : '';
+      const odds = a.odds && root.ScanTrades ? ` · ${root.ScanTrades.oddsPair(a.odds)}` : '';
+      out.push({ k: 'fade', s: a.side === 'long' ? 'long' : 'short', t: `${lvl} FADE${side} ${at}${odds}`, ts: String(a.ts) });
+    });
     (prows || []).filter(r => r.symbol === symbol).forEach(r => {
       const conf = r.confidence && r.confidence.hit_rate != null ? ` · conf ${Math.round(r.confidence.hit_rate)}%` : '';
       const label = (root.ScanPatterns && root.ScanPatterns.kindLabel(r.kind)) || r.kind;
@@ -71,5 +84,5 @@
     return { picks, trig, bySector };
   }
 
-  root.ScanWatch = { load, save, digits, heat, order, events, position, groups, deltaShare, levels, DEFAULT };
+  root.ScanWatch = { load, save, digits, heat, order, events, alertKind, position, groups, deltaShare, levels, DEFAULT };
 })(typeof window !== 'undefined' ? window : globalThis);
