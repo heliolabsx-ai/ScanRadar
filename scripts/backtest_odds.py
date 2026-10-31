@@ -29,16 +29,20 @@ def _hit(row: dict) -> str:
 
 
 def calibration(rows: list[dict]) -> dict:
-    """Predicted target chance against the realised share, per decile and per verdict word."""
+    """Predicted target chance against the realised share, per decile and per verdict word.
+    Rows with odds but no outcome are `ungraded` and left out of the verdict table."""
     groups: dict[str, list[dict]] = {b: [] for b in BUCKETS}
     words: dict[str, list[dict]] = {}
-    no_odds = 0
+    no_odds = ungraded = 0
     for r in rows:
         odds = r.get("odds")
         if not odds:
             no_odds += 1
             continue
         groups[_bucket(float(odds["mc"]["target_pct"]))].append(r)
+        if r.get("outcome") is None:
+            ungraded += 1
+            continue
         words.setdefault(odds["verdict"], []).append(r)
     deciles = []
     for b in BUCKETS:
@@ -51,13 +55,14 @@ def calibration(rows: list[dict]) -> dict:
     for w, g in words.items():
         share = lambda h: round(100 * sum(_hit(r) == h for r in g) / len(g), 1)
         by_verdict[w] = {"n": len(g), "target_pct": share("target"), "stop_pct": share("stop"), "none_pct": share("none")}
-    return {"deciles": deciles, "by_verdict": by_verdict, "no_odds": no_odds}
+    return {"deciles": deciles, "by_verdict": by_verdict, "no_odds": no_odds, "ungraded": ungraded}
 
 
 def fmt_note(cal: dict, days: int, n_rows: int) -> str:
     f = lambda v: "—" if v is None else f"{v:.1f}"
     out = [f"# Time Machine calibration · {dt.datetime.now(IST):%Y-%m-%d %H:%M} IST", "",
-           f"{days} trading days, {n_rows} trigger rows ({cal.get('no_odds', 0)} without odds, left out of both tables). "
+           f"{days} trading days, {n_rows} trigger rows ({cal.get('no_odds', 0)} without odds, left out of both tables; "
+           f"{cal.get('ungraded', 0)} ungraded, left out of the verdict table). "
            "Realised = share of rows that hit the target among those that hit target or stop; the rest ran to the flat-by time.", "",
            "## Predicted against realised target chance", "",
            "| predicted bucket % | rows | predicted % | realised % |", "|---|---|---|---|"]
@@ -105,10 +110,15 @@ def main(argv=None) -> int:
     if not days:
         print("no stored days older than today")
         return 1
+    import patterns as pt
+    from core.patterns import detector_hash
     all_rows, t0 = [], time.time()
     for day in days:
         try:
             with psycopg.connect(DB) as con:
+                if pt.patterns_needed(con, day, detector_hash()):
+                    print(f"warning: {day} has no stored pattern rows under this detector (or ungraded ones); only its alert rows count. "
+                          f"Run scripts/backtest_patterns.py first.", file=sys.stderr, flush=True)
                 settings = trades.get_settings(con)
                 if args.write:
                     n = trades.backfill_day(con, day, settings)
