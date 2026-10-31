@@ -46,3 +46,39 @@ def test_settings_roundtrip_validates():
         trades.put_settings(con, {"product": "cash"}); assert False
     except ValueError:
         pass
+
+def _alert(hhmm, i, price=100.0, stop=99.0, target=102.0, scan="B0101", symbol="K"):
+    return {"ts": T(hhmm).isoformat(), "scan": scan, "symbol": symbol, "price": price, "stop": stop, "target": target, "side": "long", "source": "live", "id": i}
+
+def test_repeat_rule_anchors_on_the_last_alert_that_got_a_row(monkeypatch):
+    monkeypatch.setattr(trades, "_pattern_rows_at", lambda con, day, at, include_replay: [])
+
+    def run(als):
+        monkeypatch.setattr(trades, "_alert_rows", lambda con, day: als)
+        return [c["ts"] for c in trades.candidates(None, dt.date(2026, 10, 28), T("14:00"), include_replay=False, max_age=None, pat_stats={}, scans={})]
+
+    assert run([_alert("10:00", 1), _alert("10:40", 2), _alert("11:10", 3)]) == [T("10:00"), T("11:10")]
+    assert run([_alert("10:00", 1, target=100.5), _alert("10:30", 2)]) == [T("10:30")]          # R:R 0.5 gets no row, so no anchor
+    monkeypatch.setattr(trades, "_alert_rows", lambda con, day: [_alert("13:00", 1), _alert("13:55", 2)])
+    assert trades.candidates(None, dt.date(2026, 10, 28), T("14:00"), include_replay=False, max_age=10, pat_stats={}, scans={}) == []   # stale 13:00 still anchors
+
+def test_pattern_trigger_that_failed_later_is_still_a_candidate(monkeypatch):
+    stored = {"symbol": "LT", "kind": "double_top", "side": "short", "source": "live", "formed_at": T("10:00"), "triggered_at": T("10:20"),
+              "failed_at": T("10:35"), "abandoned_at": None, "superseded_at": None, "neckline": 101.0, "entry": 100.0, "stop": 102.0,
+              "target": 96.0, "checks": [True] * 6, "facts": None, "score": 6, "outcome": None}
+    monkeypatch.setattr(trades.pt, "stored_rows", lambda con, day: [stored])
+    monkeypatch.setattr(trades, "_alert_rows", lambda con, day: [])
+    cands = lambda at: trades.candidates(None, dt.date(2026, 10, 28), at, include_replay=False, max_age=None, pat_stats={}, scans={})
+    assert [(c["ref"], c["bar"], c["target"]) for c in cands(T("14:00"))] == [("pattern:LT|double_top|10:00", "10:15", 96.0)]
+    assert cands(T("10:15")) == []                                                             # not triggered yet
+    monkeypatch.setattr(trades.pt, "stored_rows", lambda con, day: [dict(stored, failed_at=T("10:20"))])
+    assert cands(T("14:00")) == []                                                             # failed on the trigger minute
+
+def test_rows_as_of_clear_later_settlements_and_paper_logs():
+    rows = [{"ts": T("10:20").isoformat(), "outcome": {"settled_at": T("11:00").isoformat()}, "paper": {"logged_at": T("10:30").isoformat(), "note": ""}},
+            {"ts": T("10:40").isoformat(), "outcome": None, "paper": {"logged_at": T("12:00").isoformat(), "note": ""}},
+            {"ts": T("11:30").isoformat(), "outcome": None, "paper": None}]
+    cut = trades._cut(rows, T("11:00"))
+    assert [r["ts"][11:16] for r in cut] == ["10:20", "10:40"]
+    assert cut[0]["outcome"] is not None and cut[0]["paper"] is not None and cut[1]["paper"] is None
+    assert trades._cut(rows, T("10:50"))[0]["outcome"] is None and rows[0]["outcome"] is not None   # input untouched

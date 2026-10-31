@@ -66,10 +66,12 @@ def _rr(entry: float, stop: float, target: float) -> float:
 
 
 def _pattern_rows_at(con, day, at, include_replay: bool) -> list[dict]:
-    """Triggered pattern rows as the dashboard shows them at `at` (live only unless include_replay)."""
-    stored = [r for r in pt.stored_rows(con, day) if (include_replay or r["source"] == "live") and r.get("triggered_at")]
+    """Pattern triggers up to `at` (live only unless include_replay), each as the dashboard showed it
+    at its own trigger minute, the minute the desk judges it: a trigger that failed later still counts."""
+    stored = [r for r in pt.stored_rows(con, day)
+              if (include_replay or r["source"] == "live") and r.get("triggered_at") is not None and r["triggered_at"] <= at]
     stored.sort(key=lambda r: r["source"] != "live")          # a live row wins over its replay twin
-    return [r for r in pt.rows_at(stored, at) if r["state"] != "forming" and r["triggered_at"] is not None]
+    return [x for r in stored for x in pt.rows_at([r], r["triggered_at"]) if x["state"] != "forming" and x["triggered_at"] is not None]
 
 
 def _alert_rows(con, day) -> list[dict]:
@@ -106,18 +108,21 @@ def _alert_candidates(rows: list[dict], at: dt.datetime, include_replay: bool, m
     out, last = [], {}
     for a in rows:
         pair = (a["scan"], a["symbol"])
-        prev, last[pair] = last.get(pair), a["ts"]
+        prev = last.get(pair)                                 # the pair's previous alert that got a row
         if a["ts"] > at:
             continue
         if prev is not None and (a["ts"] - prev).total_seconds() < REPEAT_MIN * 60:
-            continue                                          # repeat of the same scan on the same name within the hour
+            continue                                          # repeat within the hour of the pair's last row
         sc = scans.get(a["scan"]) or {}
         side = sc.get("side") or a.get("side")
         if sc.get("desk") is False or not side or a.get("stop") is None or a.get("target") is None or a.get("price") is None:
             continue
         entry, stop, target = float(a["price"]), float(a["stop"]), float(a["target"])
         rr = _rr(entry, stop, target)
-        if rr < desk.ALERT_MIN_RR or (max_age is not None and live_desk.stale(a["ts"], at, max_age)):
+        if rr < desk.ALERT_MIN_RR:
+            continue
+        last[pair] = a["ts"]                                  # it got its row when it was fresh, so it anchors even when stale now
+        if max_age is not None and live_desk.stale(a["ts"], at, max_age):
             continue
         out.append({"ref": f"alert:{a['id']}", "source": "alert", "symbol": a["symbol"], "side": side, "ts": a["ts"], "bar": tm.trigger_bar(a["ts"]),
                     "entry": entry, "stop": stop, "target": target, "target2": None, "rr": rr, "score": None,
@@ -197,15 +202,21 @@ def rows_for_day(con, day, upto: dt.datetime | None = None) -> list[dict]:
     with con.cursor() as cur:
         cur.execute(f"SELECT {','.join(COLS)} FROM trade_rows WHERE day=%s ORDER BY ts, id", (day,))
         rows = [_json_row(rec) for rec in cur.fetchall()]
-    if upto is None:
-        return rows
+    return rows if upto is None else _cut(rows, upto)
+
+
+def _cut(rows: list[dict], upto: dt.datetime) -> list[dict]:
+    """Rows as of `upto`: later rows dropped, a later settlement or paper log cleared."""
     out = []
     for r in rows:
         if dt.datetime.fromisoformat(r["ts"]) > upto:
             continue
-        o = r.get("outcome")
+        r = dict(r)
+        o, p = r.get("outcome"), r.get("paper")
         if o and o.get("settled_at") and dt.datetime.fromisoformat(o["settled_at"]) > upto:
             r["outcome"] = None
+        if p and p.get("logged_at") and dt.datetime.fromisoformat(p["logged_at"]) > upto:
+            r["paper"] = None
         out.append(r)
     return out
 
@@ -269,7 +280,7 @@ def backfill_day(con, day, settings) -> int:
     for cand in candidates(con, day, end, include_replay=True, max_age=None, pat_stats=pat_stats, scans=scans):
         if cand["ref"] in have:
             continue
-        state = ledger(rows_for_day(con, day), settings)
+        state = ledger(rows_for_day(con, day, upto=cand["ts"]), settings)
         row = build_row(cand, settings, state, load_history(con, cand["symbol"], day), apply_rules=apply_rules)
         with con.cursor() as cur:
             if insert_row(cur, row) is not None:
