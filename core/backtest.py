@@ -7,7 +7,7 @@ they agree.
 """
 import pandas as pd
 from .asof import view_at
-from .rules import resample, evaluate, DAY_SERIES, continuous, join_sessions, in_hours
+from .rules import resample, evaluate, DAY_SERIES, continuous, join_sessions, in_hours, hours_window
 
 TF_MIN = {"1m": 1, "3m": 3, "5m": 5, "15m": 15, "30m": 30, "60m": 60}
 FIELDS = ("open", "high", "low", "close", "volume", "oi", "vwap")
@@ -41,9 +41,10 @@ def fires_naive(scan: dict, df1m: pd.DataFrame, ctx: dict, cooldown_min: int, pr
     tf = scan.get("timeframe", "5m")
     cd = pd.Timedelta(minutes=cooldown_min)
     pb = prev_bars(scan, prev1m)
+    win = hours_window(scan)
     out: list[pd.Timestamp] = []
     for ts in df1m.ts:
-        if out and ts - out[-1] < cd:
+        if not in_hours(scan, ts, win) or (out and ts - out[-1] < cd):
             continue
         if evaluate(scan, join_sessions(pb, resample(view_at(df1m, ts), tf)), ctx):
             out.append(ts)
@@ -58,6 +59,7 @@ def fires(scan: dict, df1m: pd.DataFrame, ctx: dict, cooldown_min: int, prev1m: 
     k = max_offset(scan) + 1          # bars the rule can see
     cd = pd.Timedelta(minutes=cooldown_min)
     pb = prev_bars(scan, prev1m)
+    hw = hours_window(scan)
     P = 0 if pb is None else len(pb)   # previous-session bars in front of today's (continuous scans)
 
     ts = df1m.ts.reset_index(drop=True)
@@ -98,7 +100,7 @@ def fires(scan: dict, df1m: pd.DataFrame, ctx: dict, cooldown_min: int, prev1m: 
         lo = max(0, end - (k - 1))
         bars = pd.DataFrame({f: list(full_rows[f][lo:end]) + [forming[f]] for f in FIELDS})
         bars.attrs["session_start"] = max(0, P - lo)
-        if in_hours(scan, ts.iloc[i]) and (not out or ts.iloc[i] - out[-1] >= cd) and evaluate(scan, bars, ctx):
+        if in_hours(scan, ts.iloc[i], hw) and (not out or ts.iloc[i] - out[-1] >= cd) and evaluate(scan, bars, ctx):
             out.append(ts.iloc[i])
         # fold this complete minute into the forming window for the next iteration
         f_open = o[i] if f_open is None else f_open

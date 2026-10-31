@@ -26,6 +26,16 @@ def test_fires_equals_naive(scan, seed):
     assert got == ref
 
 
+@pytest.mark.parametrize("seed", range(3))
+def test_fires_equals_naive_with_hours_window(seed):
+    scan = {**VWAP_LONG, "hours": {"from": "10:07", "to": "13:32"}}
+    d = synthetic_day(seed=seed, base_price=1200.0)
+    ctx = ctx_for(d, scan)
+    got = fires(scan, d, ctx, cooldown_min=0)
+    assert got == fires_naive(scan, d, ctx, cooldown_min=0)
+    assert all("10:07" <= t.strftime("%H:%M") < "13:32" for t in got)
+
+
 @pytest.mark.parametrize("scan", [BOUNCE, VWAP_LONG], ids=["bounce", "vwap"])
 def test_naive_actually_fires_sometimes(scan):
     # guards the equivalence test against vacuous [] == []

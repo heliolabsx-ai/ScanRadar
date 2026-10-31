@@ -17,11 +17,13 @@ SIDE is one of:
 Any side may carry "mul": x to scale the value (Chartink's `Sma(Volume, 20) * 3`).
 Optional "trade": {"stop": SIDE | {"pct": x}, "target": SIDE | {"pct": x} | {"rr": r}} — the scan's own levels (see trade_levels).
 Optional "hours": {"from": "HH:MM", "to": "HH:MM"} — the scan only fires when the fire minute (bar close, IST) is
-  from <= t < to; no block = always in hours; a malformed block raises ValueError (see in_hours).
+  from <= t < to, both zero-padded "HH:MM"; no block = always in hours; a malformed block raises ValueError
+  (see hours_window / in_hours).
 Optional "min_rr": x — the scan's own R:R floor (0 = no floor) instead of the system default (see min_rr).
 """
 import datetime as dt
 import operator as op
+import re
 import pandas as pd
 
 OPS = {">": op.gt, "<": op.lt, ">=": op.ge, "<=": op.le, "==": op.eq, "!=": op.ne}
@@ -49,20 +51,33 @@ def continuous(scan: dict) -> bool:
 
 
 def _hhmm(scan: dict, key: str) -> dt.time:
+    v = scan["hours"].get(key) if isinstance(scan["hours"], dict) else None
+    if not isinstance(v, str) or not re.fullmatch(r"\d\d:\d\d", v):
+        raise ValueError(f"scan {scan.get('name', '?')}: hours.{key} must be zero-padded \"HH:MM\"")
     try:
-        return dt.datetime.strptime(scan["hours"][key], "%H:%M").time()
-    except (KeyError, TypeError, ValueError):
-        raise ValueError(f"scan {scan.get('name', '?')}: hours.{key} must be \"HH:MM\"") from None
+        return dt.datetime.strptime(v, "%H:%M").time()
+    except ValueError:
+        raise ValueError(f"scan {scan.get('name', '?')}: hours.{key} must be zero-padded \"HH:MM\"") from None
 
 
-def in_hours(scan: dict, ts) -> bool:
-    """True when the scan has no `hours` block or from <= ts.time() < to (ts: IST datetime / pd.Timestamp)."""
+def hours_window(scan: dict) -> tuple[dt.time, dt.time] | None:
+    """The scan's parsed (from, to) window, None when it has no `hours` block. Parse once per call, pass to in_hours."""
     if "hours" not in scan:
-        return True
+        return None
     start, end = _hhmm(scan, "from"), _hhmm(scan, "to")
     if end <= start:
         raise ValueError(f"scan {scan.get('name', '?')}: hours.to must be after hours.from")
-    return start <= ts.time() < end
+    return start, end
+
+
+def in_hours(scan: dict, ts, window=None) -> bool:
+    """True when the scan has no `hours` block or from <= ts.time() < to (ts: IST datetime / pd.Timestamp).
+    `window` is a pre-parsed hours_window(scan); omit it to parse here."""
+    if window is None:
+        window = hours_window(scan)
+        if window is None:
+            return True
+    return window[0] <= ts.time() < window[1]
 
 
 def min_rr(scan: dict, default: float) -> float:

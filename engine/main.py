@@ -7,7 +7,7 @@ ScanRadar engine: every minute (on the ingest's 'candles:closed' signal)
 import os, json, glob, time, logging, datetime as dt
 import redis, psycopg, pandas as pd
 from analytics import analyse, score
-from rules import resample, evaluate, trade_levels, continuous, join_sessions, in_hours
+from rules import resample, evaluate, trade_levels, continuous, join_sessions, in_hours, hours_window
 from notify import telegram
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
@@ -128,7 +128,8 @@ def run_once():
         cur.executemany("INSERT INTO scan_snapshots(ts,symbol,score,rank,payload) VALUES(%s,%s,%s,%s,%s) ON CONFLICT DO NOTHING",
                         [(now, a["symbol"], a["score"], a["rank"], json.dumps({k: a[k] for k in ("pct", "oi_pct", "oi_label", "rvol", "rr", "picked")}, default=float)) for a in rows])
         for sc in scans:
-            if not in_hours(sc, now):
+            win = hours_window(sc)
+            if not in_hours(sc, now, win):
                 continue
             tf = sc.get("timeframe", "5m")
             cooldown = int(sc.get("alert", {}).get("cooldown_min", 30))
