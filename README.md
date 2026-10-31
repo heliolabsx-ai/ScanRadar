@@ -247,9 +247,10 @@ the credit is the outer ceiling. Inside it, `DESK_BUDGET_INR` (default ₹100 a 
 is a hard stop: briefs pause at 70 % of it, verdicts at 100 %, and the tab's meter
 shows the spend. `DESK_MODEL` (default `claude-opus-5-5`; `claude-sonnet-5-5` is
 about half the cost, `claude-haiku-5-5` a tenth), `DESK_MIN_SCORE` / `DESK_MIN_RR`
-(default 0: every trigger gets a verdict), `DESK_RISK_INR` (sizing, default 2000),
-`DESK_TELEGRAM=0` to keep verdicts off Telegram, `DESK=0` to switch the desk off.
-Without a key the tab reads "desk off" and nothing else changes.
+(default 0: every trigger gets a verdict), `DESK_TELEGRAM=0` to keep verdicts off
+Telegram, `DESK=0` to switch the desk off. Without a key the tab reads "desk off" and
+nothing else changes. The ticket's size is the share count from the Trades settings
+(section 12).
 
 Logs: `docker compose logs -f api | grep desk` shows `desk HH:MM: {'verdicts': n, ...}`
 and any API error (a wrong key shows as `AuthenticationError`, no credit as
@@ -266,7 +267,7 @@ A new trigger or verdict flashes the card. Type a symbol to add it, ✕ removes 
 groups load the scanner's picks, today's triggered names or a sector. Sorting by % change,
 rank, RVOL or events re-ranks every five minutes, never on every tick. Clicking a card opens
 a drawer with the full chart (every timeframe, VWAP, pivots, opening range, order block,
-alert markers), the levels strip, the trade at your risk setting with lot-based size, the
+alert markers), the levels strip, the trade sized in cash shares from the Trades settings, the
 symbol's patterns, desk verdicts and rule alerts, and buttons into the other tabs. The
 board follows the date and time slider like everything else; the list is saved in the
 browser. `GET /api/watch?symbols=A,B&day=&at=` serves it, up to 30 symbols per call.
@@ -287,11 +288,60 @@ group loads those stocks onto the board. `GET /api/screens` lists them; `GET
 /api/screen/S0101?day&at` returns the passing symbols (cached a minute live, a week settled).
 Daily history comes from `candles_1d` (backfill), so a screen needs the backfill to have run.
 
-## 12. Adding a scan
+## 12. Trades tab (replay odds, size in shares, day gate)
+
+The **Trades** tab lists every trigger the desk would judge, at its minute: pattern triggers
+that clear the desk's score, R:R and confidence floors, and rule alerts with a stop and a
+target (one row per scan and symbol an hour). Each row carries:
+
+- **Replays** — the rest of the day re-run 4,000 times from the stock's own last 60 sessions
+  of 5-minute bars, plus the same plan on each of those sessions: T1 first / stop first /
+  neither by the flat-by time, and one word (odds favour T1, coin flip, odds favour stop,
+  cannot resolve by close). A record of past sessions, not a forecast.
+- **Shares** — cash shares sized by the max loss at the stop, capped by the share of capital
+  in one name.
+- **Gate** — PASS or BLOCK under the day rules (max trades a day, day loss limit, no second
+  trade in a name that is still open). The day's risk counts only rows logged with **Log as
+  paper trade** in the row's drawer (live only). Nothing here places an order.
+
+The gear (or the `₹2,000 / trade` chip in the header) opens the settings: capital, max loss
+per trade, day loss limit, max trades, max share of capital in one name, product (intraday,
+or delivery = no shorts) and flat-by time. They are stored in Postgres, so the loop, the desk
+and every tab size from the same numbers. The day rules apply from `TRADES_RULES_FROM`
+(3 Nov 2026); earlier days show replays and shares with "rules not applied". The same odds
+appear in the Patterns table's Odds column, on the alert rail, at the end of the Telegram
+trigger message (`T1 39 % · stop 42 % · coin flip · 229 sh · PASS`) and in the desk's context.
+The odds line arrives with the row, about a minute after the trigger.
+
+Setup (once, outside market hours or after 15:30). Apply the migration, then rebuild the API
+and the engine **together** (a fresh install gets the tables from `db/init.sql`):
+
+```bash
+cd /opt/scanradar && docker compose exec -T postgres psql -U scanner -d scanner -f /migrations/005_trades.sql
+cd /opt/scanradar && docker compose up -d --build --no-deps api engine && docker compose logs --tail 20 api
+```
+
+The API log shows `trades loop up`. Never deploy only one of the two: a new engine with an
+old API queues the rule-alert Telegrams in `tg:defer:{day}` where nothing sends them, and they
+are dropped after 30 minutes. If the deferred messages misbehave, `TRADES_LIVE=0` puts the
+engine back on direct Telegram (pattern messages still go out through the API's trades loop):
+
+```bash
+cd /opt/scanradar && (grep -q '^TRADES_LIVE=' .env && sed -i "s/^TRADES_LIVE=.*/TRADES_LIVE='0'/" .env || echo "TRADES_LIVE='0'" >> .env) && docker compose up -d --no-deps --force-recreate engine
+```
+
+Check the replays against what happened on the stored days (a dry run; `--write` also stores
+the rows, `--note` writes the table to `docs/superpowers/notes/`):
+
+```bash
+cd /opt/scanradar && docker compose run --rm --no-deps -T api python scripts/backtest_odds.py --days 42
+```
+
+## 13. Adding a scan
 
 Create `scans/my_scan.json` (see the two examples). Sides are `{"number": x}`, `{"series": "prev_day_close|prev_day_high|prev_day_low|day_low|day_high"}` (`day_low`/`day_high` = today's extreme over the bars so far, forming candle included — Chartink's `Daily Low` during the session), or `{"off": N, "field": "open|high|low|close|volume|vwap|oi"}` where `off` 0 = forming candle, 1 = last closed, etc. Add `"sma": 13` or `"ema": 20` to an `off` side for a moving average of that field ending at that bar (Chartink's `Sma(Close, 13)`), and `"mul": 3` to any side to scale it (`Sma(Volume, 20) * 3`). `"continuous": true` makes the bar series run across sessions as Chartink's does (yesterday's bars in front of today's, so a rule can fire on the 09:15 bar); without it every session starts empty and a rule needs that many bars of the day first. Timeframes: 1m, 3m, 5m, 15m, 30m, 60m. Give the scan its own trade with `"trade": {"stop": SIDE | {"pct": 0.5}, "target": SIDE | {"pct": 1.2} | {"rr": 2.0}}` (for example the bar-2 high as the stop of a bounce-failure short, target at twice the risk): the engine, the replay, the outcomes, the rail stats, the dashboard R:R and the desk then all use those levels; a scan without `trade`, or a stop that resolves on the wrong side of the entry, falls back to the analytics' pivot levels (`levels: "pivot"` in the alert). `"alert": {"telegram": false}` records fires without messaging; `"desk": false` keeps the scan out of Claude's verdicts. Check a new scan's record before switching either on: `docker compose run --rm -T api python scripts/backtest_scan.py --scan "Name" --days 20`. The engine reloads the folder every minute.
 
-## 13. Known limits / to-do
+## 14. Known limits / to-do
 
 - Auto-login replays Kite's browser flow; if Zerodha changes the login page, fix `ingest/kite_auth.py`.
 - Volume delta uses the tick rule (uptick = buy); it is an approximation.

@@ -6,8 +6,9 @@ compare the predicted chance of the target with how often the trade really hit i
     docker compose run --rm -T api python scripts/backtest_odds.py --days 42 --write      # also persist the rows
 
 Runs inside the api image. Default is a dry run: rows are built in memory and graded with
-core.gate.settle. With --write the rows are stored by trades.backfill_day (migration 005
-must be applied) and read back. The pure helpers calibration() and fmt_note() need no database.
+core.gate.settle. With --write the rows are stored by trades.backfill_day and read back.
+Both modes need migration 005 (the settings are read from trade_settings). The pure helpers
+calibration() and fmt_note() need no database.
 """
 import os, sys, argparse, datetime as dt, time
 
@@ -94,7 +95,7 @@ def main(argv=None) -> int:
     ap.add_argument("--days", type=int, default=42)
     ap.add_argument("--note", default="")
     mode = ap.add_mutually_exclusive_group()
-    mode.add_argument("--write", action="store_true", help="persist the rows via backfill_day (needs migration 005)")
+    mode.add_argument("--write", action="store_true", help="persist the rows via backfill_day")
     mode.add_argument("--no-write", action="store_true", help="dry run, the default")
     args = ap.parse_args(argv)
     import psycopg
@@ -130,7 +131,7 @@ def main(argv=None) -> int:
                     rows = _graded_rows(con, day, settings, pat_stats, scans, trades, load_day)
                     print(f"{day}: {len(rows)} rows", flush=True)
         except psycopg.errors.UndefinedTable as e:
-            print(f"trade_rows or trade_settings is missing ({e}); apply migration 005 before using --write", file=sys.stderr)
+            print(f"trade_rows or trade_settings is missing ({e}); apply migration 005 (dry runs need it too: the settings are read from trade_settings)", file=sys.stderr)
             return 2
         all_rows += rows
     note = fmt_note(calibration(all_rows), len(days), len(all_rows))

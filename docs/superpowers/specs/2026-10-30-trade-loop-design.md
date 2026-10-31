@@ -156,7 +156,7 @@ close, stop and target at the same **percentage** distances as the plan, same fi
 
 | Condition (checked in order) | Word | Sentence |
 |---|---|---|
-| `none_pct ≥ 75` | `flat` | Will not resolve before the close: {none} % of replays reach {flat_by} with neither level touched. |
+| `none_pct ≥ 75` | `flat` | Does not resolve before the close in {none} % of replays: they reach {flat_by} with neither level touched. |
 | `|target_pct − stop_pct| < 8` | `coin` | Close to a coin flip: T1 first {t} %, stop first {s} %, average {avg_r} R. |
 | `target_pct > stop_pct` | `edge` | Odds favour T1: {t} % against {s} %, average {avg_r} R. |
 | else | `bad` | Odds favour the stop: {s} % against {t} %. |
@@ -236,6 +236,8 @@ CREATE INDEX trade_rows_day ON trade_rows (day, ts);
 trade_settings (key TEXT PRIMARY KEY, value JSONB, updated_at TIMESTAMPTZ)   -- one row 'current'
 ```
 
+As shipped (31 Oct 2026): `trade_rows` also has `target2 DOUBLE PRECISION` (the pattern's pivot target, the runner, not graded; `target` holds T1), and `rows_for_day` adds a computed `label` (pattern display name or scan name), not a stored column.
+
 Settings live in Postgres (not `localStorage`) because the API loop needs them. The header's
 risk-per-trade input is removed; `max_loss` on the Trades tab replaces it, and the detail panels read
 it from `/api/trades/settings`.
@@ -263,6 +265,7 @@ it from `/api/trades/settings`.
   obeyed; a BLOCK means the day's rules are spent and the call cannot be TAKE.
 - Telegram pattern-trigger and rule-alert messages gain one line:
   `T1 39 % · stop 42 % · coin flip · 229 sh · PASS` (or `BLOCK: 5 trades today`).
+- As shipped (31 Oct 2026): `trades:{day}:{ref}` holds the row's odds/size/gate JSON, or an empty string (tombstone) for a live alert that gets no row, so its deferred message in `tg:defer:{day}` goes out at once without the odds line; `tradesdone:{day}` marks a settled day whose backfill finished.
 
 ## Dashboard
 

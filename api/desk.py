@@ -30,7 +30,6 @@ ASK_CAP_INR = float(os.environ.get("DESK_ASK_INR", "3"))
 USDINR = float(os.environ.get("DESK_USDINR", "88"))
 MIN_SCORE = int(os.environ.get("DESK_MIN_SCORE", "0"))
 MIN_RR = float(os.environ.get("DESK_MIN_RR", "0"))
-RISK_INR = float(os.environ.get("DESK_RISK_INR", "2000"))
 BRIEF_EVERY_MIN = int(os.environ.get("DESK_BRIEF_MIN", "15"))
 BLIND_TO = "news · index level · order book"
 
