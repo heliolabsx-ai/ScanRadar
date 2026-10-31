@@ -646,7 +646,7 @@ function renderAlerts(){
   const rows = (S.alerts||[]).filter(a => (!S.day || a.ts.slice(11,16) <= at) && ScanFilter.passAlert(a, bySym, S.sectorsOf, S.filter) && inScreen(a.symbol));
   $('alertsAt').textContent = S.day ? `· to ${at}` : '';
   $('alerts').innerHTML = (S.alertsPending ? '<div class="mut" style="padding:4px 0">computing replay alerts for this day…</div>' : '') +
-    (rows.map(a => `<div class="alert" data-sym="${a.symbol}" data-at="${a.ts.slice(11,16)}"><span class="mono">${a.ts.slice(11,16)}</span><span>${a.scan}${a.source==='replay'?'<span class="tag">replay</span>':''}</span><b class="mono">${a.symbol}</b><span class="oc">₹${fmt(a.price)}${a.stop!=null&&a.target!=null&&a.price!==a.stop?` · R:R 1:${fmt(Math.abs(a.target-a.price)/Math.abs(a.price-a.stop),1)}`:''} · ${outcomeLabel(a.outcome)}</span></div>`).join('')
+    (rows.map(a => `<div class="alert" data-sym="${a.symbol}" data-at="${a.ts.slice(11,16)}"><span class="mono">${a.ts.slice(11,16)}</span><span>${a.scan}${a.source==='replay'?'<span class="tag">replay</span>':''}</span><b class="mono">${a.symbol}</b><span class="oc">₹${fmt(a.price)}${a.stop!=null&&a.target!=null&&a.price!==a.stop?` · R:R 1:${fmt(Math.abs(a.target-a.price)/Math.abs(a.price-a.stop),1)}`:''} · ${outcomeLabel(a.outcome)}${a.odds && typeof ScanTrades !== 'undefined' ? ' · ' + esc(ScanTrades.oddsPair(a.odds)) : ''}</span></div>`).join('')
      || (S.alertsPending ? '' : '<span class="mut">none yet</span>'));
 }
 async function loadAlerts(){
@@ -1401,7 +1401,7 @@ function onLiveSnapshot(snap){
 }
 function connect(){
   const ws = new WebSocket((location.protocol==='https:'?'wss://':'ws://')+location.host+'/ws/scan');
-  ws.onmessage = e => { const m = JSON.parse(e.data); if(m && m.type === 'patterns'){ loadPatterns(); return; } if(m && m.type === 'desk'){ loadDesk(); return; } if(m && m.type === 'trades'){ if(S.view === 'trades') loadTrades(); return; } onLiveSnapshot(m); if(S.view === 'watch' && S.following) loadWatch(); };
+  ws.onmessage = e => { const m = JSON.parse(e.data); if(m && m.type === 'patterns'){ loadPatterns(); return; } if(m && m.type === 'desk'){ loadDesk(); return; } if(m && m.type === 'trades'){ if(S.view === 'trades') loadTrades(); else if(S.view === 'patterns' || S.view === 'watch') loadPatterns(); else if(S.view === 'scanner') loadAlerts(); return; } onLiveSnapshot(m); if(S.view === 'watch' && S.following) loadWatch(); };
   ws.onclose = () => { if(S.following && S.liveSnap) setStatus('RECONNECTING','warn'); setTimeout(connect, 3000); };
 }
 document.addEventListener('click', e => {
