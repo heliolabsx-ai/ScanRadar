@@ -227,6 +227,35 @@ def odds_by_ref(con, day) -> dict[str, dict]:
         return {ref: {"id": i, "odds": o, "size": s, "gate": g, "gate_reason": gr} for ref, i, o, s, g, gr in cur.fetchall()}
 
 
+# ---------- views (pure) ----------
+def trades_view(rows: list[dict], settings: dict, day: dt.date, at: str) -> dict:
+    """The /api/trades body minus `pending`: rows already cut at `at`, the ledger over them."""
+    return {"day": day.isoformat(), "at": at, "applied": day >= RULES_FROM, "rules_from": RULES_FROM.isoformat(),
+            "settings": settings, "ledger": ledger(rows, settings), "rows": rows}
+
+
+def attach(by_ref: dict[str, dict], rows: list[dict], kind: str) -> list[dict]:
+    """New dicts of `rows` with `odds` and `trade` joined by ref (kind 'pattern' or 'alert'); None when no trade row."""
+    out = []
+    for r in rows:
+        ref = live_desk.pattern_ref(r) if kind == "pattern" else f"alert:{r['id']}"
+        t = by_ref.get(ref)
+        if t is None:
+            out.append({**r, "odds": None, "trade": None})
+            continue
+        size = t.get("size") or {}
+        out.append({**r, "odds": t.get("odds"), "trade": {"id": t["id"], "shares": size.get("shares"), "risk_inr": size.get("risk_inr"),
+                                                       "gate": t.get("gate"), "gate_reason": t.get("gate_reason")}})
+    return out
+
+
+def row_by_id(con, row_id: int) -> dict | None:
+    with con.cursor() as cur:
+        cur.execute(f"SELECT {','.join(COLS)} FROM trade_rows WHERE id=%s", (row_id,))
+        rec = cur.fetchone()
+    return _json_row(rec) if rec else None
+
+
 def log_paper(con, row_id: int, note: str) -> dict | None:
     """Log the row as a paper trade once; the row, or None when it is missing or already logged."""
     paper = {"logged_at": dt.datetime.now(IST).isoformat(), "note": note}

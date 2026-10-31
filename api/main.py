@@ -11,6 +11,7 @@ import live_patterns as lp
 import desk
 import live_desk as ld
 import live_trades as lt
+import trades as tr
 import watch as wt
 import screens as sc
 from core.patterns import detector_hash
@@ -34,6 +35,16 @@ def connect():
 
 def _today() -> dt.date:
     return dt.datetime.now(IST).date()
+
+
+def _odds_or_empty(con, day: dt.date) -> dict | None:
+    """Trade rows of the day by ref for the odds join; None when they cannot be read (rows then go out without odds/trade)."""
+    try:
+        return tr.odds_by_ref(con, day)
+    except Exception:  # noqa: BLE001
+        con.rollback()
+        logging.getLogger("api").exception("odds join for %s failed", day)
+        return None
 
 
 @app.on_event("startup")
@@ -143,6 +154,12 @@ def _prepare_day(day: dt.date) -> None:
             con.commit()
         import redis as _redis
         _redis.from_url(os.environ["REDIS_URL"], decode_responses=True).set(f"patdone:{day}:{detector_hash()}", "1", ex=30 * 86400)
+        try:
+            if not tr.rows_for_day(con, day):
+                tr.backfill_day(con, day, tr.get_settings(con))
+        except Exception:  # noqa: BLE001
+            con.rollback()
+            logging.getLogger("api").exception("trades backfill %s failed", day)
         if hs.rank_timeline(con, day) is None:
             hs.build_timeline(connect, day)
         # warm the frames a viewer lands on: the close and every half hour
@@ -268,7 +285,9 @@ async def alerts(limit: int = 100, day: str | None = None):
         with connect() as con:
             now = dt.datetime.now(IST)
             need = rp.day_is_settled(d, now) and (al.replay_needed(con, d, al.scan_files()) or al.outcomes_needed(con, d))
-            return need, al.alerts_for_day(con, d)
+            rows = al.alerts_for_day(con, d)
+            by_ref = _odds_or_empty(con, d)
+            return need, (rows if by_ref is None else tr.attach(by_ref, rows, "alert"))
     need, rows = await loop.run_in_executor(None, check)
     if need:
         await _kick_prepare(d)
@@ -290,8 +309,8 @@ async def patterns(day: str, at: str):
         done = await R.exists(f"patdone:{d}:{detector_hash()}")
         def q():
             with connect() as con:
-                return (pt.patterns_needed(con, d, detector_hash()) if not done else False), pt.rows_at(pt.stored_rows(con, d), at_dt)
-        need, rows = await loop.run_in_executor(None, q)
+                return (pt.patterns_needed(con, d, detector_hash()) if not done else False), pt.rows_at(pt.stored_rows(con, d), at_dt), _odds_or_empty(con, d)
+        need, rows, by_ref = await loop.run_in_executor(None, q)
         rows = pt.to_json_rows(rows)
         if need:
             await _kick_prepare(d)
@@ -315,11 +334,18 @@ async def patterns(day: str, at: str):
                     else:
                         rows = await loop.run_in_executor(_live_pool, pt.today_rows_json, at_dt.isoformat())
                         await R.set(key, json.dumps(rows), ex=60)
+
+        def q_odds():
+            with connect() as con:
+                return _odds_or_empty(con, d)
+        by_ref = await loop.run_in_executor(None, q_odds)
     try:
         st = await _pattern_stats_cached()
     except Exception:  # noqa: BLE001
         st = {}
     rows = pt.with_confidence(rows, st)
+    if by_ref is not None:
+        rows = tr.attach(by_ref, rows, "pattern")
     counts = {k: sum(1 for r in rows if r["state"] == k) for k in ("forming", "retest", "triggered", "failed")}
     return {"day": d.isoformat(), "at": at, "pending": bool(need), "rows": rows, "counts": counts}
 
@@ -547,10 +573,64 @@ async def desk_review(day: str):
     return {k: rec.get(k) for k in ("id", "ts", "output", "error", "cost_inr", "latency_ms", "model")}
 
 
+# ---------- Trades (odds, size, gate) ----------
+@app.get("/api/trades")
+async def trades_day(day: str, at: str):
+    try:
+        d, at_dt = rp.parse_replay_args(day, at)
+        now = dt.datetime.now(IST)
+        rp.assert_not_future(at_dt, now)
+    except rp.ReplayError as e:
+        raise HTTPException(e.status_code, e.detail)
+
+    def q():
+        with connect() as con:
+            rows = tr.rows_for_day(con, d, at_dt)
+            return tr.get_settings(con), rows, bool(rows) or bool(tr.rows_for_day(con, d))
+    settings, rows, has_rows = await asyncio.get_running_loop().run_in_executor(None, q)
+    pending = rp.day_is_settled(d, now) and not has_rows
+    if pending:
+        await _kick_prepare(d)
+    return {**tr.trades_view(rows, settings, d, at_dt.strftime("%H:%M")), "pending": pending}
+
+
+@app.get("/api/trades/settings")
+async def trades_settings():
+    def q():
+        with connect() as con:
+            return tr.get_settings(con)
+    return await asyncio.get_running_loop().run_in_executor(None, q)
+
+
+@app.put("/api/trades/settings")
+async def trades_settings_put(body: dict):
+    def work():
+        with connect() as con:
+            return tr.put_settings(con, body)
+    try:
+        return await asyncio.get_running_loop().run_in_executor(None, work)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+@app.post("/api/trades/{row_id}/paper")
+async def trades_paper(row_id: int, body: dict):
+    note = str(body.get("note") or "").strip()
+
+    def work():
+        with connect() as con:
+            return tr.log_paper(con, row_id, note) or tr.row_by_id(con, row_id)    # a second click returns the logged row
+    row = await asyncio.get_running_loop().run_in_executor(None, work)
+    if row is None:
+        raise HTTPException(404, f"no trade row {row_id}")
+    await R.publish("trades:updated", json.dumps({"at": dt.datetime.now(IST).strftime("%H:%M"), "new": 0}))
+    return row
+
+
 @app.websocket("/ws/scan")
 async def ws_scan(ws: WebSocket):
     await ws.accept()
-    ps = R.pubsub(); await ps.subscribe("scan:updated", "patterns:updated", "desk:updated")
+    ps = R.pubsub(); await ps.subscribe("scan:updated", "patterns:updated", "desk:updated", "trades:updated")
     try:
         raw = await R.get("scan:latest")
         if raw:
@@ -564,10 +644,13 @@ async def ws_scan(ws: WebSocket):
             if msg["channel"] == "desk:updated":
                 await ws.send_text(json.dumps({"type": "desk", "data": json.loads(msg["data"])}))
                 continue
+            if msg["channel"] == "trades:updated":
+                await ws.send_text(json.dumps({"type": "trades", "data": json.loads(msg["data"])}))
+                continue
             raw = await R.get("scan:latest")
             if raw:
                 await ws.send_text(raw)
     except WebSocketDisconnect:
         pass
     finally:
-        await ps.unsubscribe("scan:updated", "patterns:updated", "desk:updated")
+        await ps.unsubscribe("scan:updated", "patterns:updated", "desk:updated", "trades:updated")
