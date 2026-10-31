@@ -11,6 +11,7 @@ separated from I/O so they are testable without a key.
 """
 import os, json, time, logging, datetime as dt
 import pandas as pd
+from core.sizing import shares
 
 log = logging.getLogger("desk")
 IST = dt.timezone(dt.timedelta(hours=5, minutes=30))
@@ -97,9 +98,9 @@ average, pivots S1/S2/R1/R2 from the previous day, opening range, order block), 
 and the recorded hit rate of the setup over the last sessions. You cannot see news, the index level, the order book or \
 anything outside the message. Never guess at those; if they would matter, say so inside a reason.
 Market hours 09:15-15:30 IST. Trades are closed by 15:20 at the latest. The trader risks a fixed rupee amount per trade, \
-sizes in lots and cannot average down. You never place orders and never tell the trader to add to a loser.
+sizes in shares and cannot average down. You never place orders and never tell the trader to add to a loser.
 Be blunt and concrete: every reason must cite a number from the message (a price, a percentage, a time, a count). \
-No greetings, no hedging phrases. Judge the setup, never the size: the size box is informational, and lot size or the rupee \
+No greetings, no hedging phrases. Judge the setup, never the size: the size box is informational, and share count or the rupee \
 risk budget is never a reason for a call."""
 
 VERDICT_SYSTEM = HOUSE + """
@@ -115,7 +116,7 @@ Context fields: pattern triggers carry score 0-9 (checks, in order: day moved >=
 second point, trigger volume >=1.5x the day's 5-minute average, sector agrees, trigger close on the right side of VWAP, \
 exhaustion = the second point's bars traded less than the first's, breakout volume = the confirming close traded >=1.5x the \
 median of the pattern's own bars, breakout delta = tick-rule delta with the direction, with the tape = market breadth agrees) \
-and the setup's recorded hit rate; the ticket may carry target1 (the measured move, where half is booked) beside target (the runner); rule alerts carry the scan's rules and its recorded hit rate. The ticket (entry, stop, target, size) is fixed."""
+and the setup's recorded hit rate; the ticket may carry target1 (the measured move, where half is booked) beside target (the runner); rule alerts carry the scan's rules and its recorded hit rate. The ticket (entry, stop, target, size) is fixed. The odds block, when present, is a replay of this stock's own past sessions from this minute (T1 first / stop first / neither by the close) and the same plan on each past session: argue with it, cite it, never obey it. A gate of BLOCK means the trader's day rules are spent: the call cannot be take; say wait or skip and name the gate reason."""
 
 BRIEF_SYSTEM = HOUSE + """
 
@@ -179,23 +180,18 @@ def rank_row(snap: dict | None, symbol: str) -> dict | None:
     return None
 
 
-def size_for(entry: float, stop: float, lot: int, risk: float = RISK_INR) -> dict:
-    dist = abs(float(entry) - float(stop))
-    if not lot or not dist:
-        return {"qty": 0, "lots": 0, "risk_inr": risk}
-    lots = int(risk // (dist * lot))
-    return {"qty": lots * lot, "lots": lots, "lot": lot, "risk_inr": risk, "rupees_at_stop": round(lots * lot * dist, 0),
-            "one_lot_risk": round(lot * dist, 0)}
-
-
-def verdict_context(trigger: dict, *, snap, sector_pct, bars, ref, lot, setup_stats, now_hhmm) -> dict:
-    """Everything the model sees for one verdict. `trigger` is a pattern row or a rule alert row (see live_desk)."""
+def verdict_context(trigger: dict, *, snap, sector_pct, bars, ref, setup_stats, now_hhmm, settings, trade=None) -> dict:
+    """Everything the model sees for one verdict. `trigger` is a pattern row or a rule alert row (see live_desk);
+    `trade` is the trigger's trade row (odds, size in shares, day gate) when one exists, else the size comes from `settings`."""
     entry, stop, target = float(trigger["entry"]), float(trigger["stop"]), float(trigger["target"])
     risk = abs(entry - stop)
+    size = trade["size"] if trade and trade.get("size") is not None else shares(entry, stop, settings, trigger["side"])
+    gate = {"state": trade["gate"], "reason": trade.get("gate_reason")} if trade and trade.get("gate") is not None else None
     ctx = {"now": now_hhmm, "minutes_since_open": _mins(now_hhmm), "symbol": trigger["symbol"], "side": trigger["side"],
            "trigger": {k: trigger[k] for k in ("source", "kind", "label", "at", "score", "checks", "scan_rules", "tf", "levels") if k in trigger},
            "ticket": {"entry": _r(entry), "stop": _r(stop), "target": _r(target), "target1": _r(trigger.get("target1")), "rr": _r(abs(target - entry) / risk if risk else 0, 2),
-                      "risk_pct": _r(risk / entry * 100 if entry else 0, 2), "size": size_for(entry, stop, lot)},
+                      "risk_pct": _r(risk / entry * 100 if entry else 0, 2), "size": size},
+           "odds": (trade or {}).get("odds"), "gate": gate,
            "setup_record": setup_stats, "ranking_row": rank_row(snap, trigger["symbol"]),
            "sector": {"name": (ref or {}).get("sector"), "pct": _r(sector_pct)},
            "breadth": {"bulls": (snap or {}).get("n_bull"), "bears": (snap or {}).get("n_bear")} if snap else None,
@@ -250,7 +246,17 @@ def telegram_text(v: dict) -> str:
     t = c["ticket"]
     size = t["size"]
     head = f"<b>{o['call'].upper()} {o['confidence']}/10 · {c['symbol']} · {side} · {c['trigger'].get('label', '')}</b>"
-    ticket = f"Entry {t['entry']:,.2f} · Stop {t['stop']:,.2f} · Target {t['target']:,.2f}" + (f" · Size {size['qty']}" if size.get("qty") else "")
+    ticket = f"Entry {t['entry']:,.2f} · Stop {t['stop']:,.2f} · Target {t['target']:,.2f}" + (f" · Size {size['shares']} sh" if size.get("shares") else "")
+    odds, gate = c.get("odds"), c.get("gate")
+    if odds:
+        from live_trades import WORDS, _pct      # the one odds wording; imported here, live_trades imports this module
+        mc = odds.get("mc") or {}
+        parts = ([f"T1 {_pct(mc['target_pct'])} %"] if mc.get("target_pct") is not None else []) \
+            + ([f"stop {_pct(mc['stop_pct'])} %"] if mc.get("stop_pct") is not None else []) \
+            + [WORDS.get(odds.get("verdict"), odds.get("verdict") or "")]
+        ticket += "\nOdds: " + " · ".join(p for p in parts if p)
+    if gate and gate.get("state") == "BLOCK":
+        ticket += "\nGate: BLOCK" + (f" — {gate['reason']}" if gate.get("reason") else "")
     reasons = " · ".join(f"{MARK[r['mark']]} {r['text']}" for r in o["reasons"])
     extra = f"\nBook half at {o['book_half_at']:,.2f}" if o.get("book_half_at") else ""
     return f"{head}\n{ticket}\n{reasons}\nExit: {o['exit_rule']}{extra}\n{_hhmm(v['ts'])} · scanradar.tech"
@@ -430,14 +436,15 @@ def pnl_for(outcome: dict | None, side: str, entry: float, stop: float, target: 
     return round(qty * float(entry) * float(r60) / 100, 0)        # r60 is signed favourable %
 
 
-def review_context(day, *, alerts: list[dict], patterns: list[dict], verdicts: list[dict], lots: dict,
+def review_context(day, *, alerts: list[dict], patterns: list[dict], verdicts: list[dict], settings: dict,
                    candles: dict, spend: float, budget: float = BUDGET_INR) -> dict:
-    """What the model sees for the end-of-day review. Every P&L is for ONE LOT, before costs
-    (the risk-based size is often zero lots, which would hide the information)."""
-    def pl(side, entry, stop, target, sym, outcome):
+    """What the model sees for the end-of-day review. Every P&L is at the cash-share size the
+    settings give the trade (max loss per trade, position cap), before costs."""
+    def pl(side, entry, stop, target, outcome):
         if entry is None or stop is None or target is None:
             return None
-        return pnl_for(outcome, side, entry, stop, target, lots.get(sym, 0))
+        qty = shares(float(entry), float(stop), settings, side or "long")["shares"]
+        return pnl_for(outcome, side, entry, stop, target, qty)
 
     pats = []
     for p in patterns:
@@ -445,18 +452,18 @@ def review_context(day, *, alerts: list[dict], patterns: list[dict], verdicts: l
             continue
         pats.append({"symbol": p["symbol"], "kind": p["kind"], "side": p["side"], "score": p.get("score"), "at": _hhmm(p["triggered_at"]),
                      "hit": (p.get("outcome") or {}).get("hit"), "r30": _r((p.get("outcome") or {}).get("r30")),
-                     "pnl": pl(p["side"], p.get("entry"), p.get("stop"), p.get("target"), p["symbol"], p.get("outcome"))})
+                     "pnl": pl(p["side"], p.get("entry"), p.get("stop"), p.get("target"), p.get("outcome"))})
     als = [{"scan": a["scan"], "symbol": a["symbol"], "side": a.get("side"), "at": _hhmm(a["ts"]), "hit": (a.get("outcome") or {}).get("hit"),
             "r30": _r((a.get("outcome") or {}).get("r30")),
-            "pnl": pl(a.get("side"), a.get("price"), a.get("stop"), a.get("target"), a["symbol"], a.get("outcome"))} for a in alerts]
+            "pnl": pl(a.get("side"), a.get("price"), a.get("stop"), a.get("target"), a.get("outcome"))} for a in alerts]
     by_scan: dict = {}
     for a in als:                                   # hundreds of rule alerts a day: the model gets the per-scan tally + the 30 largest
-        t = by_scan.setdefault(a["scan"], {"fires": 0, "target": 0, "stop": 0, "pnl_one_lot": 0.0})
+        t = by_scan.setdefault(a["scan"], {"fires": 0, "target": 0, "stop": 0, "pnl_at_size": 0.0})
         t["fires"] += 1
         if a["hit"] in ("target", "stop"):
             t[a["hit"]] += 1
         if a["pnl"] is not None:
-            t["pnl_one_lot"] += a["pnl"]
+            t["pnl_at_size"] += a["pnl"]
     biggest = sorted([a for a in als if a["pnl"] is not None], key=lambda a: -abs(a["pnl"]))[:30]
     vds = []
     for v in verdicts:
@@ -466,12 +473,12 @@ def review_context(day, *, alerts: list[dict], patterns: list[dict], verdicts: l
         t = c["ticket"]
         vds.append({"symbol": c["symbol"], "side": c["side"], "trigger": c["trigger"].get("label"), "at": _hhmm(v["ts"]),
                     "call": o["call"], "confidence": o["confidence"], "reasons": [r["text"] for r in o["reasons"]],
-                    "hit": (v.get("outcome") or {}).get("hit"), "pnl": pnl_for(v.get("outcome"), c["side"], t["entry"], t["stop"], t["target"], lots.get(c["symbol"], 0))})
+                    "hit": (v.get("outcome") or {}).get("hit"), "pnl": pl(c["side"], t["entry"], t["stop"], t["target"], v.get("outcome"))})
     tot = lambda rows: round(sum(r["pnl"] for r in rows if r.get("pnl") is not None), 0)   # noqa: E731
     return {"day": str(day), "patterns_triggered": pats[:60], "rule_alerts_by_scan": by_scan, "rule_alerts_largest": biggest, "verdicts": vds,
             "pnl_summary": {"all_pattern_triggers": tot(pats), "patterns_score_ge3": tot([p for p in pats if (p.get("score") or 0) >= 3]),
                             "all_rule_alerts": tot(als), "verdict_take": tot([v for v in vds if v["call"] == "take"]),
                             "verdict_skip_if_taken": tot([v for v in vds if v["call"] == "skip"]),
                             "verdict_wait_if_taken": tot([v for v in vds if v["call"] == "wait"])},
-            "pnl_basis": "one lot per trade, before costs; target = full move, stop = full risk, open = 60-min return",
+            "pnl_basis": f"shares sized by max loss ₹{settings['max_loss']:,.0f} per trade, before costs; target = full move, stop = full risk, open = 60-min return",
             "data_health": candles, "desk_spend_inr": round(spend, 2), "desk_budget_inr": budget, "blind_to": BLIND_TO}

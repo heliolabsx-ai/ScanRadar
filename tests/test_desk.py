@@ -2,6 +2,7 @@ import json, datetime as dt
 import pandas as pd
 import desk, live_desk
 from conftest import synthetic_day
+from core.sizing import DEFAULTS, shares
 
 IST = dt.timezone(dt.timedelta(hours=5, minutes=30))
 
@@ -44,12 +45,13 @@ def test_rank_row_trims_and_rounds():
     assert desk.rank_row(_snap(), "NOPE") is None and desk.rank_row(None, "X") is None
 
 
-def test_size_for_rounds_down_to_lots():
-    s = desk.size_for(174.9, 172.35, 750, risk=2000)
-    assert (s["qty"], s["lots"], s["lot"], s["risk_inr"]) == (750, 1, 750, 2000) and abs(s["rupees_at_stop"] - 1912.5) <= 0.5
-    big = desk.size_for(100, 99, 5000, risk=2000)
-    assert big["qty"] == 0 and big["one_lot_risk"] == 5000
-    assert desk.size_for(100, 100, 100)["qty"] == 0
+def test_prompts_say_shares_and_how_to_treat_odds_and_gate():
+    assert "lot" not in desk.HOUSE and "lot" not in desk.VERDICT_SYSTEM
+    assert "sizes in shares" in desk.HOUSE and "share count or the rupee risk budget is never a reason for a call" in desk.HOUSE
+    assert "never obey it" in desk.VERDICT_SYSTEM
+    assert ("The ticket (entry, stop, target, size) is fixed. The odds block, when present, is a replay of this stock's own past sessions "
+            "from this minute (T1 first / stop first / neither by the close) and the same plan on each past session: argue with it, cite it, "
+            "never obey it. A gate of BLOCK means the trader's day rules are spent: the call cannot be take; say wait or skip and name the gate reason.") in desk.VERDICT_SYSTEM
 
 
 def _trigger():
@@ -59,16 +61,35 @@ def _trigger():
 
 def test_verdict_context_has_the_ticket_from_the_system():
     ctx = desk.verdict_context(_trigger(), snap=_snap(), sector_pct=0.6, bars=[{"t": "10:40"}], ref={"sector": "METALS", "prev_close": 176.8, "prev_high": 178, "prev_low": 173},
-                               lot=750, setup_stats={"hit_rate_pct": 67}, now_hhmm="10:45")
-    assert ctx["ticket"]["entry"] == 174.9 and ctx["ticket"]["rr"] == 1.0 and ctx["ticket"]["size"]["qty"] == 750
+                               setup_stats={"hit_rate_pct": 67}, now_hhmm="10:45", settings=DEFAULTS, trade=None)
+    assert ctx["ticket"]["entry"] == 174.9 and ctx["ticket"]["rr"] == 1.0
+    assert ctx["ticket"]["size"] == shares(174.9, 172.35, DEFAULTS, "long") and ctx["ticket"]["size"]["shares"] > 0
+    assert ctx["odds"] is None and ctx["gate"] is None
     assert ctx["minutes_since_open"] == 90 and ctx["sector"] == {"name": "METALS", "pct": 0.6} and ctx["breadth"] == {"bulls": 90, "bears": 110}
     assert ctx["ranking_row"]["oi_label"] == "short covering" and ctx["blind_to"] == desk.BLIND_TO
     assert "entry" not in ctx["trigger"]                       # the model never sees levels twice / never sets them
 
 
-def _verdict_rec():
+def test_verdict_context_sizes_in_shares_by_max_loss():
+    trig = dict(_trigger(), entry=854.6, stop=845.9, target=880.0)
+    ctx = desk.verdict_context(trig, snap=None, sector_pct=None, bars=[], ref=None, setup_stats={}, now_hhmm="10:45", settings=DEFAULTS, trade=None)
+    assert ctx["ticket"]["size"]["shares"] == 229 and "lots" not in ctx["ticket"]["size"]
+
+
+def test_verdict_context_carries_the_trade_rows_odds_size_and_gate():
+    trade = {"odds": {"verdict": "coin"}, "size": {"shares": 5}, "gate": "BLOCK", "gate_reason": "5 trades today"}
+    ctx = desk.verdict_context(_trigger(), snap=_snap(), sector_pct=0.6, bars=[], ref=None, setup_stats={}, now_hhmm="10:45", settings=DEFAULTS, trade=trade)
+    assert ctx["gate"] == {"state": "BLOCK", "reason": "5 trades today"} and ctx["ticket"]["size"]["shares"] == 5
+    assert ctx["odds"] == {"verdict": "coin"}
+    none = desk.verdict_context(_trigger(), snap=None, sector_pct=None, bars=[], ref=None, setup_stats={}, now_hhmm="10:45", settings=DEFAULTS,
+                                trade={"odds": None, "size": {"shares": 7}, "gate": None, "gate_reason": None})
+    assert none["odds"] is None and none["gate"] is None and none["ticket"]["size"]["shares"] == 7
+
+
+def _verdict_rec(trade=None):
     return {"ts": "2026-10-19T10:45:00+05:30", "symbol": "TATASTEEL",
-            "context": desk.verdict_context(_trigger(), snap=_snap(), sector_pct=0.6, bars=[], ref={"sector": "METALS"}, lot=750, setup_stats={}, now_hhmm="10:45"),
+            "context": desk.verdict_context(_trigger(), snap=_snap(), sector_pct=0.6, bars=[], ref={"sector": "METALS"}, setup_stats={}, now_hhmm="10:45",
+                                            settings=DEFAULTS, trade=trade),
             "output": {"call": "take", "confidence": 7, "reasons": [{"mark": "ok", "text": "OI -1.9% between the lows: covering"},
                                                                     {"mark": "ok", "text": "Metals +0.6%, stock +1.2%"},
                                                                     {"mark": "warn", "text": "Prev close 176.80 sits before target"}],
@@ -78,9 +99,21 @@ def _verdict_rec():
 def test_telegram_text_order():
     t = desk.telegram_text(_verdict_rec())
     assert t.splitlines() == ["<b>TAKE 7/10 · TATASTEEL · BUY · double bottom</b>",
-                              "Entry 174.90 · Stop 172.35 · Target 177.45 · Size 750",
+                              "Entry 174.90 · Stop 172.35 · Target 177.45 · Size 784 sh",
                               "✓ OI -1.9% between the lows: covering · ✓ Metals +0.6%, stock +1.2% · ! Prev close 176.80 sits before target",
                               "Exit: 5m close < 174.20 in the next 3 bars", "Book half at 176.80", "10:45 · scanradar.tech"]
+
+
+def test_telegram_text_shows_shares_odds_and_a_blocking_gate():
+    t = desk.telegram_text(_verdict_rec({"odds": {"verdict": "coin"}, "size": {"shares": 5}, "gate": "BLOCK", "gate_reason": "5 trades today"}))
+    assert "Size 5 sh" in t and "Gate: BLOCK — 5 trades today" in t and "lot" not in t
+    odds = {"mc": {"target_pct": 39.4, "stop_pct": 41.5}, "verdict": "coin"}
+    t = desk.telegram_text(_verdict_rec({"odds": odds, "size": {"shares": 229}, "gate": "OK", "gate_reason": None}))
+    lines = t.splitlines()
+    assert lines[1] == "Entry 174.90 · Stop 172.35 · Target 177.45 · Size 229 sh"
+    assert lines[2] == "Odds: T1 39 % · stop 42 % · coin flip" and "Gate:" not in t
+    t0 = desk.telegram_text(_verdict_rec({"odds": None, "size": {"shares": 0}, "gate": None, "gate_reason": None}))
+    assert "Size" not in t0 and "Odds:" not in t0 and "Gate:" not in t0
 
 
 def test_day_view_cuts_at_the_minute_but_keeps_the_review_and_spend():
@@ -109,11 +142,13 @@ def test_review_context_sums_pnl_by_bucket():
             "output": {"call": "skip", "confidence": 6, "reasons": [{"mark": "no", "text": "x"}]}, "outcome": {"hit": "target"}}]
     als = [{"ts": "2026-10-19T10:10:00+05:30", "scan": "s1", "symbol": "A", "side": "long", "price": 100, "stop": 98, "target": 104, "outcome": {"hit": "target", "r30": 1}},
            {"ts": "2026-10-19T10:20:00+05:30", "scan": "s1", "symbol": "A", "side": "long", "price": 100, "stop": 98, "target": 104, "outcome": {"hit": "stop", "r30": -1}}]
-    ctx = desk.review_context(dt.date(2026, 10, 19), alerts=als, patterns=pats, verdicts=vds, lots={"A": 500, "B": 500}, candles={"minutes_with_candles": 360}, spend=41.2)
-    assert len(ctx["patterns_triggered"]) == 2
-    assert ctx["rule_alerts_by_scan"] == {"s1": {"fires": 2, "target": 1, "stop": 1, "pnl_one_lot": 1000.0}} and len(ctx["rule_alerts_largest"]) == 2
-    assert ctx["pnl_summary"]["all_pattern_triggers"] == 2000 - 1000 and ctx["pnl_summary"]["patterns_score_ge3"] == 2000   # one lot each
-    assert ctx["pnl_summary"]["verdict_skip_if_taken"] == 2000 and ctx["verdicts"][0]["hit"] == "target" and "one lot" in ctx["pnl_basis"]
+    ctx = desk.review_context(dt.date(2026, 10, 19), alerts=als, patterns=pats, verdicts=vds, settings=DEFAULTS, candles={"minutes_with_candles": 360}, spend=41.2)
+    assert len(ctx["patterns_triggered"]) == 2       # entry 100 / stop 2 away: max loss 2,000 → 1,000 shares; cap 3,000 shares
+    assert ctx["rule_alerts_by_scan"] == {"s1": {"fires": 2, "target": 1, "stop": 1, "pnl_at_size": 2000.0}} and len(ctx["rule_alerts_largest"]) == 2
+    assert ctx["pnl_summary"]["all_pattern_triggers"] == 4000 - 2000 and ctx["pnl_summary"]["patterns_score_ge3"] == 4000
+    assert ctx["pnl_summary"]["verdict_skip_if_taken"] == 4000 and ctx["verdicts"][0]["hit"] == "target"
+    assert ctx["pnl_basis"].startswith("shares sized by max loss ₹2,000") and "lot" not in ctx["pnl_basis"]
+    assert ctx["pnl_basis"] == "shares sized by max loss ₹2,000 per trade, before costs; target = full move, stop = full risk, open = 60-min return"
 
 
 def test_run_job_records_budget_stop_without_calling(monkeypatch):
@@ -205,3 +240,18 @@ def test_gate_and_pattern_ref():
     assert live_desk.pattern_ref({"symbol": "X", "kind": "double_top", "formed_at": "2026-10-19T10:05:00+05:30"}) == "pattern:X|double_top|10:05"
     rec = live_desk.pattern_record({"kind": "double_bottom", "score": 6}, {"double_bottom": {"hit_rate": 67.3, "triggers": 340, "avg_r30": 0.01, "median_tt_min": 20, "by_score": {">=5": {"hit_rate": 70.0, "triggers": 200}, "<5": {"hit_rate": 58.0, "triggers": 140}}}})
     assert rec["same_score_bucket"] == {"hit_rate_pct": 70.0, "triggers": 200} and rec["hit_rate_pct"] == 67.3
+
+
+def test_live_desk_falls_back_when_the_trade_tables_are_missing(monkeypatch):
+    class Con:
+        rolled = 0
+        def rollback(self): self.rolled += 1
+    def boom(*a, **k): raise RuntimeError('relation "trade_rows" does not exist')
+    monkeypatch.setattr(live_desk.trades, "odds_by_ref", boom)
+    monkeypatch.setattr(live_desk.trades, "get_settings", boom)
+    con = Con()
+    assert live_desk.trade_rows(con, dt.date(2026, 10, 30)) == {} and live_desk.trade_settings(con) == DEFAULTS and con.rolled == 2
+    monkeypatch.setattr(live_desk.trades, "odds_by_ref", lambda con, day: {"alert:1": {"size": {"shares": 3}}})
+    monkeypatch.setattr(live_desk.trades, "get_settings", lambda con: dict(DEFAULTS, max_loss=1000))
+    assert live_desk.trade_rows(con, dt.date(2026, 10, 30)) == {"alert:1": {"size": {"shares": 3}}}
+    assert live_desk.trade_settings(con)["max_loss"] == 1000

@@ -6,10 +6,12 @@ import pandas as pd
 import desk
 import patterns as pt
 import alerts as al
+import trades
 from replay import load_refs, session_bounds, COLS as CANDLE_COLS
 from core.calendar import is_trading_day
 from core.analytics import analyse
 from core.backtest import outcome as grade
+from core.sizing import DEFAULTS as SIZING_DEFAULTS
 
 log = logging.getLogger("live_desk")
 IST = dt.timezone(dt.timedelta(hours=5, minutes=30))
@@ -60,6 +62,33 @@ def load_symbol(con, day, symbol: str, upto: dt.datetime) -> pd.DataFrame:
     return df.drop(columns="symbol")
 
 
+def trade_settings(con) -> dict:
+    """The trader's settings; the sizing DEFAULTS when they cannot be read (before migration 005)."""
+    try:
+        return trades.get_settings(con)
+    except Exception:  # noqa: BLE001
+        log.exception("trade settings unavailable, sizing with the defaults")
+        _rollback(con)
+        return dict(SIZING_DEFAULTS)
+
+
+def trade_rows(con, day) -> dict:
+    """The day's trade rows by ref (odds, size, gate); {} when they cannot be read (before migration 005)."""
+    try:
+        return trades.odds_by_ref(con, day)
+    except Exception:  # noqa: BLE001
+        log.exception("trade rows unavailable, verdicts go without odds")
+        _rollback(con)
+        return {}
+
+
+def _rollback(con) -> None:
+    try:
+        con.rollback()                                  # a failed query leaves the transaction aborted
+    except Exception:  # noqa: BLE001
+        pass
+
+
 def lots_map(con) -> dict:
     with con.cursor() as cur:
         cur.execute("SELECT symbol, lot_size FROM instruments")
@@ -89,13 +118,13 @@ def pattern_record(r: dict, pat_stats: dict) -> dict:
             "median_min_to_target": s.get("median_tt_min"), "same_score_bucket": {"hit_rate_pct": desk._r(bucket.get("hit_rate")), "triggers": bucket.get("triggers")}}
 
 
-def _verdict(cur, R, con, *, day, at, trigger, ref, snap, refs, lots, record, model=desk.MODEL):
+def _verdict(cur, R, con, *, day, at, trigger, ref, snap, refs, record, settings, trade=None, model=desk.MODEL):
     sym = trigger["symbol"]
     df = load_symbol(con, day, sym, at)
     sector = (refs.get(sym) or {}).get("sector")
     sector_pct = ((snap or {}).get("sectors") or {}).get(sector)
     ctx = desk.verdict_context(trigger, snap=snap, sector_pct=sector_pct, bars=desk.bars5m_tail(df, at), ref=refs.get(sym),
-                               lot=lots.get(sym, 0), setup_stats=record, now_hhmm=at.strftime("%H:%M"))
+                               setup_stats=record, now_hhmm=at.strftime("%H:%M"), settings=settings, trade=trade)
     if ctx["ranking_row"] is None and not df.empty and refs.get(sym):
         a = analyse(sym, df, refs[sym])
         if a:
@@ -124,7 +153,8 @@ def process_minute(con, R, day, at: dt.datetime, snap: dict | None, *, prepare=N
     done = {"verdicts": 0, "brief": 0, "review": 0}
     sent: list[dict] = []
     refs = load_refs(con, day)
-    lots = lots_map(con)
+    trows = trade_rows(con, day)
+    settings = trade_settings(con)
     pat_stats, scan_stats = setup_stats(con, at)
     scans = {s["name"]: s for s, _ in al.scan_files()}
     with con.cursor() as cur:
@@ -142,7 +172,8 @@ def process_minute(con, R, day, at: dt.datetime, snap: dict | None, *, prepare=N
             trig = {"source": "pattern", "kind": r["kind"], "label": desk.LABEL.get(r["kind"], r["kind"]), "at": desk._hhmm(r["triggered_at"]),
                     "score": r.get("score"), "checks": r.get("checks"), "tf": "5m", "symbol": r["symbol"], "side": r["side"],
                     "entry": r["entry"], "stop": r["stop"], "target": r["target"], "target1": (r.get("facts") or {}).get("target1"), "state": r["state"]}
-            rec = _verdict(cur, R, con, day=day, at=at, trigger=trig, ref=ref, snap=snap, refs=refs, lots=lots, record=pattern_record(r, pat_stats))
+            rec = _verdict(cur, R, con, day=day, at=at, trigger=trig, ref=ref, snap=snap, refs=refs, record=pattern_record(r, pat_stats),
+                           trade=trows.get(ref), settings=settings)
             con.commit(); done["verdicts"] += 1
             if rec.get("output"):
                 sent.append(rec)
@@ -178,7 +209,8 @@ def process_minute(con, R, day, at: dt.datetime, snap: dict | None, *, prepare=N
             trig = {"source": "alert", "kind": a["scan"], "label": a["scan"], "at": a["ts"].strftime("%H:%M"), "tf": a["payload"].get("tf") or sc.get("timeframe"),
                     "scan_rules": sc.get("rules"), "levels": basis, "symbol": a["symbol"], "side": side, "entry": a["price"], "stop": stop, "target": target}
             record = {"hit_rate_pct": desk._r(st.get("hit_rate")), "fires_20d": st.get("fires"), "avg_r30_pct": desk._r(st.get("avg_r30")), "avg_r60_pct": desk._r(st.get("avg_r60"))}
-            rec = _verdict(cur, R, con, day=day, at=at, trigger=trig, ref=ref, snap=snap, refs=refs, lots=lots, record=record)
+            rec = _verdict(cur, R, con, day=day, at=at, trigger=trig, ref=ref, snap=snap, refs=refs, record=record,
+                           trade=trows.get(ref), settings=settings)
             con.commit(); done["verdicts"] += 1
             if rec.get("output"):
                 sent.append(rec)
@@ -252,7 +284,7 @@ def run_review(con, cur, R, day, at, prepare=None) -> dict:
         c2.execute("SELECT count(DISTINCT ts), count(DISTINCT symbol) FROM candles_1m WHERE ts>=%s AND ts<%s", session_bounds(day))
         n_min, n_sym = c2.fetchone()
     health = {"minutes_with_candles": n_min, "symbols": n_sym, "expected_minutes": "375 on a live day (09:15-15:29), 360 on a backfilled day (Kite equity bars end 15:14)"}
-    ctx = desk.review_context(day, alerts=al.alerts_for_day(con, day), patterns=pats, verdicts=verdicts, lots=lots_map(con),
+    ctx = desk.review_context(day, alerts=al.alerts_for_day(con, day), patterns=pats, verdicts=verdicts, settings=trade_settings(con),
                               candles=health, spend=desk.spent(R, day))
     rec = desk.run_job(cur, R, day=day, kind="review", ts=at, ref="review", symbol=None, system=desk.REVIEW_SYSTEM, context=ctx,
                        schema=desk.REVIEW_SCHEMA, model=desk.MODEL, max_tokens=10000)
