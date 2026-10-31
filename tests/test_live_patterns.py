@@ -42,3 +42,24 @@ def test_worth_telling_uses_the_recorded_confidence():
     assert worth_telling({"confidence": {"hit_rate": 68.0, "n": 298}}) is True
     assert worth_telling({"confidence": {"hit_rate": 12.0, "n": 689}}) is False
     assert worth_telling({"confidence": {"hit_rate": 12.0}}, min_conf=10) is True
+
+
+class RecordingRedis:
+    def __init__(self): self.rpushed = []; self.expired = []
+    def rpush(self, k, v): self.rpushed.append((k, v))
+    def expire(self, k, ttl): self.expired.append((k, ttl))
+
+
+def test_defer_pushes_the_trigger_message_to_the_deferred_list():
+    import json, datetime as dt
+    from live_patterns import defer
+    R = RecordingRedis()
+    r = row()
+    now = dt.datetime(2026, 10, 19, 10, 25, 5, tzinfo=IST)
+    defer(R, dt.date(2026, 10, 19), r, now)
+    assert [k for k, _ in R.rpushed] == ["tg:defer:2026-10-19"]
+    item = json.loads(R.rpushed[0][1])
+    assert item["ref"] == "pattern:TATASTEEL|double_bottom|10:00"
+    assert item["text"] == message(r)
+    assert item["ts"] == now.isoformat()
+    assert R.expired == [("tg:defer:2026-10-19", 86400)]

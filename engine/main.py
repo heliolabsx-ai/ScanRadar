@@ -18,6 +18,17 @@ IST = dt.timezone(dt.timedelta(hours=5, minutes=30))
 TOP_N = 3
 
 
+def defer(ref: str, text: str, now: dt.datetime) -> None:
+    """Queue a Telegram message on `tg:defer:{day}` (never waits for the API); sent directly if Redis refuses."""
+    key = f"tg:defer:{now:%Y-%m-%d}"
+    try:
+        R.rpush(key, json.dumps({"ref": ref, "text": text, "ts": now.isoformat()}))
+        R.expire(key, 86400)
+    except Exception as e:  # noqa: BLE001
+        log.warning("deferred telegram failed (%s); sending directly", e)
+        telegram(text)
+
+
 def load_today() -> dict[str, pd.DataFrame]:
     today = dt.datetime.now(IST).date()
     with psycopg.connect(DB) as con:
@@ -129,17 +140,21 @@ def run_once():
                         lv = trade_levels(sc, bars, ctx, price) if sc.get("side") else None
                         if lv:
                             payload.update(stop=lv["stop"], target=lv["target"], levels=lv["basis"])
-                        cur.execute("INSERT INTO alerts(scan,symbol,price,payload) VALUES(%s,%s,%s,%s)",
+                        cur.execute("INSERT INTO alerts(scan,symbol,price,payload) VALUES(%s,%s,%s,%s) RETURNING id",
                                     (sc["name"], s, price, json.dumps(payload, default=float)))
-                        fired.append((sc, s, price, lv))
+                        fired.append((sc, s, price, lv, cur.fetchone()[0]))
         con.commit()
-    for sc, s, price, lv in fired:
+    for sc, s, price, lv, aid in fired:
         if sc.get("alert", {}).get("telegram", True):
             lvl = ""
             if lv:
                 rr = abs(lv["target"] - price) / abs(price - lv["stop"]) if price != lv["stop"] else 0
                 lvl = f"\nstop ₹{lv['stop']:,.2f} · target ₹{lv['target']:,.2f} · R:R 1:{rr:.1f}"
-            telegram(f"<b>{sc['name']}</b>\n{s} @ ₹{price:,.2f}  ({sc.get('timeframe','5m')}){lvl}\n{now:%H:%M}  ·  scanradar.tech")
+            text = f"<b>{sc['name']}</b>\n{s} @ ₹{price:,.2f}  ({sc.get('timeframe','5m')}){lvl}\n{now:%H:%M}  ·  scanradar.tech"
+            if os.environ.get("TRADES_LIVE", "1") != "0":
+                defer(f"alert:{aid}", text, now)                # the API's trades loop sends it with the odds line
+            else:
+                telegram(text)
     log.info("scan: %d symbols, %d bull / %d bear, %d alerts", n, len(bulls), len(bears), len(fired))
 
 

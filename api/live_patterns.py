@@ -1,11 +1,13 @@
 """Live pattern loop (API process, until Phase 2 moves it into the engine).
 
 Every minute during the session: detect today's patterns from the stored candles,
-upsert them as live rows, send one Telegram per new trigger (once per symbol and
-kind per day) and publish `patterns:updated` so the dashboard refreshes.
+upsert them as live rows, queue one Telegram per new trigger (once per symbol and
+kind per day) on the deferred list the trades loop sends with the odds line, and
+publish `patterns:updated` so the dashboard refreshes.
 """
 import os, json, asyncio, logging, datetime as dt
 import pandas as pd
+import live_desk
 from core.calendar import is_trading_day
 
 log = logging.getLogger("live_patterns")
@@ -53,6 +55,13 @@ def message(r: dict) -> str:
     return (f"<b>{LABEL.get(r['kind'], r['kind'])} · {side}</b>\n"
             f"{r['symbol']} entry ₹{r['entry']:,.2f} · stop ₹{r['stop']:,.2f} · {tgt} · "
             f"R:R 1:{r['rr']:.1f} · score {r['score']}/9{rec}\n{hhmm} · scanradar.tech")
+
+
+def defer(R, day, r: dict, now: dt.datetime) -> None:
+    """Queue the trigger's message on `tg:defer:{day}`; the trades loop sends it with the odds line."""
+    key = f"tg:defer:{day}"
+    R.rpush(key, json.dumps({"ref": live_desk.pattern_ref(r), "text": message(r), "ts": now.isoformat()}))
+    R.expire(key, 86400)
 
 
 _st_cache: dict = {}
@@ -112,10 +121,7 @@ def tick(connect, now: dt.datetime, send) -> tuple[int, int]:
         if not worth_telling(r):
             continue
         if R.set(f"pcool:{day}:{r['symbol']}:{r['kind']}", "1", ex=86400, nx=True):
-            try:
-                send(message(r))
-            except Exception as e:  # noqa: BLE001
-                log.warning("telegram failed: %s", e)
+            defer(R, day, r, now)
     if fresh:
         R.publish("patterns:updated", json.dumps({"at": at.strftime("%H:%M"), "new": len(fresh)}))
     return len(rows), len(fresh)

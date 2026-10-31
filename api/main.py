@@ -10,6 +10,7 @@ import patterns as pt
 import live_patterns as lp
 import desk
 import live_desk as ld
+import live_trades as lt
 import watch as wt
 import screens as sc
 from core.patterns import detector_hash
@@ -39,7 +40,7 @@ def _today() -> dt.date:
 async def _start_live_patterns():
     if os.environ.get("PATTERNS_LIVE", "1") != "0":
         _background.add(asyncio.create_task(lp.run(connect, _live_pool, telegram)))
-    _background.add(asyncio.create_task(ld.run(connect, telegram, _prepare_day)))
+    _background.add(asyncio.create_task(lt.run(connect, telegram, _prepare_day)))     # trades, deferred Telegram, then the desk
 
 
 @app.get("/api/health")
