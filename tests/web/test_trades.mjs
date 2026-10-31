@@ -17,7 +17,7 @@ test('size matches the server arithmetic', () => {
   assert.equal(T.size(100, 101, { ...S, product: 'delivery' }, 'short').limited_by, 'delivery_no_short');
 });
 test('tiles', () => {
-  const t = T.tiles({ committed: 5966, realised: -1200, realised_losses: 1200, taken: 3, gate_state: 'CLOSED', blocked_total: 4, blocked_won: 1, room_inr: 34 }, S, true);
+  const t = T.tiles({ committed: 4766, realised: -1200, realised_losses: 1200, taken: 3, gate_state: 'CLOSED', blocked_total: 4, blocked_won: 1, room_inr: 34 }, S, true);
   assert.deepEqual(t.map(x => x.key), ['capital', 'max_loss', 'day_risk', 'trades', 'pnl', 'blocked_won']);
   assert.equal(t[2].value, '₹5,966 / ₹6,000'); assert.equal(t[3].value, '3 / 5'); assert.equal(t[3].sub, 'gate CLOSED'); assert.equal(t[4].cls, 'dn'); assert.equal(t[5].value, '1 of 4');
   assert.equal(T.tiles({ taken: 0 }, S, false, '2026-11-03')[3].sub, 'rules not applied (before 3 Nov 2026)');

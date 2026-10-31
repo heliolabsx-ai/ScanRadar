@@ -34,7 +34,7 @@
     const L = ledger || {}, s = settings || {};
     const num = k => +L[k] || 0;
     const room = L.room_inr;
-    const used = room != null && room > 0 ? s.day_loss - room : num('committed') + num('realised_losses');
+    const used = num('committed') + num('realised_losses');
     const pct = s.day_loss > 0 ? Math.max(0, Math.min(100, Math.round(used / s.day_loss * 100))) : 0;
     const realised = num('realised');
     return [
