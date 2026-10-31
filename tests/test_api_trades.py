@@ -13,3 +13,37 @@ def test_attach_trade_fields():
     assert rows[0]["odds"] == {"verdict": "flat"} and rows[0]["trade"] == {"id": 4, "shares": 0, "risk_inr": 0, "gate": "BLOCK", "gate_reason": "x"}
     assert rows[1]["odds"] is None and rows[1]["trade"] is None
     assert trades.attach({"alert:7": by_ref["pattern:LT|triple_top|13:00"]}, [{"id": 7, "scan": "B0101"}], "alert")[0]["trade"]["id"] == 4
+
+
+def test_attach_leaves_input_rows_unmutated():
+    by_ref = {"alert:7": {"id": 4, "odds": {"verdict": "flat"}, "size": {"shares": 3, "risk_inr": 90}, "gate": "PASS", "gate_reason": None}}
+    rows = [{"id": 7, "scan": "B0101"}, {"id": 8, "scan": "B0101"}]
+    out = trades.attach(by_ref, rows, "alert")
+    assert rows == [{"id": 7, "scan": "B0101"}, {"id": 8, "scan": "B0101"}]
+    assert out[0] is not rows[0] and out[0]["trade"]["shares"] == 3
+
+
+class _Cur:
+    def __init__(self, recs): self.recs, self.calls = recs, []
+    def execute(self, sql, params=None): self.calls.append((sql, params))
+    def fetchall(self): return self.recs
+    def __enter__(self): return self
+    def __exit__(self, *a): return False
+
+
+class _Con:
+    def __init__(self, recs): self.cur = _Cur(recs)
+    def cursor(self): return self.cur
+
+
+def test_odds_by_ref_cuts_at_the_as_of_minute():
+    day = dt.date(2026, 10, 28)
+    at = dt.datetime(2026, 10, 28, 12, 0, tzinfo=dt.timezone(dt.timedelta(hours=5, minutes=30)))
+    con = _Con([("pattern:LT|triple_top|11:00", 4, {"v": 1}, {"shares": 1}, "PASS", None)])
+    by_ref = trades.odds_by_ref(con, day, at)
+    sql, params = con.cur.calls[-1]
+    assert "ts <= %s" in sql and params == (day, at)
+    assert by_ref["pattern:LT|triple_top|11:00"]["id"] == 4
+    trades.odds_by_ref(con, day)
+    sql, params = con.cur.calls[-1]
+    assert "ts <=" not in sql and params == (day,)

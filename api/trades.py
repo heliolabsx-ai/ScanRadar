@@ -221,9 +221,13 @@ def _cut(rows: list[dict], upto: dt.datetime) -> list[dict]:
     return out
 
 
-def odds_by_ref(con, day) -> dict[str, dict]:
+def odds_by_ref(con, day, upto: dt.datetime | None = None) -> dict[str, dict]:
+    """Trade rows of the day by ref; with `upto`, only rows whose minute is at or before it (as rows_for_day)."""
+    sql, params = "SELECT ref, id, odds, size, gate, gate_reason FROM trade_rows WHERE day=%s", (day,)
+    if upto is not None:
+        sql, params = sql + " AND ts <= %s", (day, upto)
     with con.cursor() as cur:
-        cur.execute("SELECT ref, id, odds, size, gate, gate_reason FROM trade_rows WHERE day=%s", (day,))
+        cur.execute(sql, params)
         return {ref: {"id": i, "odds": o, "size": s, "gate": g, "gate_reason": gr} for ref, i, o, s, g, gr in cur.fetchall()}
 
 

@@ -37,10 +37,10 @@ def _today() -> dt.date:
     return dt.datetime.now(IST).date()
 
 
-def _odds_or_empty(con, day: dt.date) -> dict | None:
-    """Trade rows of the day by ref for the odds join; None when they cannot be read (rows then go out without odds/trade)."""
+def _odds_or_empty(con, day: dt.date, upto: dt.datetime | None = None) -> dict | None:
+    """Trade rows of the day (cut at `upto`) by ref for the odds join; None when they cannot be read (rows then go out without odds/trade)."""
     try:
-        return tr.odds_by_ref(con, day)
+        return tr.odds_by_ref(con, day, upto)
     except Exception:  # noqa: BLE001
         con.rollback()
         logging.getLogger("api").exception("odds join for %s failed", day)
@@ -154,9 +154,9 @@ def _prepare_day(day: dt.date) -> None:
             con.commit()
         import redis as _redis
         _redis.from_url(os.environ["REDIS_URL"], decode_responses=True).set(f"patdone:{day}:{detector_hash()}", "1", ex=30 * 86400)
-        try:
-            if not tr.rows_for_day(con, day):
-                tr.backfill_day(con, day, tr.get_settings(con))
+        try:                                          # idempotent: stored refs are skipped, only open rows get settled
+            tr.backfill_day(con, day, tr.get_settings(con))
+            _redis.from_url(os.environ["REDIS_URL"], decode_responses=True).set(f"tradesdone:{day}", "1", ex=30 * 86400)
         except Exception:  # noqa: BLE001
             con.rollback()
             logging.getLogger("api").exception("trades backfill %s failed", day)
@@ -309,7 +309,7 @@ async def patterns(day: str, at: str):
         done = await R.exists(f"patdone:{d}:{detector_hash()}")
         def q():
             with connect() as con:
-                return (pt.patterns_needed(con, d, detector_hash()) if not done else False), pt.rows_at(pt.stored_rows(con, d), at_dt), _odds_or_empty(con, d)
+                return (pt.patterns_needed(con, d, detector_hash()) if not done else False), pt.rows_at(pt.stored_rows(con, d), at_dt), _odds_or_empty(con, d, at_dt)
         need, rows, by_ref = await loop.run_in_executor(None, q)
         rows = pt.to_json_rows(rows)
         if need:
@@ -337,7 +337,7 @@ async def patterns(day: str, at: str):
 
         def q_odds():
             with connect() as con:
-                return _odds_or_empty(con, d)
+                return _odds_or_empty(con, d, at_dt)
         by_ref = await loop.run_in_executor(None, q_odds)
     try:
         st = await _pattern_stats_cached()
@@ -583,12 +583,15 @@ async def trades_day(day: str, at: str):
     except rp.ReplayError as e:
         raise HTTPException(e.status_code, e.detail)
 
+    settled = rp.day_is_settled(d, now)
+    done = settled and await R.exists(f"tradesdone:{d}")
+
     def q():
         with connect() as con:
             rows = tr.rows_for_day(con, d, at_dt)
             return tr.get_settings(con), rows, bool(rows) or bool(tr.rows_for_day(con, d))
     settings, rows, has_rows = await asyncio.get_running_loop().run_in_executor(None, q)
-    pending = rp.day_is_settled(d, now) and not has_rows
+    pending = settled and not has_rows and not done
     if pending:
         await _kick_prepare(d)
     return {**tr.trades_view(rows, settings, d, at_dt.strftime("%H:%M")), "pending": pending}
