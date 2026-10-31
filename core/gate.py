@@ -19,7 +19,7 @@ def ledger(rows: list[dict], settings: dict) -> dict:
     open_: dict[str, str] = {}
     for r in rows:
         out = r.get("outcome")
-        if r.get("gate") == "BLOCK":
+        if r.get("gate") == "BLOCK" and r.get("paper") is None:   # a BLOCK he overrode and logged is a taken trade, not a saved one
             blocked_total += 1
             if out and out.get("hit") == "target":
                 blocked_won += 1
@@ -74,6 +74,7 @@ def settle(row: dict, df1m: pd.DataFrame, flat_by: str, final: bool) -> dict | N
     after = cutdata[cutdata.ts > at]
     if o["hit"] != "none":
         level = target if o["hit"] == "target" else stop
+        # the level is touched by the high (long target, short stop) or by the low (long stop, short target)
         touched = after.high >= level if (o["hit"] == "target") == (side == "long") else after.low <= level
         return done(o, level, after.ts[touched].iloc[0])
     reached = not cutdata.empty and cutdata.ts.iloc[-1] >= cut - pd.Timedelta(minutes=1)

@@ -34,6 +34,11 @@ def test_settled_rows_move_to_realised_and_losses_count_against_room():
 def test_logged_block_row_counts():
     st = ledger([row("A", "09:30", 1000.0, gate_="BLOCK")], DEFAULTS)
     assert st["taken"] == 1 and st["committed"] == 1000.0
+    won = {"hit": "target", "pnl_inr": 500.0}
+    st = ledger([row("A", "09:30", 1000.0, gate_="BLOCK", outcome=won)], DEFAULTS)
+    assert st["blocked_total"] == 0 and st["blocked_won"] == 0 and st["taken"] == 1 and st["realised"] == 500.0
+    st = ledger([row("A", "09:30", 1000.0, logged=False, gate_="BLOCK", outcome=won)], DEFAULTS)
+    assert st["blocked_total"] == 1 and st["blocked_won"] == 1 and st["taken"] == 0
 
 def test_settle_target_stop_open_and_flat_by():
     df, _ = shaped_day([0, 0.5, 1.0, 1.5, 2.5, 2.0] + [2.0] * 69, day="2026-10-28")          # 75 bars to 15:29
@@ -44,6 +49,7 @@ def test_settle_target_stop_open_and_flat_by():
     assert settle(r, df[df.ts < pd.Timestamp("2026-10-28 12:00", tz="Asia/Kolkata")], "15:20", final=False) is None
     s = settle(r, df, "15:20", final=False)                      # the data reaches 15:19: flat at the last close before 15:20
     assert s["hit"] == "none" and s["settled_at"][11:16] == "15:20" and s["pnl_inr"] == round(10 * (s["exit_px"] - 100.0), 2)
-    assert settle(r, df[df.ts < pd.Timestamp("2026-10-28 15:14", tz="Asia/Kolkata")], "15:20", final=True)["hit"] == "none"
+    s = settle(r, df[df.ts < pd.Timestamp("2026-10-28 15:14", tz="Asia/Kolkata")], "15:20", final=True)
+    assert s["hit"] == "none" and s["settled_at"][11:16] == "15:20"
     late = dict(r, ts="2026-10-28T15:25:00+05:30")
     assert settle(late, df, "15:20", final=False)["hit"] == "none"   # a trigger after flat_by settles at once
