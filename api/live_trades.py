@@ -154,7 +154,10 @@ def flush_deferred(R, day, send, at: dt.datetime) -> int:
                 log.warning("odds line for %s failed, sending plain: %s", ref, e)
                 text = item["text"]
             try:
-                send(text)
+                if item.get("silent"):
+                    send(text, silent=True)
+                else:
+                    send(text)
                 n += 1
             except Exception as e:  # noqa: BLE001
                 log.warning("telegram failed: %s", e)

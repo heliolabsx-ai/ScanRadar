@@ -148,3 +148,14 @@ def test_process_minute_backfills_missing_odds_keys(monkeypatch):
     del stored["alert:2"]
     R2 = StoreR(fail_set=True)
     assert lt.process_minute(FakeCon(), R2, day, at, dict(DEFAULTS))["rows"] == 1  # a failed key write never stops the minute
+
+
+def test_flush_deferred_passes_silent_through():
+    now = dt.datetime(2026, 10, 30, 10, 20, 25, tzinfo=IST)
+    items = [json.dumps({"ref": "alert:1", "text": "<b>PDH break</b>", "ts": (now - dt.timedelta(seconds=100)).isoformat(), "silent": True}),
+             json.dumps({"ref": "alert:2", "text": "<b>PDH fade</b>", "ts": (now - dt.timedelta(seconds=100)).isoformat()})]
+    R = FakeR(items, {})
+    calls = []
+    def send(text, **kw): calls.append((text, kw.get("silent", False)))
+    assert lt.flush_deferred(R, dt.date(2026, 10, 30), send, now) == 2
+    assert calls == [("<b>PDH break</b>", True), ("<b>PDH fade</b>", False)]

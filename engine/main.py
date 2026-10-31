@@ -18,14 +18,14 @@ IST = dt.timezone(dt.timedelta(hours=5, minutes=30))
 TOP_N = 3
 
 
-def defer(ref: str, text: str, now: dt.datetime) -> None:
+def defer(ref: str, text: str, now: dt.datetime, silent: bool = False) -> None:
     """Queue a Telegram message on `tg:defer:{day}` (never waits for the API); sent directly only if the push fails."""
     key = f"tg:defer:{now:%Y-%m-%d}"
     try:
-        R.rpush(key, json.dumps({"ref": ref, "text": text, "ts": now.isoformat()}))
+        R.rpush(key, json.dumps({"ref": ref, "text": text, "ts": now.isoformat(), "silent": silent}))
     except Exception as e:  # noqa: BLE001
         log.warning("deferred telegram failed (%s); sending directly", e)
-        telegram(text)
+        telegram(text, silent=silent)
         return
     try:
         R.expire(key, 86400)
@@ -152,16 +152,17 @@ def run_once():
                         fired.append((sc, s, price, lv, cur.fetchone()[0]))
         con.commit()
     for sc, s, price, lv, aid in fired:
-        if sc.get("alert", {}).get("telegram", True):
+        tg = sc.get("alert", {}).get("telegram", True)      # falsy: none; "silent": no buzz; else loud
+        if tg:
             lvl = ""
             if lv:
                 rr = abs(lv["target"] - price) / abs(price - lv["stop"]) if price != lv["stop"] else 0
                 lvl = f"\nstop ₹{lv['stop']:,.2f} · target ₹{lv['target']:,.2f} · R:R 1:{rr:.1f}"
             text = f"<b>{sc['name']}</b>\n{s} @ ₹{price:,.2f}  ({sc.get('timeframe','5m')}){lvl}\n{now:%H:%M}  ·  scanradar.tech"
             if os.environ.get("TRADES_LIVE", "1") != "0":
-                defer(f"alert:{aid}", text, now)                # the API's trades loop sends it with the odds line
+                defer(f"alert:{aid}", text, now, silent=(tg == "silent"))  # the API's trades loop sends it with the odds line
             else:
-                telegram(text)
+                telegram(text, silent=(tg == "silent"))
     log.info("scan: %d symbols, %d bull / %d bear, %d alerts", n, len(bulls), len(bears), len(fired))
 
 

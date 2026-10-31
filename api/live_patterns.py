@@ -60,7 +60,7 @@ def message(r: dict) -> str:
 def defer(R, day, r: dict, now: dt.datetime) -> None:
     """Queue the trigger's message on `tg:defer:{day}`; the trades loop sends it with the odds line."""
     key = f"tg:defer:{day}"
-    R.rpush(key, json.dumps({"ref": live_desk.pattern_ref(r), "text": message(r), "ts": now.isoformat()}))
+    R.rpush(key, json.dumps({"ref": live_desk.pattern_ref(r), "text": message(r), "ts": now.isoformat(), "silent": False}))
     R.expire(key, 86400)
 
 

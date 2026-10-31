@@ -3,13 +3,14 @@ log = logging.getLogger("notify")
 TOKEN, CHAT = os.environ.get("TELEGRAM_BOT_TOKEN"), os.environ.get("TELEGRAM_CHAT_ID")
 
 
-def telegram(text: str):
+def telegram(text: str, silent: bool = False):
     if not (TOKEN and CHAT):
         log.info("telegram not configured; would send: %s", text)
         return
     try:
         requests.post(f"https://api.telegram.org/bot{TOKEN}/sendMessage",
-                      json={"chat_id": CHAT, "text": text, "parse_mode": "HTML", "disable_web_page_preview": True},
+                      json={"chat_id": CHAT, "text": text, "parse_mode": "HTML", "disable_web_page_preview": True,
+                            "disable_notification": silent},
                       timeout=10).raise_for_status()
     except Exception as e:  # noqa
         log.warning("telegram send failed: %s", e)
