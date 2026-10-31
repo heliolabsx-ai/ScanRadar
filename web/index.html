@@ -339,7 +339,7 @@ $('theme').onclick = () => {
   const next = cur === 'dark' ? 'light' : 'dark';
   document.documentElement.dataset.theme = next;
   try{ localStorage.setItem('theme', next); }catch(e){}
-  if(S.view === 'patterns') renderPatternDetail(); else if(S.view === 'trades'){ if(S.tsel != null) renderTradeDrawer(); } else renderDetail();
+  if(S.view === 'patterns') renderPatternDetail(); else if(S.view === 'trades'){ if(S.tsel != null) renderTradeDrawer({full: true}); } else renderDetail();
 };
 $('riskChip').onclick = () => { setView('trades'); openTradeSettings(); };   // S.risk = the server's max loss per trade (Trades settings)
 
@@ -701,11 +701,13 @@ async function fetchReplay(){
 }
 function enterReplay(day, at, auto=false){
   const dayChanged = day !== S.day;
+  if((day || todayIST()) !== (S.day || todayIST()) && S.tsel != null) closeTradeDrawer();   // a trade row belongs to its day
   if(!auto) S.userReplay = true;
   S.following = false; S.day = day; S.atAuto = auto; setAt(at); $('live').hidden = !(S.live || S.liveSnap); $('day').value = day; syncDayUI(); setStatus('REPLAY','replay');
   fetchReplay(); if(dayChanged) loadAlerts();
 }
 function goLive(){
+  if(S.day && S.day !== todayIST() && S.tsel != null) closeTradeDrawer();
   S.following = true; S.userReplay = false; S.day = null; S.mode = 'live'; $('live').hidden = true; $('day').value = todayIST(); syncDayUI();
   if(S.liveSnap){ S.snap = S.liveSnap; setAt(S.snap.ts.slice(11,16)); setStatus(S.snap.stale ? 'STALE · last ' + S.snap.ts.slice(11,16) : 'LIVE', S.snap.stale ? 'warn' : 'live'); renderAll(); }
   else { setStatus('WAITING',''); showEmpty('Waiting for the first ranking. Cards appear from 09:15 on a trading day.'); }
@@ -1150,7 +1152,7 @@ async function loadTrades(){
     if(S.tpending){ clearTimeout(S.ttimer); S.ttimer = setTimeout(loadTrades, 10000); }
   }catch(e){
     if(!current()) return;
-    S.trows = []; S.tledger = null; S.tpending = false; S.tapplied = day >= S.trulesFrom; S.terr = String(e.message).split(' ')[0];
+    S.trows = []; S.tledger = null; S.tpending = false; S.tapplied = day >= S.trulesFrom; const em = String(e.message); S.terr = /^\d{3} /.test(em) ? em.slice(0, 3) : em;
     if(S.view === 'trades') renderTrades();
   }
 }
@@ -1215,12 +1217,10 @@ function renderTrades(){
   if(S.tsel != null && $('tdrawer').classList.contains('open')) renderTradeDrawer();
 }
 const LIMITED = {max_loss: 'sized by the max loss', position_cap: 'capped by the share of capital in one name', zero_distance: 'stop equals entry', delivery_no_short: 'delivery: no shorts'};
-function renderTradeDrawer(){
-  const r = tradeSel(), d = $('tdbody');
-  if(!r){ d.dataset.id = ''; d.innerHTML = `<h2>Trade</h2><div class="mut">not in the queue at ${S.at || '15:30'}</div>`; return; }
-  const keepNote = d.dataset.id === String(r.id) && $('tnote') ? $('tnote').value : ''; d.dataset.id = String(r.id);
+// The drawer's parts that a refresh can change; the chart and the note field are not among them.
+function tradeDrawerParts(r){
   const st = tradeSetup(r), long = r.side === 'long', o = r.odds, m = o && o.mc, p = o && o.past, sz = r.size || {}, s = S.tsettings;
-  const live = S.following && !S.day;
+  const live = S.following && !S.day, g = TK.gateLabel(r);
   let odds;
   if(m){
     const b = TK.oddsBar(o), n = p ? (p.target||0) + (p.stop||0) + (p.none||0) : 0, word = TK.verdictWord(o);
@@ -1240,39 +1240,71 @@ function renderTradeDrawer(){
   const mins = out && out.settled_at ? Math.round((Date.parse(out.settled_at) - Date.parse(r.ts)) / 60000) : null;
   const what = out ? `What happened: ${out.hit === 'target' ? 'T1 hit' : out.hit === 'stop' ? 'stopped' : `flat at ${esc(s.flat_by)}`}${mins != null && out.hit !== 'none' ? ` after ${mins} min` : ''} · exit ${fmt(out.exit_px)} · ${TK.inr(out.pnl_inr)} on ${Number(sz.shares||0).toLocaleString('en-IN')} shares` : 'What happened: still open at this minute.';
   const msg = S.tmsg && S.tmsg.id === r.id ? S.tmsg.text : '';
-  d.innerHTML = `<h2>${esc(r.symbol)} <span class="side ${long?'L':'S'}">${long?'L':'S'}</span> <span class="mut" style="font:400 12px var(--sans)">${esc(st.label)}${st.score != null ? ` · ${st.score}` : ''} · ${tTime(r)}</span></h2>
-   <div class="sub">${r.source === 'alert' ? 'rule alert' : 'pattern trigger'} · ${esc(S.sectorsOf[r.symbol] || '')} · entry ${fmt(r.entry)} · stop ${fmt(r.stop)} · T1 ${fmt(r.target)}${r.target2 != null ? ` · T2 ${fmt(r.target2)}` : ''} · R:R 1:${fmt(r.rr,2)} · gate <span class="gate ${TK.gateLabel(r).cls}">${TK.gateLabel(r).text}</span></div>
+  return {
+    head: `<h2>${esc(r.symbol)} <span class="side ${long?'L':'S'}">${long?'L':'S'}</span> <span class="mut" style="font:400 12px var(--sans)">${esc(st.label)}${st.score != null ? ` · ${st.score}` : ''} · ${tTime(r)}</span></h2>
+     <div class="sub">${r.source === 'alert' ? 'rule alert' : 'pattern trigger'} · ${esc(S.sectorsOf[r.symbol] || '')} · entry ${fmt(r.entry)} · stop ${fmt(r.stop)} · T1 ${fmt(r.target)}${r.target2 != null ? ` · T2 ${fmt(r.target2)}` : ''} · R:R 1:${fmt(r.rr,2)} · gate <span class="gate ${g.cls}">${g.text}</span></div>`,
+    odds, ticket,
+    paper: r.paper ? `<div class="mono" style="font-size:12px">logged at ${esc(String(r.paper.logged_at).slice(11,16))}${r.paper.note ? ` · ${esc(r.paper.note)}` : ''}</div>` : '',
+    what: `${msg ? esc(msg) + ' · ' : ''}${what}`,
+    btn: {disabled: !!r.paper || !live, text: r.paper ? 'Logged as paper trade' : 'Log as paper trade',
+          title: r.paper ? 'Already logged' : live ? 'Record this row as a paper trade: it then counts in the day risk and P&L tiles' : 'Paper trades are logged on the live feed only'},
+  };
+}
+// Full build when the drawer opens, the row changes, or opts.full (theme, closing the big chart); otherwise the
+// parts above are replaced in place so the note field keeps focus, value and caret, and the chart is left alone
+// except for a redraw when the as-of minute moves (candles are fetched again only while following live).
+function renderTradeDrawer(opts = {}){
+  const r = tradeSel(), d = $('tdbody');
+  if(!r){ d.dataset.id = ''; d.innerHTML = `<h2>Trade</h2><div class="mut">not in the queue at ${S.at || '15:30'}</div>`; return; }
+  const P = tradeDrawerParts(r), at = S.at || '';
+  const setBtn = () => { const b = $('tpaper'); if(b.dataset.busy) return; b.disabled = P.btn.disabled; b.textContent = P.btn.text; b.title = P.btn.title; };
+  if(!opts.full && d.dataset.id === String(r.id) && $('tnote') && S.tdA){
+    $('tdhead').innerHTML = P.head; $('tdodds').innerHTML = P.odds; $('tdticket').innerHTML = P.ticket; $('tdpaper').innerHTML = P.paper; $('tdwhat').innerHTML = P.what;
+    setBtn(); S.tdA.trade = r;
+    $('tpaper').onclick = () => logPaper(r);
+    $('taskdesk').onclick = () => askDeskAbout(r);
+    if(d.dataset.at !== at){ d.dataset.at = at; loadAndDraw(S.tdA); }
+    return;
+  }
+  const same = d.dataset.id === String(r.id) && $('tnote'), note = $('tnote');
+  const keep = same ? {v: note.value, focus: document.activeElement === note, a: note.selectionStart, b: note.selectionEnd} : null;
+  d.dataset.id = String(r.id); d.dataset.at = at;
+  d.innerHTML = `<div id="tdhead">${P.head}</div>
    <div class="tfrow">${TFS.map(t=>`<button class="tf ${curTf()===t?'on':''}" data-tf="${t}">${t}</button>`).join('')}<span class="readout mono"></span></div>
    <canvas class="chart" width="620" height="430"></canvas>
-   ${odds}
+   <div id="tdodds">${P.odds}</div>
    <h3>Ticket</h3>
-   <pre class="tticket">${ticket}</pre>
+   <pre class="tticket" id="tdticket">${P.ticket}</pre>
    <h3>Paper log</h3>
-   ${r.paper ? `<div class="mono" style="font-size:12px">logged at ${esc(String(r.paper.logged_at).slice(11,16))}${r.paper.note ? ` · ${esc(r.paper.note)}` : ''}</div>` : ''}
+   <div id="tdpaper">${P.paper}</div>
    <div class="ask"><input id="tnote" maxlength="200" placeholder="note (optional): why you took it, what you saw" autocomplete="off"></div>
-   <div class="wbtn"><button id="tpaper"${r.paper || !live ? ' disabled' : ''} title="${r.paper ? 'Already logged' : live ? 'Record this row as a paper trade: it then counts in the day risk and P&amp;L tiles' : 'Paper trades are logged on the live feed only'}">${r.paper ? 'Logged as paper trade' : 'Log as paper trade'}</button><button id="taskdesk" title="Open the Desk tab with this ticket in the question box">Ask the desk</button></div>
-   <div class="mut" style="font-size:11px;margin-top:8px">${msg ? esc(msg) + ' · ' : ''}${what}</div>`;
-  if(keepNote) $('tnote').value = keepNote;
-  wireChart({symbol: r.symbol, minimal: true, price: r.entry, stop: r.stop, target: r.target, trade: r});
+   <div class="wbtn"><button id="tpaper"></button><button id="taskdesk" title="Open the Desk tab with this ticket in the question box">Ask the desk</button></div>
+   <div class="mut" id="tdwhat" style="font-size:11px;margin-top:8px">${P.what}</div>`;
+  setBtn();
+  if(keep){ const n = $('tnote'); n.value = keep.v; if(keep.focus){ n.focus(); try{ n.setSelectionRange(keep.a, keep.b); }catch(e){} } }
+  S.tdA = {symbol: r.symbol, minimal: true, price: r.entry, stop: r.stop, target: r.target, trade: r};
+  wireChart(S.tdA);
   $('tpaper').onclick = () => logPaper(r);
-  $('taskdesk').onclick = () => { const q = TK.ticket(r, S.tsettings) + ' — take, wait or skip?'; setView('desk'); $('dq').value = q; $('dq').focus(); };
+  $('taskdesk').onclick = () => askDeskAbout(r);
 }
+function askDeskAbout(r){ const q = TK.ticket(r, S.tsettings) + ' — take, wait or skip?'; setView('desk'); $('dq').value = q; $('dq').focus(); }
 function openTradeDrawer(id){
   S.tsel = id; $('tdrawer').classList.add('open');
   document.querySelectorAll('#tqueue tr.trow').forEach(t => t.classList.toggle('sel', +t.dataset.id === id));
-  hoverIdx = null; renderTradeDrawer();
+  hoverIdx = null; renderTradeDrawer({full: true});
 }
 function closeTradeDrawer(){
   S.tsel = null; $('tdrawer').classList.remove('open');
   document.querySelectorAll('#tqueue tr.trow.sel').forEach(t => t.classList.remove('sel'));
 }
 async function logPaper(r){
-  const b = $('tpaper'); if(b) b.disabled = true;
+  const b = $('tpaper'); if(b){ b.disabled = true; b.dataset.busy = '1'; }
   try{
     const res = await fetch(`/api/trades/${r.id}/paper`, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({note: ($('tnote') ? $('tnote').value : '').trim()})});
     if(!res.ok){ let det = ''; try{ det = (await res.json()).detail || ''; }catch(e){} throw new Error(`${res.status}${det ? ' ' + det : ''}`); }
     S.tmsg = {id: r.id, text: 'logged as a paper trade'}; if($('tnote')) $('tnote').value = '';
-  }catch(e){ S.tmsg = {id: r.id, text: `could not log: ${e.message}`}; if(b) b.disabled = false; }
+  }catch(e){ S.tmsg = {id: r.id, text: `could not log: ${e.message}`}; }
+  if(b) delete b.dataset.busy;
   if(S.tsel === r.id) renderTradeDrawer();
   loadTrades();
 }
@@ -1340,7 +1372,7 @@ function openChartBig(a){
 }
 function closeChartBig(){
   if(!S.lbA) return; S.lbA = null; $('lightbox').hidden = true; hoverIdx = null;
-  if(S.view === 'patterns') renderPatternDetail(); else if(S.view === 'watch'){ if(S.wsel) renderWatchDrawer(); } else if(S.view === 'trades'){ if(S.tsel != null) renderTradeDrawer(); } else renderDetail();
+  if(S.view === 'patterns') renderPatternDetail(); else if(S.view === 'watch'){ if(S.wsel) renderWatchDrawer(); } else if(S.view === 'trades'){ if(S.tsel != null) renderTradeDrawer({full: true}); } else renderDetail();
 }
 $('lbClose').onclick = closeChartBig;
 $('lightbox').addEventListener('click', e => { if(e.target === $('lightbox')) closeChartBig(); });
@@ -1363,7 +1395,7 @@ document.addEventListener('click', e => {
   const c = e.target.closest('.card'); if(c){ S.selected = c.dataset.sym; renderCards(); renderDetail(); return; }
   const r = e.target.closest('.alert'); if(r){ S.selected = r.dataset.sym; enterReplay(S.day || todayIST(), r.dataset.at); }
 });
-matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => { if(S.view === 'patterns') renderPatternDetail(); else if(S.view === 'trades'){ if(S.tsel != null) renderTradeDrawer(); } else renderDetail(); });
+matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => { if(S.view === 'patterns') renderPatternDetail(); else if(S.view === 'trades'){ if(S.tsel != null) renderTradeDrawer({full: true}); } else renderDetail(); });
 
 (async () => {
   try{ const ins = await api('/api/instruments'); ins.forEach(i => { S.lots[i.symbol] = i.lot_size; S.sectorsOf[i.symbol] = i.sector; }); }catch(e){}
