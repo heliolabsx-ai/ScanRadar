@@ -182,11 +182,11 @@ def merge_live_replay(rows: list[dict]) -> list[dict]:
 def alerts_for_day(con, day: dt.date) -> list[dict]:
     start, end = ist_day_bounds(day)
     with con.cursor() as cur:
-        cur.execute("SELECT ts, scan, symbol, price, payload, source FROM alerts WHERE ts>=%s AND ts<%s ORDER BY ts DESC", (start, end))
-        rows = [{"ts": ts.astimezone(IST), "scan": sc, "symbol": sym, "price": pr, "payload": p or {}, "source": src}
-                for ts, sc, sym, pr, p, src in cur.fetchall()]
+        cur.execute("SELECT id, ts, scan, symbol, price, payload, source FROM alerts WHERE ts>=%s AND ts<%s ORDER BY ts DESC", (start, end))
+        rows = [{"id": i, "ts": ts.astimezone(IST), "scan": sc, "symbol": sym, "price": pr, "payload": p or {}, "source": src}
+                for i, ts, sc, sym, pr, p, src in cur.fetchall()]
     rows = merge_live_replay(rows)
-    return [{"ts": r["ts"].isoformat(), "scan": r["scan"], "symbol": r["symbol"], "price": r["price"],
+    return [{"id": r["id"], "ts": r["ts"].isoformat(), "scan": r["scan"], "symbol": r["symbol"], "price": r["price"],
              "tf": r["payload"].get("tf"), "source": r["source"], "side": r["payload"].get("side"),
              "stop": r["payload"].get("stop"), "target": r["payload"].get("target"),
              "outcome": r["payload"].get("outcome")} for r in rows]
