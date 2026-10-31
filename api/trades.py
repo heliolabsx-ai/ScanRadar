@@ -9,7 +9,7 @@ import live_desk
 import patterns as pt
 import alerts as al
 from replay import IST, session_bounds
-from core import timemachine as tm
+from core import rules, timemachine as tm
 from core.gate import ledger, gate, settle
 from core.patterns import LABELS
 from core.sizing import DEFAULTS, validate, shares
@@ -119,7 +119,7 @@ def _alert_candidates(rows: list[dict], at: dt.datetime, include_replay: bool, m
             continue
         entry, stop, target = float(a["price"]), float(a["stop"]), float(a["target"])
         rr = _rr(entry, stop, target)
-        if rr < desk.ALERT_MIN_RR:
+        if rr < rules.min_rr(sc, desk.ALERT_MIN_RR):
             continue
         last[pair] = a["ts"]                                  # it got its row when it was fresh, so it anchors even when stale now
         if max_age is not None and live_desk.stale(a["ts"], at, max_age):

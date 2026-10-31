@@ -21,6 +21,15 @@ def test_candidates_apply_the_desk_filters_and_the_repeat_rule(monkeypatch):
     assert out[0]["source"] == "alert" and out[1]["target2"] == 3700.0
     assert trades.candidates(None, dt.date(2026, 10, 28), T("14:00"), include_replay=False, max_age=10, pat_stats={}, scans={}) == []
 
+def test_scan_min_rr_admits_low_rr_alerts(monkeypatch):
+    low = [{"ts": T("10:20").isoformat(), "scan": "PDL fade", "symbol": "K", "price": 100.0, "stop": 99.0, "target": 100.3, "side": "long", "source": "live", "id": 1}]
+    monkeypatch.setattr(trades, "_pattern_rows_at", lambda con, day, at, include_replay: [])
+    monkeypatch.setattr(trades, "_alert_rows", lambda con, day: low)
+    run = lambda scans: trades.candidates(None, dt.date(2026, 10, 28), T("14:00"), include_replay=False, max_age=None, pat_stats={}, scans=scans)
+    out = run({"PDL fade": {"side": "long", "min_rr": 0}})
+    assert [c["ref"] for c in out] == ["alert:1"] and abs(out[0]["rr"] - 0.3) < 1e-9
+    assert run({}) == [] and run({"PDL fade": {"side": "long"}}) == []          # no min_rr → the 1.5 floor
+
 def test_build_row_sizes_gates_and_keeps_odds_optional():
     hist = trades.tm.history({f"2026-09-{d:02d}": synthetic_day(seed=d, day=f"2026-09-{d:02d}") for d in range(1, 6)})
     cand = {"ref": "alert:7", "source": "alert", "symbol": "KFINTECH", "side": "long", "ts": T("10:20"), "bar": "10:15", "entry": 100.0, "stop": 99.0, "target": 102.0, "target2": None, "rr": 2.0, "score": None, "label": "B0101"}

@@ -9,6 +9,7 @@ import alerts as al
 import trades
 from replay import load_refs, session_bounds, COLS as CANDLE_COLS
 from core.calendar import is_trading_day
+from core import rules
 from core.analytics import analyse
 from core.backtest import outcome as grade
 from core.sizing import DEFAULTS as SIZING_DEFAULTS
@@ -203,8 +204,9 @@ def process_minute(con, R, day, at: dt.datetime, snap: dict | None, *, prepare=N
                     continue
                 stop, target = al.side_levels(row, side); basis = "pivot"
             rr = abs(target - a["price"]) / abs(a["price"] - stop) if a["price"] != stop else 0
-            if rr < desk.ALERT_MIN_RR or not gate(None if desk.MIN_SCORE == 0 else 5, rr):
-                skip_row(cur, day, at, ref, a["symbol"], f"skipped: R:R 1:{rr:.1f} below {desk.ALERT_MIN_RR:.1f}", {"label": a["scan"], "side": side}); con.commit(); continue
+            floor = rules.min_rr(sc, desk.ALERT_MIN_RR)
+            if rr < floor or not gate(None if desk.MIN_SCORE == 0 else 5, rr):
+                skip_row(cur, day, at, ref, a["symbol"], f"skipped: R:R 1:{rr:.1f} below {floor:.1f}", {"label": a["scan"], "side": side}); con.commit(); continue
             st = scan_stats.get(a["scan"]) or {}
             trig = {"source": "alert", "kind": a["scan"], "label": a["scan"], "at": a["ts"].strftime("%H:%M"), "tf": a["payload"].get("tf") or sc.get("timeframe"),
                     "scan_rules": sc.get("rules"), "levels": basis, "symbol": a["symbol"], "side": side, "entry": a["price"], "stop": stop, "target": target}

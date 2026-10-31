@@ -255,3 +255,40 @@ def test_live_desk_falls_back_when_the_trade_tables_are_missing(monkeypatch):
     monkeypatch.setattr(live_desk.trades, "get_settings", lambda con: dict(DEFAULTS, max_loss=1000))
     assert live_desk.trade_rows(con, dt.date(2026, 10, 30)) == {"alert:1": {"size": {"shares": 3}}}
     assert live_desk.trade_settings(con)["max_loss"] == 1000
+
+
+def test_process_minute_uses_the_scan_min_rr(monkeypatch):
+    at = dt.datetime(2026, 10, 28, 10, 10, tzinfo=IST)
+    alert = {"id": 5, "ts": at, "scan": "PDL fade", "symbol": "K", "price": 100.0, "payload": {"side": "long", "stop": 99.0, "target": 100.3, "tf": "5m"}}   # R:R 0.3
+
+    class Cur:
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def execute(self, *a): pass
+        def fetchone(self): return None
+    class Con:
+        def cursor(self): return Cur()
+        def commit(self): pass
+
+    stored, verdicts = [], []
+    def run(scan):
+        stored.clear(); verdicts.clear()
+        monkeypatch.setattr(live_desk.al, "scan_files", lambda: [(scan, "hash")])
+        live_desk.process_minute(Con(), None, at.date(), at, {})
+        return list(verdicts), [r["error"] for r in stored]
+
+    monkeypatch.setattr(live_desk, "load_refs", lambda con, day: {})
+    monkeypatch.setattr(live_desk.trades, "odds_by_ref", lambda con, day: {})
+    monkeypatch.setattr(live_desk.trades, "get_settings", lambda con: DEFAULTS)
+    monkeypatch.setattr(live_desk, "setup_stats", lambda con, now: ({}, {}))
+    monkeypatch.setattr(live_desk.pt, "stored_rows", lambda con, day: [])
+    monkeypatch.setattr(live_desk, "new_alerts", lambda con, day, at, include_replay=False: [alert])
+    monkeypatch.setattr(desk, "spent", lambda R, day: 0)
+    monkeypatch.setattr(desk, "budget_allows", lambda kind, spent: True)
+    monkeypatch.setattr(desk, "store", lambda cur, rec: stored.append(rec) or 1)
+    monkeypatch.setattr(desk, "exists", lambda cur, day, kind, ref: False)
+    monkeypatch.setattr(live_desk, "_verdict", lambda *a, **k: verdicts.append(k["ref"]) or {})
+
+    assert run({"name": "PDL fade", "side": "long", "min_rr": 0}) == (["alert:5"], [])
+    reached, errors = run({"name": "PDL fade", "side": "long"})
+    assert reached == [] and len(errors) == 1 and errors[0] == "skipped: R:R 1:0.3 below 1.5"
