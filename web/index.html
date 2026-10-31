@@ -8,7 +8,7 @@
 <script src="notify.js?v=df9a38f"></script>
 <script src="patterns.js?v=v6"></script>
 <script src="desk.js?v=ec9593b"></script>
-<script src="watch.js?v=df9a38f"></script>
+<script src="watch.js?v=052fe9a"></script>
 <script src="trades.js?v=5e3d8fa"></script>
 <style>
 /* Layout: control strip → sector/breadth rail → bull/bear card grid → detail panel with canvas chart. Terminal-style data UI. */
@@ -1077,7 +1077,7 @@ function wframe(c){
 }
 function renderWatch(){
   const grid = $('wgrid'); $('wat').textContent = S.wat ? `as of ${S.wat}` : '';
-  const rows = S.watch.map(s => S.wrows[s]).filter(Boolean).map(r => ({...r, events: WK.events(r.symbol, S.prows, S.desk && S.desk.verdicts, (S.alerts||[]).filter(x => !S.day || x.ts.slice(11,16) <= (S.at||'15:30')))}));
+  const rows = S.watch.map(s => S.wrows[s]).filter(Boolean).map(r => ({...r, events: WK.events(r.symbol, S.prows, S.desk && S.desk.verdicts, (S.alerts||[]).filter(x => !S.day || x.ts.slice(11,16) <= (S.at||'15:30')), S.day || todayIST())}));
   const missing = S.watch.filter(s => !S.wrows[s]);
   const minuteIdx = hhmmToMin(S.wat || S.at || '09:15');
   const o = WK.order(rows, S.wsort, S.wcache, minuteIdx, 5); S.wcache = o.cache;

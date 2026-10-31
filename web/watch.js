@@ -32,10 +32,11 @@
   function alertKind(scan) { return /^PD[HL] break$/.test(scan || '') ? 'brk' : /^PD[HL] fade$/.test(scan || '') ? 'fade' : null; }
 
   // Event chips for a symbol from the day's pattern rows, desk verdicts and PD break/fade alerts (newest first, max 3).
-  // A fade chip for the stock replaces its break chip; alerts of other scans are not chips.
-  function events(symbol, prows, verdicts, alerts) {
+  // A fade chip for the stock replaces its break chip; alerts of other scans are not chips. With `day` ("YYYY-MM-DD")
+  // only that day's alerts count (the live feed's alert list spans sessions).
+  function events(symbol, prows, verdicts, alerts, day) {
     const out = [];
-    const mine = (alerts || []).filter(a => a.symbol === symbol && alertKind(a.scan));
+    const mine = (alerts || []).filter(a => a.symbol === symbol && alertKind(a.scan) && (!day || String(a.ts).slice(0, 10) === day));
     const faded = mine.some(a => alertKind(a.scan) === 'fade');
     mine.forEach(a => {
       const lvl = a.scan.slice(0, 3), at = String(a.ts).slice(11, 16);

@@ -77,4 +77,5 @@ test('alert chips for PD break and fade', () => {
   const ev = W.events('X', [], [], als);
   assert.deepEqual(ev.map(e => e.k + '|' + e.t), ['fade|PDH FADE · SELL 15:15 · 61/29']);     // the fade replaces the break; B0101 is not a chip
   assert.deepEqual(W.events('X', [], [], als.slice(0, 1)).map(e => e.t), ['ABOVE PDH 15:05']);
+  assert.deepEqual(W.events('X', [], [], als.slice(0, 2), '2026-10-31'), []);                     // the previous day's alerts give no chip
 });
