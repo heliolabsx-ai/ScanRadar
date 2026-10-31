@@ -5,7 +5,7 @@ import os, json, glob, hashlib, datetime as dt
 import pandas as pd
 from core.analytics import analyse
 from core.asof import view_at
-from core.rules import resample, trade_levels, continuous, join_sessions
+from core.rules import resample, trade_levels, continuous, join_sessions, story
 from core.backtest import fires, outcome, prev_bars
 
 from replay import IST, SETTLED, day_is_settled  # noqa: F401  (re-exported for tests)
@@ -136,6 +136,11 @@ def ensure_replay_alerts(con, day: dt.date, frames: dict, refs: dict, scans: lis
                     payload = {"tf": tf, "scan_hash": h, "source": "replay", "side": side}
                     if side:
                         payload.update(_trade_payload(sym, df, ref, ts, side, price, scan, prev.get(sym)))
+                    if scan.get("story"):         # the bars the engine saw at this minute, forming bar last
+                        bars = join_sessions(prev_bars(scan, prev.get(sym)), resample(view_at(df, ts), tf))
+                        st = story(scan, bars, _ctx(ref))
+                        if st:
+                            payload["story"] = st
                     rows.append((ts.to_pydatetime(), name, sym, price, json.dumps(payload, default=float)))
             if rows:
                 cur.executemany("INSERT INTO alerts(ts,scan,symbol,price,payload,source) VALUES(%s,%s,%s,%s,%s,'replay')", rows)

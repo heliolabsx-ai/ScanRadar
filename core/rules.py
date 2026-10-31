@@ -20,6 +20,8 @@ Optional "hours": {"from": "HH:MM", "to": "HH:MM"} — the scan only fires when 
   from <= t < to, both zero-padded "HH:MM"; no block = always in hours; a malformed block raises ValueError
   (see hours_window / in_hours).
 Optional "min_rr": x — the scan's own R:R floor (0 = no floor) instead of the system default (see min_rr).
+Optional "story": {"line": "prev_day_high" | "prev_day_low", "template": "..."} — the facts behind the alert's
+  one-line story (first close through the line today, the run since; see story).
 """
 import datetime as dt
 import operator as op
@@ -180,3 +182,40 @@ def trade_levels(scan: dict, bars: pd.DataFrame, ctx: dict, entry: float) -> dic
         target = entry + 1.5 * risk if side == "long" else entry - 1.5 * risk
         basis = "scan+rr"
     return {"stop": stop, "target": target, "basis": basis}
+
+
+# ---------- the story behind a fire ----------
+def story(scan: dict, bars: pd.DataFrame, ctx: dict) -> dict | None:
+    """Facts for a scan's story line, read from the bars the scan saw at the fire minute:
+
+        "story": {"line": "prev_day_high" | "prev_day_low", "template": "..."}
+
+    The last row of `bars` is the forming bar and is left out. `break_at` is the close minute
+    (bar ts + timeframe) of the first bar today (from attrs["session_start"]) closing through
+    the line in the scan's direction (short: close above, long: close below); `run_px` the
+    extreme since that bar (max high short, min low long) up to the bar before the last row;
+    `run_pct` its signed distance from the line in percent, 1 dp. None when the scan has no
+    story block, no side, the ctx lacks the line, the frame has no `ts`, or no bar broke."""
+    st = scan.get("story")
+    side = scan.get("side")
+    tf = scan.get("timeframe", "5m")
+    if not st or side not in ("long", "short") or "ts" not in bars.columns or not tf.endswith("m"):
+        return None
+    try:
+        line = float(ctx[st["line"]])
+        mins = int(tf[:-1])
+    except (KeyError, TypeError, ValueError):
+        return None
+    if not line > 0:
+        return None
+    today = bars.iloc[int(bars.attrs.get("session_start", 0)): len(bars) - 1]
+    through = today.close > line if side == "short" else today.close < line
+    if not through.any():
+        return None
+    run = today.iloc[int(through.to_numpy().argmax()):]
+    ts = pd.Timestamp(run.ts.iloc[0])
+    if ts.tzinfo is not None:
+        ts = ts.tz_convert("Asia/Kolkata")
+    run_px = float(run.high.max() if side == "short" else run.low.min())
+    return {"line": line, "break_at": (ts + pd.Timedelta(minutes=mins)).strftime("%H:%M"),
+            "run_px": run_px, "run_pct": round((run_px - line) / line * 100, 1)}

@@ -7,7 +7,7 @@ ScanRadar engine: every minute (on the ingest's 'candles:closed' signal)
 import os, json, glob, time, logging, datetime as dt
 import redis, psycopg, pandas as pd
 from analytics import analyse, score
-from rules import resample, evaluate, trade_levels, continuous, join_sessions, in_hours, hours_window
+from rules import resample, evaluate, trade_levels, continuous, join_sessions, in_hours, hours_window, story
 from notify import telegram
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
@@ -147,11 +147,14 @@ def run_once():
                         lv = trade_levels(sc, bars, ctx, price) if sc.get("side") else None
                         if lv:
                             payload.update(stop=lv["stop"], target=lv["target"], levels=lv["basis"])
+                        st = story(sc, bars, ctx) if sc.get("story") else None
+                        if st:
+                            payload["story"] = st
                         cur.execute("INSERT INTO alerts(scan,symbol,price,payload) VALUES(%s,%s,%s,%s) RETURNING id",
                                     (sc["name"], s, price, json.dumps(payload, default=float)))
-                        fired.append((sc, s, price, lv, cur.fetchone()[0]))
+                        fired.append((sc, s, price, lv, st, cur.fetchone()[0]))
         con.commit()
-    for sc, s, price, lv, aid in fired:
+    for sc, s, price, lv, st, aid in fired:
         tg = sc.get("alert", {}).get("telegram", True)      # falsy: none; "silent": no buzz; else loud
         if tg:
             lvl = ""
@@ -159,6 +162,12 @@ def run_once():
                 rr = abs(lv["target"] - price) / abs(price - lv["stop"]) if price != lv["stop"] else 0
                 lvl = f"\nstop ₹{lv['stop']:,.2f} · target ₹{lv['target']:,.2f} · R:R 1:{rr:.1f}"
             text = f"<b>{sc['name']}</b>\n{s} @ ₹{price:,.2f}  ({sc.get('timeframe','5m')}){lvl}\n{now:%H:%M}  ·  scanradar.tech"
+            if st:
+                try:
+                    line = sc["story"]["template"].format(symbol=s, at=now.strftime("%H:%M"), **st)
+                    text = f"<b>{sc['name']} · {'SELL' if sc.get('side') == 'short' else 'BUY'}</b>\n{line}{lvl}\n{now:%H:%M}  ·  scanradar.tech"
+                except (KeyError, IndexError, TypeError, ValueError) as e:   # a bad template keeps the plain text
+                    log.warning("story template of %s: %s", sc["name"], e)
             if os.environ.get("TRADES_LIVE", "1") != "0":
                 defer(f"alert:{aid}", text, now, silent=(tg == "silent"))  # the API's trades loop sends it with the odds line
             else:
