@@ -14,7 +14,9 @@ for p in ("/app", os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(_
 import psycopg
 import alerts as al
 import replay as rp
+import trades
 from desk import pnl_for
+from core.sizing import shares, DEFAULTS
 
 IST = dt.timezone(dt.timedelta(hours=5, minutes=30))
 
@@ -43,8 +45,13 @@ def main():
                 al.ensure_replay_alerts(con, d, frames, refs, scans, now)
                 al.ensure_outcomes(con, d, frames, refs, scans, now)
             print(f"  {i}/{len(days)} {d} prepared ({time.time() - t0:.0f}s)", flush=True)
+        try:
+            settings = trades.get_settings(con)          # size like the Trades tab: shares by max loss
+        except Exception as e:  # noqa: BLE001
+            con.rollback()
+            print(f"trade settings unavailable ({e}); sizing at the defaults")
+            settings = dict(DEFAULTS)
         with con.cursor() as cur:
-            cur.execute("SELECT symbol, lot_size FROM instruments"); lots = {s: int(l or 0) for s, l in cur.fetchall()}
             cur.execute("SELECT ts, symbol, price, payload, source FROM alerts WHERE scan=%s AND ts>=%s ORDER BY ts",
                         (a.scan, dt.datetime.combine(min(days), dt.time(0), IST)))
             rows = [{"ts": ts.astimezone(IST), "symbol": s, "price": pr, "payload": p or {}, "source": src, "scan": a.scan} for ts, s, pr, p, src in cur.fetchall()]
@@ -57,7 +64,8 @@ def main():
     for r in graded:
         p = r["payload"]
         if p.get("stop") is not None and p.get("target") is not None:
-            v = pnl_for(p["outcome"], p.get("side"), r["price"], p["stop"], p["target"], lots.get(r["symbol"], 0))
+            n = shares(float(r["price"]), float(p["stop"]), settings, p.get("side") or "long")["shares"]
+            v = pnl_for(p["outcome"], p.get("side"), r["price"], p["stop"], p["target"], n)
             if v is not None:
                 pnl.append(v)
     print(f"\n{a.scan} — {len(days)} sessions {days[-1]} .. {days[0]}")
@@ -87,7 +95,7 @@ def main():
     if rmult:
         print(f"avg R per trade {statistics.mean(rmult):+.2f}  ({len(rmult)} trades: target = +R:R, stop = -1, open = 60-min move)")
     if pnl:
-        print(f"one lot per fire, before costs: total ₹{sum(pnl):,.0f}  mean ₹{statistics.mean(pnl):,.0f}  worst ₹{min(pnl):,.0f}  best ₹{max(pnl):,.0f}")
+        print(f"at size (shares by max loss ₹{settings['max_loss']:,.0f}), before costs: total ₹{sum(pnl):,.0f}  mean ₹{statistics.mean(pnl):,.0f}  worst ₹{min(pnl):,.0f}  best ₹{max(pnl):,.0f}")
     by_hour: dict = {}
     for r in graded:
         h = by_hour.setdefault(r["ts"].strftime("%H"), [0, 0, []])

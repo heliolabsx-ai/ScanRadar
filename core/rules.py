@@ -24,6 +24,7 @@ Optional "story": {"line": "prev_day_high" | "prev_day_low", "template": "..."} 
   one-line story (first close through the line today, the run since; see story).
 """
 import datetime as dt
+import html
 import operator as op
 import re
 import pandas as pd
@@ -219,3 +220,28 @@ def story(scan: dict, bars: pd.DataFrame, ctx: dict) -> dict | None:
     run_px = float(run.high.max() if side == "short" else run.low.min())
     return {"line": line, "break_at": (ts + pd.Timedelta(minutes=mins)).strftime("%H:%M"),
             "run_px": run_px, "run_pct": round((run_px - line) / line * 100, 1)}
+
+
+# ---------- the Telegram text of a rule alert (pure) ----------
+def alert_text(scan: dict, symbol: str, price: float, lv: dict | None, st: dict | None, now) -> str:
+    """The engine's Telegram message (HTML) for one fire. `lv` is trade_levels() or None, `st` story() or None,
+    `now` the fire minute. Scan name and symbol are HTML-escaped (Telegram rejects a bare &: M&M, GVT&D).
+    With a story: the side word (SELL/BUY) only for a scan with a trade block (a break note carries `side` for
+    the chip colour only), and a scan with a trade block gets the entry line; a template that does not format
+    raises (KeyError/IndexError/TypeError/ValueError) so the caller can log it and call again with st=None."""
+    name, sym = html.escape(scan["name"]), html.escape(symbol)
+    foot = f"\n{now:%H:%M}  ·  scanradar.tech"
+    rr = (abs(lv["target"] - price) / abs(price - lv["stop"]) if price != lv["stop"] else 0) if lv else 0
+    if st:
+        line = scan["story"]["template"].format(symbol=sym, at=now.strftime("%H:%M"), **st)
+        head = name + ((" · SELL" if scan.get("side") == "short" else " · BUY") if scan.get("trade") else "")
+        lvl = ""
+        if lv and scan.get("trade"):
+            t = scan["trade"]
+            stop_why = {"day_high": " (run high)", "day_low": " (run low)"}.get((t.get("stop") or {}).get("series"), "")
+            tgt_why = " (prev close)" if lv.get("basis") == "scan" and (t.get("target") or {}).get("series") == "prev_day_close" else ""
+            lvl = (f"\nentry ₹{price:,.2f} · stop ₹{lv['stop']:,.2f}{stop_why} · target ₹{lv['target']:,.2f}{tgt_why}"
+                   f" · R:R 1:{rr:.1f}")
+        return f"<b>{head}</b>\n{line}{lvl}{foot}"
+    lvl = f"\nstop ₹{lv['stop']:,.2f} · target ₹{lv['target']:,.2f} · R:R 1:{rr:.1f}" if lv else ""
+    return f"<b>{name}</b>\n{sym} @ ₹{price:,.2f}  ({scan.get('timeframe', '5m')}){lvl}{foot}"

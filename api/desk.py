@@ -9,7 +9,7 @@ The model never sets entry / stop / target / size: those come from the system.
 Pure helpers (pricing, budget maths, prompts, context shaping, message text) are
 separated from I/O so they are testable without a key.
 """
-import os, json, time, logging, datetime as dt
+import os, json, html, time, logging, datetime as dt
 import pandas as pd
 from core.sizing import shares
 
@@ -244,7 +244,7 @@ def telegram_text(v: dict) -> str:
     side = "BUY" if c["side"] == "long" else "SELL"
     t = c["ticket"]
     size = t["size"]
-    head = f"<b>{o['call'].upper()} {o['confidence']}/10 · {c['symbol']} · {side} · {c['trigger'].get('label', '')}</b>"
+    head = f"<b>{o['call'].upper()} {o['confidence']}/10 · {html.escape(c['symbol'])} · {side} · {html.escape(c['trigger'].get('label', '') or '')}</b>"
     ticket = f"Entry {t['entry']:,.2f} · Stop {t['stop']:,.2f} · Target {t['target']:,.2f}" + (f" · Size {size['shares']} sh" if size.get("shares") else "")
     odds, gate = c.get("odds"), c.get("gate")
     if odds:

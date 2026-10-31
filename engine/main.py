@@ -4,10 +4,10 @@ ScanRadar engine: every minute (on the ingest's 'candles:closed' signal)
   2. ranking scanner -> Redis 'scan:latest' (JSON) + Postgres snapshot
   3. rule scans from /app/scans/*.json -> alerts (Telegram + Postgres) with cooldown
 """
-import os, json, glob, html, time, logging, datetime as dt
+import os, json, glob, time, logging, datetime as dt
 import redis, psycopg, pandas as pd
 from analytics import analyse, score
-from rules import resample, evaluate, trade_levels, continuous, join_sessions, in_hours, hours_window, story
+from rules import resample, evaluate, trade_levels, continuous, join_sessions, in_hours, hours_window, story, alert_text
 from notify import telegram
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
@@ -159,18 +159,11 @@ def run_once():
     for sc, s, price, lv, st, aid in fired:
         tg = sc.get("alert", {}).get("telegram", True)      # falsy: none; "silent": no buzz; else loud
         if tg:
-            lvl = ""
-            if lv:
-                rr = abs(lv["target"] - price) / abs(price - lv["stop"]) if price != lv["stop"] else 0
-                lvl = f"\nstop ₹{lv['stop']:,.2f} · target ₹{lv['target']:,.2f} · R:R 1:{rr:.1f}"
-            name, sym = html.escape(sc["name"]), html.escape(s)     # Telegram HTML mode rejects a bare & (M&M, GVT&D)
-            text = f"<b>{name}</b>\n{sym} @ ₹{price:,.2f}  ({sc.get('timeframe','5m')}){lvl}\n{now:%H:%M}  ·  scanradar.tech"
-            if st:
-                try:
-                    line = sc["story"]["template"].format(symbol=sym, at=now.strftime("%H:%M"), **st)
-                    text = f"<b>{name} · {'SELL' if sc.get('side') == 'short' else 'BUY'}</b>\n{line}{lvl}\n{now:%H:%M}  ·  scanradar.tech"
-                except (KeyError, IndexError, TypeError, ValueError) as e:   # a bad template keeps the plain text
-                    log.warning("story template of %s: %s", sc["name"], e)
+            try:
+                text = alert_text(sc, s, price, lv, st, now)
+            except (KeyError, IndexError, TypeError, ValueError) as e:   # a bad story template keeps the plain text
+                log.warning("story template of %s: %s", sc["name"], e)
+                text = alert_text(sc, s, price, lv, None, now)
             if os.environ.get("TRADES_LIVE", "1") != "0":
                 defer(f"alert:{aid}", text, now, silent=(tg == "silent"))  # the API's trades loop sends it with the odds line
             else:

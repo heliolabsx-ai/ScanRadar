@@ -102,6 +102,8 @@ def test_telegram_text_order():
                               "Entry 174.90 · Stop 172.35 · Target 177.45 · Size 784 sh",
                               "✓ OI -1.9% between the lows: covering · ✓ Metals +0.6%, stock +1.2% · ! Prev close 176.80 sits before target",
                               "Exit: 5m close < 174.20 in the next 3 bars", "Book half at 176.80", "10:45 · scanradar.tech"]
+    rec = _verdict_rec(); rec["context"]["symbol"] = "GVT&D"
+    assert desk.telegram_text(rec).splitlines()[0] == "<b>TAKE 7/10 · GVT&amp;D · BUY · double bottom</b>"   # Telegram HTML rejects a bare &
 
 
 def test_telegram_text_shows_shares_odds_and_a_blocking_gate():

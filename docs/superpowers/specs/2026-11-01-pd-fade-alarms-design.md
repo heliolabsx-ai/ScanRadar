@@ -118,7 +118,7 @@ PDH fade (short):
 [=2] close >= prev_day_high
 day_high > prev_day_high * 1.003
 [=0] close > 1000
-stop = day_high · target = prev_day_close · cooldown 400 min · min_rr 0.5 · telegram on
+stop = day_high · target = prev_day_close · cooldown 400 min · min_rr 0 · telegram on
 ```
 PDL fade (long):
 ```
@@ -126,7 +126,7 @@ PDL fade (long):
 [=2] close <= prev_day_low
 day_low < prev_day_low * 0.99
 [=0] close > 1000
-hours 09:20–11:00 · stop = day_low · target = prev_day_close · cooldown 400 · min_rr 0.5 · telegram on
+hours 09:20–11:00 · stop = day_low · target = prev_day_close · cooldown 400 · min_rr 0 · telegram on
 ```
 PDH break (stage 1): `[=1] close > prev_day_high`, `[=2] close <= prev_day_high`, cooldown 400, no trade,
 `"desk": false`, telegram silent. PDL break: mirror.
