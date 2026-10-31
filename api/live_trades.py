@@ -16,6 +16,7 @@ log = logging.getLogger("live_trades")
 IST = dt.timezone(dt.timedelta(hours=5, minutes=30))
 START, END = dt.time(9, 20), dt.time(15, 30)
 TTL = 86400
+ODDS_KEYS = ("odds", "size", "gate", "gate_reason")
 WAIT_S = 90                        # a deferred message waits this long for its trade row
 GIVE_UP_S = 30 * 60                # older than this it is dropped, never sent late
 WORDS = {"flat": "cannot resolve by close", "coin": "coin flip", "edge": "odds favour T1", "bad": "odds favour stop"}
@@ -52,6 +53,13 @@ def odds_line(row: dict | None) -> str:
     return " · ".join(p for p in parts if p)
 
 
+def _set_odds(R, day, ref: str, row: dict) -> None:
+    try:
+        R.set(f"trades:{day}:{ref}", json.dumps({k: row.get(k) for k in ODDS_KEYS}, default=float), ex=TTL)
+    except Exception as e:  # noqa: BLE001  the key is backfilled from the stored row next minute
+        log.warning("odds key for %s not written: %s", ref, e)
+
+
 def process_minute(con, R, day, at: dt.datetime, settings: dict) -> dict:
     """Rows for the minute's new triggers, then settle the open rows; {"rows", "settled"}."""
     pat_stats, _ = live_desk.setup_stats(con, at)
@@ -76,7 +84,13 @@ def process_minute(con, R, day, at: dt.datetime, settings: dict) -> dict:
         if rid is None:
             continue
         n += 1
-        R.set(f"trades:{day}:{ref}", json.dumps({k: row[k] for k in ("odds", "size", "gate", "gate_reason")}, default=float), ex=TTL)
+        _set_odds(R, day, ref, row)
+    try:                                                      # a row whose key never got written (Redis hiccup, insert race)
+        for ref, row in trades.odds_by_ref(con, day).items():
+            if not R.exists(f"trades:{day}:{ref}"):
+                _set_odds(R, day, ref, row)
+    except Exception:  # noqa: BLE001
+        log.exception("odds key backfill failed")
     flat_by = dt.time.fromisoformat(settings["flat_by"])
     settled = trades.settle_open(con, day, at, settings["flat_by"], final=at.time() >= flat_by)
     log.info("trades %s: %d new rows, %d settled", at.strftime("%H:%M"), n, settled)
@@ -90,35 +104,41 @@ def flush_deferred(R, day, send, at: dt.datetime) -> int:
     exists, as they are after WAIT_S without one, never after GIVE_UP_S. Returns the number sent."""
     key = f"tg:defer:{day}"
     later, n = [], 0
-    while True:
-        raw = R.lpop(key)
-        if raw is None:
-            break
-        try:
-            item = json.loads(raw)
-            age = (at - dt.datetime.fromisoformat(item["ts"])).total_seconds()
-            ref, text = item["ref"], item["text"]
-        except (ValueError, KeyError, TypeError):
-            log.warning("deferred message unreadable, dropped: %r", raw)
-            continue
-        if age > GIVE_UP_S:
-            log.warning("deferred message for %s dropped: %.0f min old", ref, age / 60)
-            continue
-        row = R.get(f"trades:{day}:{ref}")
-        if row is not None:
-            text = text + "\n" + odds_line(json.loads(row))
-        elif age < WAIT_S:
-            later.append(raw)                                  # pushed back once the list is drained, so the loop ends
-            continue
-        try:
-            send(text)
-            n += 1
-        except Exception as e:  # noqa: BLE001
-            log.warning("telegram failed: %s", e)
-    for raw in later:
-        R.rpush(key, raw)
-    if later:
-        R.expire(key, TTL)
+    try:
+        while True:
+            raw = R.lpop(key)
+            if raw is None:
+                break
+            try:
+                item = json.loads(raw)
+                age = (at - dt.datetime.fromisoformat(item["ts"])).total_seconds()
+                ref, text = item["ref"], item["text"]
+            except (ValueError, KeyError, TypeError):
+                log.warning("deferred message unreadable, dropped: %r", raw)
+                continue
+            if age > GIVE_UP_S:
+                log.warning("deferred message for %s dropped: %.0f min old", ref, age / 60)
+                continue
+            try:
+                row = R.get(f"trades:{day}:{ref}")
+                if row is not None:
+                    text = text + "\n" + odds_line(json.loads(row))
+                elif age < WAIT_S:
+                    later.append(raw)                          # pushed back once the list is drained, so the loop ends
+                    continue
+            except Exception as e:  # noqa: BLE001  the message still goes out, without the line
+                log.warning("odds line for %s failed, sending plain: %s", ref, e)
+                text = item["text"]
+            try:
+                send(text)
+                n += 1
+            except Exception as e:  # noqa: BLE001
+                log.warning("telegram failed: %s", e)
+    finally:
+        for raw in later:
+            R.rpush(key, raw)
+        if later:
+            R.expire(key, TTL)
     return n
 
 
@@ -129,7 +149,7 @@ def tick(connect, now: dt.datetime, send) -> dict:
     at = n.replace(second=0, microsecond=0)
     day = at.date()
     done = {"rows": 0, "settled": 0, "sent": 0}
-    if should_run(n):
+    if should_run(at):                                        # the minute, not the wake-up second: 15:30:20 is the 15:30 minute
         try:
             with connect() as con:
                 done.update(process_minute(con, R, day, at, trades.get_settings(con)))

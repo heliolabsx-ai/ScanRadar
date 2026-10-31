@@ -19,14 +19,18 @@ TOP_N = 3
 
 
 def defer(ref: str, text: str, now: dt.datetime) -> None:
-    """Queue a Telegram message on `tg:defer:{day}` (never waits for the API); sent directly if Redis refuses."""
+    """Queue a Telegram message on `tg:defer:{day}` (never waits for the API); sent directly only if the push fails."""
     key = f"tg:defer:{now:%Y-%m-%d}"
     try:
         R.rpush(key, json.dumps({"ref": ref, "text": text, "ts": now.isoformat()}))
-        R.expire(key, 86400)
     except Exception as e:  # noqa: BLE001
         log.warning("deferred telegram failed (%s); sending directly", e)
         telegram(text)
+        return
+    try:
+        R.expire(key, 86400)
+    except Exception as e:  # noqa: BLE001  queued already; a missing TTL never warrants a second send
+        log.warning("deferred list TTL not set: %s", e)
 
 
 def load_today() -> dict[str, pd.DataFrame]:
