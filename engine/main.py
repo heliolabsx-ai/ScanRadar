@@ -4,7 +4,7 @@ ScanRadar engine: every minute (on the ingest's 'candles:closed' signal)
   2. ranking scanner -> Redis 'scan:latest' (JSON) + Postgres snapshot
   3. rule scans from /app/scans/*.json -> alerts (Telegram + Postgres) with cooldown
 """
-import os, json, glob, time, logging, datetime as dt
+import os, json, glob, html, time, logging, datetime as dt
 import redis, psycopg, pandas as pd
 from analytics import analyse, score
 from rules import resample, evaluate, trade_levels, continuous, join_sessions, in_hours, hours_window, story
@@ -83,7 +83,9 @@ def load_scans() -> list[dict]:
     for p in sorted(glob.glob("/app/scans/*.json")):
         try:
             with open(p) as f:
-                sc = json.load(f); sc["_file"] = os.path.basename(p); out.append(sc)
+                sc = json.load(f)
+            hours_window(sc)                  # a malformed hours block drops this scan here, not every run
+            sc["_file"] = os.path.basename(p); out.append(sc)
         except Exception as e:  # noqa
             log.warning("bad scan %s: %s", p, e)
     return out
@@ -161,11 +163,12 @@ def run_once():
             if lv:
                 rr = abs(lv["target"] - price) / abs(price - lv["stop"]) if price != lv["stop"] else 0
                 lvl = f"\nstop ₹{lv['stop']:,.2f} · target ₹{lv['target']:,.2f} · R:R 1:{rr:.1f}"
-            text = f"<b>{sc['name']}</b>\n{s} @ ₹{price:,.2f}  ({sc.get('timeframe','5m')}){lvl}\n{now:%H:%M}  ·  scanradar.tech"
+            name, sym = html.escape(sc["name"]), html.escape(s)     # Telegram HTML mode rejects a bare & (M&M, GVT&D)
+            text = f"<b>{name}</b>\n{sym} @ ₹{price:,.2f}  ({sc.get('timeframe','5m')}){lvl}\n{now:%H:%M}  ·  scanradar.tech"
             if st:
                 try:
-                    line = sc["story"]["template"].format(symbol=s, at=now.strftime("%H:%M"), **st)
-                    text = f"<b>{sc['name']} · {'SELL' if sc.get('side') == 'short' else 'BUY'}</b>\n{line}{lvl}\n{now:%H:%M}  ·  scanradar.tech"
+                    line = sc["story"]["template"].format(symbol=sym, at=now.strftime("%H:%M"), **st)
+                    text = f"<b>{name} · {'SELL' if sc.get('side') == 'short' else 'BUY'}</b>\n{line}{lvl}\n{now:%H:%M}  ·  scanradar.tech"
                 except (KeyError, IndexError, TypeError, ValueError) as e:   # a bad template keeps the plain text
                     log.warning("story template of %s: %s", sc["name"], e)
             if os.environ.get("TRADES_LIVE", "1") != "0":

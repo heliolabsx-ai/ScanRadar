@@ -1,0 +1,19 @@
+{
+  "name": "PDL break",
+  "side": "long",
+  "timeframe": "5m",
+  "continuous": true,
+  "match": "all",
+  "hours": {"from": "09:20", "to": "11:00"},
+  "rules": [
+    {"lhs": {"off": 1, "field": "close"}, "op": "<",  "rhs": {"series": "prev_day_low"}},
+    {"lhs": {"off": 2, "field": "close"}, "op": ">=", "rhs": {"series": "prev_day_low"}}
+  ],
+  "alert": {"telegram": "silent", "cooldown_min": 400},
+  "desk": false,
+  "story": {
+    "line": "prev_day_low",
+    "template": "{symbol} below PDL {line:,.2f} at {at} · watching for the fade"
+  },
+  "note": "Stage 1 of the PD fade (design 1 Nov 2026): a silent heads-up when a 5m bar first closes below yesterday's low (continuous, so a gap open counts on the 09:15 bar's close), 09:20-11:00 like the PDL fade so no heads-up goes out once the fade can no longer fire. No trade block: never graded, never queued, no desk verdict; side long is for the chip colour only. One per stock per day (cooldown 400 min). Observed over 20 sessions (1-30 Oct 2026, 213 stocks): a close below PDL fell at least 0.5 % further 76 % of the time and came back to touch PDL 86 %. The trade is PDL fade: before 11:00 with a 1 % run, 4 fires/day, 83 % target first, median R:R 1:0.3, +0.17 R per trade."
+}

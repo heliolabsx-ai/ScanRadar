@@ -134,7 +134,7 @@ def ensure_replay_alerts(con, day: dt.date, frames: dict, refs: dict, scans: lis
                 for ts in fires(scan, df, _ctx(ref), cooldown, prev.get(sym)):
                     price = float(view_at(df, ts).close.iloc[-1])
                     payload = {"tf": tf, "scan_hash": h, "source": "replay", "side": side}
-                    if side:
+                    if side and scan.get("trade"):     # a scan without a trade block (break notes) carries side for the chip only
                         payload.update(_trade_payload(sym, df, ref, ts, side, price, scan, prev.get(sym)))
                     if scan.get("story"):         # the bars the engine saw at this minute, forming bar last
                         bars = join_sessions(prev_bars(scan, prev.get(sym)), resample(view_at(df, ts), tf))
@@ -165,7 +165,7 @@ def ensure_outcomes(con, day: dt.date, frames: dict, refs: dict, scans: list[tup
             p = payload or {}
             if side and df is not None and p.get("stop") is not None and p.get("target") is not None and price is not None:
                 extra["outcome"] = outcome(df, pd.Timestamp(ts).tz_convert("Asia/Kolkata"), side, float(price), float(p["stop"]), float(p["target"]))   # the engine's levels
-            elif side and df is not None and ref and price is not None:
+            elif side and scan.get("trade") and df is not None and ref and price is not None:   # never pivot-grade a scan without a trade block
                 extra.update(_trade_payload(sym, df, ref, pd.Timestamp(ts).tz_convert("Asia/Kolkata"), side, float(price), scan) or {})
             cur.execute("UPDATE alerts SET payload = COALESCE(payload,'{}'::jsonb) || %s::jsonb WHERE id=%s",
                         (json.dumps(extra, default=float), aid))

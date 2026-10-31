@@ -1,0 +1,24 @@
+{
+  "name": "PDH fade",
+  "side": "short",
+  "timeframe": "5m",
+  "match": "all",
+  "rules": [
+    {"lhs": {"off": 1, "field": "close"}, "op": "<",  "rhs": {"series": "prev_day_high"}},
+    {"lhs": {"off": 2, "field": "close"}, "op": ">=", "rhs": {"series": "prev_day_high"}},
+    {"lhs": {"series": "day_high"},       "op": ">",  "rhs": {"series": "prev_day_high", "mul": 1.003}},
+    {"lhs": {"off": 0, "field": "close"}, "op": ">",  "rhs": {"number": 1000}}
+  ],
+  "alert": {"telegram": true, "cooldown_min": 400},
+  "desk": true,
+  "min_rr": 0,
+  "trade": {
+    "stop": {"series": "day_high"},
+    "target": {"series": "prev_day_close"}
+  },
+  "story": {
+    "line": "prev_day_high",
+    "template": "{symbol} broke above PDH {line:,.2f} at {break_at}, ran to {run_px:,.2f} ({run_pct:+.1f} %), first 5m close back below at {at}."
+  },
+  "note": "Stage 2 of the PD fade (design 1 Nov 2026): the first 5m close back below yesterday's high after a run of at least 0.3 % above it, price > 1000. Short at the close, stop = the day's high (the run's extreme), target = the previous close. One per stock per day (cooldown 400 min); min_rr 0 because the fade sits near 1:1 by design. Backtest 20 sessions (1-30 Oct 2026, 213 stocks), all day: 20 fires/day, target first 59 %, median R:R 1:0.9, +0.10 R per trade (before 11:00 only: 12/day, 58 %, 1:0.9, +0.13 R). Round-trip costs take a third to a half of the edge: a candidate list, not twenty trades a day."
+}

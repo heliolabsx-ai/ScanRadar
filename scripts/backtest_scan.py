@@ -67,6 +67,25 @@ def main():
     for k, v in rs.items():
         if v:
             print(f"{k}: mean {statistics.mean(v):+.2f}%  median {statistics.median(v):+.2f}%  (favourable = positive)")
+    rrs, rmult = [], []          # per graded row with levels: reward:risk, and the trade's result in R
+    for r in graded:
+        p, px = r["payload"], float(r["price"])
+        if p.get("stop") is None or p.get("target") is None or px == float(p["stop"]):
+            continue
+        risk = abs(px - float(p["stop"]))
+        rr = abs(float(p["target"]) - px) / risk
+        rrs.append(rr)
+        hit, r60 = p["outcome"]["hit"], p["outcome"].get("r60")
+        if hit == "target":
+            rmult.append(rr)
+        elif hit == "stop":
+            rmult.append(-1.0)
+        elif r60 is not None:                                   # open at the close: the 60-min move in R (r60 is signed favourable %)
+            rmult.append(float(r60) / 100 * px / risk)
+    if rrs:
+        print(f"median R:R 1:{statistics.median(rrs):.2f}")
+    if rmult:
+        print(f"avg R per trade {statistics.mean(rmult):+.2f}  ({len(rmult)} trades: target = +R:R, stop = -1, open = 60-min move)")
     if pnl:
         print(f"one lot per fire, before costs: total ₹{sum(pnl):,.0f}  mean ₹{statistics.mean(pnl):,.0f}  worst ₹{min(pnl):,.0f}  best ₹{max(pnl):,.0f}")
     by_hour: dict = {}

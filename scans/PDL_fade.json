@@ -1,0 +1,25 @@
+{
+  "name": "PDL fade",
+  "side": "long",
+  "timeframe": "5m",
+  "match": "all",
+  "hours": {"from": "09:20", "to": "11:00"},
+  "rules": [
+    {"lhs": {"off": 1, "field": "close"}, "op": ">",  "rhs": {"series": "prev_day_low"}},
+    {"lhs": {"off": 2, "field": "close"}, "op": "<=", "rhs": {"series": "prev_day_low"}},
+    {"lhs": {"series": "day_low"},        "op": "<",  "rhs": {"series": "prev_day_low", "mul": 0.99}},
+    {"lhs": {"off": 0, "field": "close"}, "op": ">",  "rhs": {"number": 1000}}
+  ],
+  "alert": {"telegram": true, "cooldown_min": 400},
+  "desk": true,
+  "min_rr": 0,
+  "trade": {
+    "stop": {"series": "day_low"},
+    "target": {"series": "prev_day_close"}
+  },
+  "story": {
+    "line": "prev_day_low",
+    "template": "{symbol} broke below PDL {line:,.2f} at {break_at}, fell to {run_px:,.2f} ({run_pct:+.1f} %), first 5m close back above at {at}."
+  },
+  "note": "Stage 2 of the PD fade (design 1 Nov 2026): the first 5m close back above yesterday's low after a flush of at least 1 % below it, price > 1000, fired 09:20-11:00 only. Long at the close, stop = the day's low (the flush's extreme), target = the previous close. One per stock per day (cooldown 400 min); min_rr 0 because the median R:R is 1:0.3 by design. Backtest 20 sessions (1-30 Oct 2026, 213 stocks), before 11:00 with a 1 % run: 4 fires/day, target first 83 %, median R:R 1:0.3, +0.17 R per trade. All day with a 0.3 % run was 22/day, 56 %, 1:0.9, -0.02 R, hence the window and the deeper run."
+}

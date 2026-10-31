@@ -5,7 +5,7 @@ upsert them as live rows, queue one Telegram per new trigger (once per symbol an
 kind per day) on the deferred list the trades loop sends with the odds line, and
 publish `patterns:updated` so the dashboard refreshes.
 """
-import os, json, asyncio, logging, datetime as dt
+import os, json, html, asyncio, logging, datetime as dt
 import pandas as pd
 import live_desk
 from core.calendar import is_trading_day
@@ -53,7 +53,7 @@ def message(r: dict) -> str:
     conf = r.get("confidence") or {}
     rec = f" · {conf['hit_rate']:.0f}% hit" if conf.get("hit_rate") is not None else ""
     return (f"<b>{LABEL.get(r['kind'], r['kind'])} · {side}</b>\n"
-            f"{r['symbol']} entry ₹{r['entry']:,.2f} · stop ₹{r['stop']:,.2f} · {tgt} · "
+            f"{html.escape(r['symbol'])} entry ₹{r['entry']:,.2f} · stop ₹{r['stop']:,.2f} · {tgt} · "
             f"R:R 1:{r['rr']:.1f} · score {r['score']}/9{rec}\n{hhmm} · scanradar.tech")
 
 

@@ -27,6 +27,7 @@ def test_message_format():
     m2 = message(row(facts={"target1": 176.0}, confidence={"hit_rate": 61.2}))
     assert "T1 ₹176.00 · T2 ₹177.45" in m2 and "61% hit" in m2
     assert message(row(kind="double_top", triggered="11:05")).startswith("<b>Double top · SELL</b>")
+    assert "\nGVT&amp;D entry" in message(row(symbol="GVT&D"))                 # Telegram HTML mode rejects a bare &
 
 
 def test_should_run_windows():

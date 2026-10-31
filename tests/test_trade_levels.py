@@ -38,7 +38,10 @@ def test_live_scans_carry_trade_blocks():
     import glob
     for f in glob.glob("scans/*.json"):
         sc = json.load(open(f))
-        assert "trade" in sc and "stop" in sc["trade"], f
+        if "trade" not in sc:          # a note scan (PDH/PDL break): never graded, so it must stay out of the desk and quiet
+            assert sc.get("desk") is False and sc["alert"]["telegram"] == "silent", f
+            continue
+        assert "stop" in sc["trade"], f
 
 
 def test_replay_payload_uses_the_scans_levels():
