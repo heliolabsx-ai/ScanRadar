@@ -4,6 +4,8 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 const here = path.dirname(fileURLToPath(import.meta.url));
+(0, eval)(readFileSync(path.join(here, '../../web/filter.js'), 'utf8'));
+(0, eval)(readFileSync(path.join(here, '../../web/trades.js'), 'utf8'));
 (0, eval)(readFileSync(path.join(here, '../../web/desk.js'), 'utf8'));
 const D = globalThis.ScanDesk;
 
@@ -20,7 +22,7 @@ test('headline and confidence line', () => {
 
 test('ticket, reasons, footer', () => {
   const t = D.ticket(v, 2000);
-  assert.equal(t.entry, '174.90'); assert.equal(t.rr, '1 : 1.0'); assert.equal(t.size, '750 · 1 lot'); assert.equal(t.riskLabel, 'Size @₹2,000');
+  assert.equal(t.entry, '174.90'); assert.equal(t.rr, '1 : 1.0'); assert.equal(t.size, '750 sh'); assert.equal(t.riskLabel, 'Size @₹2,000');          // old-shape row: history still reads
   assert.deepEqual(D.reasons(v).map(r => r.mark + r.cls), ['✓up', '✗dn', '!am']);
   assert.deepEqual(D.footer(v), { left: 'blind to: news · index level · order book', right: '1.6 s · ₹0.52 · opus 5 5' });
 });
@@ -39,4 +41,24 @@ test('new verdicts: seeding marks without firing, then only unseen with output',
   assert.deepEqual(D.newVerdicts(seen, [w, x]).map(r => r.ref), ['alert:10']);
   const n = D.notification(x);
   assert.equal(n.title, 'Desk · TAKE 7/10 · TATASTEEL BUY'); assert.equal(n.at, '10:45'); assert.match(n.body, /entry 174.90/);
+});
+
+const withSize = size => ({ ...v, context: { ...v.context, ticket: { ...v.context.ticket, size } } });
+test('ticket sizes in shares', () => {
+  assert.equal(D.ticket(withSize({ shares: 229, position_inr: 195703.4, risk_inr: 1992.3, limited_by: 'max_loss' }), 2000).size, '229 sh · ₹1,95,703');
+  assert.equal(D.ticket(withSize({ shares: 0, limited_by: 'zero_distance' }), 2000).size, '0 sh · stop equals entry');
+  assert.equal(D.ticket(withSize({ shares: 0, limited_by: 'delivery_no_short' }), 2000).size, '0 sh · delivery: no shorts');
+  assert.equal(D.ticket(withSize({ qty: 750, lots: 1 }), 2000).size, '750 sh');
+  assert.equal(D.ticket(withSize({ shares: 229, position_inr: 195703.4 }), 2500).riskLabel, 'Size @₹2,500');
+  assert.equal(D.ticket(withSize({}), 2000).size, '—');
+});
+test('odds line says what the model saw', () => {
+  const odds = { mc: { target_pct: 39.4, stop_pct: 41.5 }, verdict: 'coin' };
+  const ctx = c => ({ ...v, context: { ...v.context, ...c } });
+  assert.equal(D.oddsLine(ctx({ odds, gate: { state: 'BLOCK', reason: '5 trades today' } })), 'odds 39/42 · coin flip · gate BLOCK: 5 trades today');
+  assert.equal(D.oddsLine(ctx({ odds, gate: { state: 'PASS', reason: '' } })), 'odds 39/42 · coin flip · gate PASS');
+  assert.equal(D.oddsLine(ctx({ odds })), 'odds 39/42 · coin flip');
+  assert.equal(D.oddsLine(ctx({ gate: { state: 'PASS' } })), 'gate PASS');
+  assert.equal(D.oddsLine(v), '');
+  assert.equal(D.oddsLine({}), '');
 });

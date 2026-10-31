@@ -198,11 +198,42 @@ def _json_row(rec) -> dict:
 
 
 def rows_for_day(con, day, upto: dt.datetime | None = None) -> list[dict]:
-    """JSON-safe rows of the day ordered by (ts, id); with `upto`, nothing after that minute leaks."""
+    """JSON-safe rows of the day ordered by (ts, id), each with its setup `label`; with `upto`, nothing after that minute leaks."""
     with con.cursor() as cur:
         cur.execute(f"SELECT {','.join(COLS)} FROM trade_rows WHERE day=%s ORDER BY ts, id", (day,))
         rows = [_json_row(rec) for rec in cur.fetchall()]
+        ids, scan_by_id = _alert_ids(rows), {}
+        if ids:
+            cur.execute("SELECT id, scan FROM alerts WHERE id = ANY(%s)", (ids,))
+            scan_by_id = {i: sc for i, sc in cur.fetchall()}
+    rows = _labels(rows, scan_by_id)
     return rows if upto is None else _cut(rows, upto)
+
+
+def _alert_ids(rows: list[dict]) -> list[int]:
+    """The alert ids behind the rule-alert rows (refs `alert:<id>`)."""
+    out = []
+    for r in rows:
+        ref = str(r.get("ref") or "")
+        if ref.startswith("alert:") and ref[6:].isdigit():
+            out.append(int(ref[6:]))
+    return out
+
+
+def _labels(rows: list[dict], scan_by_id: dict[int, str]) -> list[dict]:
+    """New dicts with `label`: a pattern row's kind display name (the kind itself when unlabelled), a rule-alert
+    row's scan name (None when the alert is gone)."""
+    out = []
+    for r in rows:
+        ref, label = str(r.get("ref") or ""), None
+        if ref.startswith("pattern:"):
+            parts = ref[8:].split("|")
+            kind = parts[1] if len(parts) > 1 else ""
+            label = LABELS.get(kind, kind) or None
+        elif ref.startswith("alert:") and ref[6:].isdigit():
+            label = scan_by_id.get(int(ref[6:]))
+        out.append({**r, "label": label})
+    return out
 
 
 def _cut(rows: list[dict], upto: dt.datetime) -> list[dict]:

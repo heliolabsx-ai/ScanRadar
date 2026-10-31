@@ -28,9 +28,18 @@
     return fresh;
   }
 
+  // "  ·  odds 39/42" when the row carries the replay odds (and the trades helpers are loaded), else ''.
+  const oddsTail = o => o && o.mc && root.ScanTrades ? `  ·  odds ${root.ScanTrades.oddsPair(o)}` : '';
+
   function alertMessage(a) {
     const side = a.side === 'short' ? 'SELL' : a.side === 'long' ? 'BUY' : '';
-    return { title: `ScanRadar · ${a.scan}`, body: [a.symbol, side, a.price != null ? inr(a.price) : ''].filter(Boolean).join('  ') + `  ·  ${hhmm(a.ts)}`, symbol: a.symbol, at: hhmm(a.ts) };
+    return { title: `ScanRadar · ${a.scan}`, body: [a.symbol, side, a.price != null ? inr(a.price) : ''].filter(Boolean).join('  ') + `  ·  ${hhmm(a.ts)}` + oddsTail(a.odds), symbol: a.symbol, at: hhmm(a.ts) };
+  }
+
+  // A pattern trigger; `label` is the kind's display name.
+  function patternMessage(r, label) {
+    const at = hhmm(String(r.triggered_at));
+    return { title: `ScanRadar · ${label || r.kind}`, body: `${r.symbol}  ${r.side === 'long' ? 'BUY' : 'SELL'}  ${inr(r.entry)}  ·  ${at}` + oddsTail(r.odds), symbol: r.symbol, at };
   }
 
   function pickMessage(r, at) {
@@ -71,5 +80,5 @@
     return n;
   }
 
-  root.ScanNotify = { newAlerts, newPicks, alertMessage, pickMessage, permission, request, show, beep, chime, setTone, getTone };
+  root.ScanNotify = { newAlerts, newPicks, alertMessage, patternMessage, pickMessage, permission, request, show, beep, chime, setTone, getTone };
 })(typeof window !== 'undefined' ? window : globalThis);

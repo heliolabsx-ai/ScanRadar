@@ -25,12 +25,28 @@
     return parts.join(' · ');
   }
 
-  function ticket(v, risk) {
+  const inr = n => '₹' + Math.round(+n || 0).toLocaleString('en-IN');
+  const LIMITED = { zero_distance: 'stop equals entry', delivery_no_short: 'delivery: no shorts', position_cap: 'position cap', max_loss: 'max loss' };
+  // Size in cash shares: new rows carry {shares, position_inr, limited_by}; rows before the switch carry {qty, lots}.
+  function sizeText(s) {
+    if (s.shares != null) return s.shares > 0 ? `${Number(s.shares).toLocaleString('en-IN')} sh · ${inr(s.position_inr)}` : `0 sh · ${LIMITED[s.limited_by] || 'no size'}`;
+    if (s.qty != null) return `${Number(s.qty).toLocaleString('en-IN')} sh`;
+    return '—';
+  }
+
+  function ticket(v, maxLoss) {
     const t = (v.context || {}).ticket || {};
     const s = t.size || {};
     return { entry: fmt2(t.entry), stop: fmt2(t.stop), target: fmt2(t.target), rr: t.rr != null ? `1 : ${Number(t.rr).toFixed(1)}` : '—',
-      size: s.qty ? `${s.qty.toLocaleString('en-IN')} · ${s.lots} lot${s.lots > 1 ? 's' : ''}` : s.one_lot_risk ? `0 · 1 lot risks ₹${Math.round(s.one_lot_risk).toLocaleString('en-IN')}` : '—',
-      riskLabel: `Size @₹${(risk || s.risk_inr || 0).toLocaleString('en-IN')}` };
+      size: sizeText(s), riskLabel: `Size @₹${(maxLoss || s.risk_inr || 0).toLocaleString('en-IN')}` };
+  }
+
+  // "odds 39/42 · coin flip · gate BLOCK: 5 trades today": the replay odds and the gate the model was shown; '' when neither.
+  function oddsLine(v) {
+    const c = v.context || {}, T = root.ScanTrades, parts = [];
+    if (c.odds && T) parts.push(`odds ${T.oddsPair(c.odds)}`, T.verdictWord(c.odds));
+    if (c.gate && c.gate.state) parts.push(`gate ${c.gate.state}${c.gate.reason ? ': ' + c.gate.reason : ''}`);
+    return parts.join(' · ');
   }
 
   function reasons(v) {
@@ -69,5 +85,5 @@
       body: `${h.label}  ·  entry ${t.entry} · stop ${t.stop} · target ${t.target}`, symbol: h.symbol, at: String(v.ts || '').slice(11, 16) };
   }
 
-  root.ScanDesk = { headline, confidenceLine, ticket, reasons, footer, budget, newVerdicts, notification };
+  root.ScanDesk = { headline, confidenceLine, ticket, oddsLine, reasons, footer, budget, newVerdicts, notification };
 })(typeof window !== 'undefined' ? window : globalThis);

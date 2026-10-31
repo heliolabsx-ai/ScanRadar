@@ -34,7 +34,8 @@
     (prows || []).filter(r => r.symbol === symbol).forEach(r => {
       const conf = r.confidence && r.confidence.hit_rate != null ? ` · conf ${Math.round(r.confidence.hit_rate)}%` : '';
       const label = (root.ScanPatterns && root.ScanPatterns.kindLabel(r.kind)) || r.kind;
-      out.push({ k: r.state === 'triggered' ? 'trig' : r.state === 'failed' ? 'fail' : 'form', t: `${label} · ${r.state.toUpperCase()}${r.triggered_at ? ' ' + String(r.triggered_at).slice(11, 16) : ''}${conf}`, ts: String(r.triggered_at || r.formed_at) });
+      const odds = r.odds && root.ScanTrades ? ` · ${root.ScanTrades.oddsPair(r.odds)}` : '';
+      out.push({ k: r.state === 'triggered' ? 'trig' : r.state === 'failed' ? 'fail' : 'form', t: `${label} · ${r.state.toUpperCase()}${r.triggered_at ? ' ' + String(r.triggered_at).slice(11, 16) : ''}${conf}${odds}`, ts: String(r.triggered_at || r.formed_at) });
     });
     (verdicts || []).filter(v => v.symbol === symbol && v.output).forEach(v => out.push({ k: v.output.call, t: `DESK ${v.output.call.toUpperCase()} ${v.output.confidence}/10`, ts: String(v.ts) }));
     return out.sort((a, b) => b.ts.localeCompare(a.ts)).slice(0, 3);

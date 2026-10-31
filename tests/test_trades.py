@@ -82,3 +82,28 @@ def test_rows_as_of_clear_later_settlements_and_paper_logs():
     assert [r["ts"][11:16] for r in cut] == ["10:20", "10:40"]
     assert cut[0]["outcome"] is not None and cut[0]["paper"] is not None and cut[1]["paper"] is None
     assert trades._cut(rows, T("10:50"))[0]["outcome"] is None and rows[0]["outcome"] is not None   # input untouched
+
+def test_labels_name_the_setup_of_each_row():
+    rows = [{"ref": "pattern:LT|triple_top|13:00", "source": "pattern"},
+            {"ref": "pattern:X|some_new_kind|10:00", "source": "pattern"},
+            {"ref": "alert:7", "source": "alert"},
+            {"ref": "alert:99", "source": "alert"}]
+    assert trades._alert_ids(rows) == [7, 99]
+    out = trades._labels(rows, {7: "B0101"})
+    assert [r["label"] for r in out] == ["Triple top", "some_new_kind", "B0101", None]
+    assert "label" not in rows[0]                                     # new dicts, the input is untouched
+
+def test_rows_for_day_reads_scan_names_only_when_there_are_alert_rows():
+    con = FakeCon()
+    assert trades.rows_for_day(con, dt.date(2026, 10, 28)) == []
+    assert not any("FROM alerts" in q for q in con.cur.executed)
+
+    class Cur(type(con.cur)):
+        def __init__(self, results): super().__init__(); self.results = results; self.params = []
+        def execute(self, sql, params=None): super().execute(sql, params); self.params.append(params)
+        def fetchall(self): return self.results.pop(0)
+    rec = lambda i, ref, source: tuple({"id": i, "day": dt.date(2026, 10, 28), "ts": T("10:20"), "ref": ref, "source": source}.get(c) for c in trades.COLS)
+    con.cur = Cur([[rec(1, "alert:7", "alert"), rec(2, "pattern:LT|triple_top|13:00", "pattern")], [(7, "B0101")]])
+    rows = trades.rows_for_day(con, dt.date(2026, 10, 28))
+    assert [r["label"] for r in rows] == ["B0101", "Triple top"]
+    assert "SELECT id, scan FROM alerts WHERE id = ANY(%s)" in con.cur.executed[-1] and con.cur.params[-1] == ([7],)

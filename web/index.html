@@ -5,10 +5,10 @@
 <link rel="icon" type="image/svg+xml" href="favicon.svg">
 <meta name="theme-color" content="#111513">
 <script src="filter.js?v=412e789"></script>
-<script src="notify.js?v=412e789"></script>
+<script src="notify.js?v=ec9593b"></script>
 <script src="patterns.js?v=v6"></script>
-<script src="desk.js?v=412e789"></script>
-<script src="watch.js?v=7685032"></script>
+<script src="desk.js?v=ec9593b"></script>
+<script src="watch.js?v=ec9593b"></script>
 <script src="trades.js?v=5e3d8fa"></script>
 <style>
 /* Layout: control strip → sector/breadth rail → bull/bear card grid → detail panel with canvas chart. Terminal-style data UI. */
@@ -190,7 +190,7 @@ tr.trow{cursor:pointer}tr.trow:hover td,tr.trow.sel td{background:var(--bg)}tr.t
 .side{font:700 10px var(--mono);border-radius:3px;padding:0 4px;margin-left:4px;vertical-align:middle}.side.L{background:var(--bull-soft);color:var(--bull)}.side.S{background:var(--bear-soft);color:var(--bear)}
 .mb{display:inline-flex;width:70px;height:8px;background:var(--line);border-radius:2px;overflow:hidden;vertical-align:middle;margin-right:5px}.mb i{display:block;height:100%;min-width:0}
 .mb .t,.obar .t{background:var(--bull)}.mb .s,.obar .s{background:var(--bear)}.mb .n{background:transparent}
-.tv{font-size:11px}.tv.coin{color:var(--amber)}.tv.flat{color:var(--vwap)}.tv.edge{color:var(--bull)}.tv.bad{color:var(--bear)}.tv.none{color:var(--muted)}
+.tv{font-size:11px}.tv.coin,td.odds.coin{color:var(--amber)}.tv.flat,td.odds.flat{color:var(--vwap)}.tv.edge,td.odds.edge{color:var(--bull)}.tv.bad,td.odds.bad{color:var(--bear)}.tv.none,td.odds.none{color:var(--muted)}
 .gate{font:700 10.5px var(--mono);border-radius:3px;padding:1px 6px}.gate.pass{background:var(--bull-soft);color:var(--bull)}.gate.block{background:var(--bear-soft);color:var(--bear)}.gate.off{color:var(--muted)}
 .obar{display:flex;height:22px;border-radius:5px;overflow:hidden;font:600 10.5px var(--mono);margin:6px 0;background:var(--line)}.obar span{display:flex;align-items:center;padding-left:5px;white-space:nowrap;overflow:hidden;min-width:0}.obar .t,.obar .s{color:var(--bg)}.obar .n{background:var(--line);color:var(--fg)}
 .sqs{display:flex;gap:3px;align-items:center;flex-wrap:wrap;margin-top:6px;font-size:10.5px}.sq{display:inline-block;width:12px;height:12px;border-radius:2px;background:var(--line)}.sq.target{background:var(--bull)}.sq.stop{background:var(--bear)}.sqs .mut{margin-left:6px}
@@ -266,7 +266,7 @@ canvas.chart{cursor:zoom-in}.lightbox canvas.chart{cursor:crosshair}
     <p class="eyebrow"><span id="peyebrow">Pattern setups · 5m</span><span class="mono" id="pcounts"></span></p>
     <div class="pstats" id="pstats"></div>
     <div class="pills"><span class="pill on" data-q="grade" title="Recorded hit rate ≥ 45 % in this score bucket, score ≥ 5, not failed">Trade grade</span><span class="pill" data-q="all">All</span><span class="pill" data-q="bottoms">Bottoms (BUY)</span><span class="pill" data-q="tops">Tops (SELL)</span><span class="pill" data-q="reversal">Reversal</span><span class="pill" data-q="continuation">Continuation</span><span class="pill" data-q="triggered">Triggered only</span><span class="pill" data-q="oi">OI confirmed</span><span class="pill" data-q="rr15">Min R:R 1.5</span></div>
-    <table class="pt"><thead><tr><th>Stock</th><th>Pattern</th><th>State</th><th>Side</th><th>Entry</th><th>Stop</th><th>Target</th><th>R:R</th><th>Score</th><th title="Recorded hit rate of this pattern in this score bucket over the last 42 sessions · sample">Conf</th><th>Age</th></tr></thead><tbody id="prows"></tbody></table>
+    <table class="pt"><thead><tr><th>Stock</th><th>Pattern</th><th>State</th><th>Side</th><th>Entry</th><th>Stop</th><th>Target</th><th>R:R</th><th>Score</th><th title="Recorded hit rate of this pattern in this score bucket over the last 42 sessions · sample">Conf</th><th title="Time Machine odds: T1 first / stop first, % of replays">Odds</th><th>Age</th></tr></thead><tbody id="prows"></tbody></table>
     <div class="empty" id="pempty"></div>
     <p class="note mut" style="font-size:11px;line-height:1.5;margin-top:8px"><b>Forming</b> = shape complete, waiting for the confirming 5m close through the neckline. <b>Triggered</b> = that close happened; entry is its close, stop the pattern's extreme, target the measured move. <b>Failed</b> = closed back through the neckline within 3 bars. Score = confirmations ticked on the right.</p>
   </div>
@@ -416,13 +416,15 @@ function renderCards(){
   $('fCount').textContent = active ? `${fb.length + fr.length} of ${s.n_bull + s.n_bear} stocks shown` : '';
 }
 function rowFor(sym){ const s=S.snap; return s ? [...s.bulls, ...s.bears].find(x=>x.symbol===sym) : null; }
+// Cash shares from the trade settings (same arithmetic as the server); text when no share fits.
+const SIZE_WHY = {zero_distance: 'stop equals entry', delivery_no_short: 'delivery: no shorts', position_cap: 'position cap leaves 0 shares', max_loss: 'max loss leaves 0 shares'};
+function shareSize(entry, stop, side){ return entry != null && stop != null && S.tsettings ? ScanTrades.size(entry, stop, S.tsettings, side) : null; }
+function sharesText(z){ return !z ? 'no stop' : z.shares ? `${z.shares.toLocaleString('en-IN')} sh · ${inr(z.position_inr)}` : (SIZE_WHY[z.limited_by] || 'no size'); }
 function sizing(a){
-  const lot = S.lots[a.symbol] || 0, dist = Math.abs(a.price - a.stop);
-  if(!lot || !dist) return `<dt>Size</dt><dd class="mut">lot size unknown</dd>`;
-  const qty = Math.floor(S.risk / dist / lot) * lot;
-  if(!qty) return `<dt>Size</dt><dd class="mut">lot of ${lot} too large for ₹${fmt(S.risk,0)} risk (₹${fmt(dist*lot,0)}/lot)</dd>`;
-  return `<dt>Qty</dt><dd>${qty.toLocaleString('en-IN')} <span class="mut">(${qty/lot} × ${lot})</span></dd>
-          <dt>Risk</dt><dd class="dn">${inr(qty*dist)}</dd><dt>Reward</dt><dd class="up">${inr(qty*Math.abs(a.target-a.price))}</dd>`;
+  const z = shareSize(a.price, a.stop, a.dir < 0 ? 'short' : 'long');
+  if(!z || !z.shares) return `<dt>Size</dt><dd class="mut">${sharesText(z)}</dd>`;
+  return `<dt>Size</dt><dd>${sharesText(z)}</dd>
+          <dt>Loss at stop</dt><dd class="dn">${inr(z.risk_inr)}</dd><dt>Reward</dt><dd class="up">${inr(z.shares*Math.abs(a.target-a.price))}</dd>`;
 }
 // ---------- detail panel + chart ----------
 const TFS = ['1m','3m','5m','15m','30m','60m','1D'];
@@ -860,6 +862,7 @@ function renderPatterns(err){
     <td class="mono">${fmt(r.entry!=null?r.entry:r.neckline)}</td><td class="mono dn">${fmt(r.stop)}</td><td class="mono up" title="T1 (book half) / T2 (runner)">${r.facts&&r.facts.target1?fmt(r.facts.target1)+' <span class=mut>/</span> ':''}${fmt(r.target)}</td><td class="mono">1:${fmt(r.rr,1)}</td>
     <td><span class="score ${r.side==='long'?'up':'dn'}" title="${r.score} of 9">${[1,2,3,4,5,6,7,8,9].map(k=>`<i class="${r.score>=k?'on':''}"></i>`).join('')}</span></td>
     <td class="mono" title="${r.confidence ? esc(r.confidence.basis) : 'no history yet'}">${PK.confLabel(r.confidence)}</td>
+    <td class="mono odds ${ScanTrades.verdictClass(r.odds)}" title="${r.odds ? esc(r.odds.sentence || ScanTrades.verdictWord(r.odds)) : 'no replay history'}">${ScanTrades.oddsPair(r.odds)}</td>
     <td class="mono mut">${PK.ageLabel(r.age_min, r.triggered_at)}</td></tr>`).join('');
   $('pempty').textContent = err ? `could not load patterns: ${err}` : S.ppending ? 'preparing this day (patterns, outcomes, history)… refreshing' : rows.length ? '' : `no patterns formed by ${at}${S.pquick!=='all'||ScanFilter.isActive(S.filter)||S.screen?' that pass the filters':''}`;
   renderPatternDetail();
@@ -869,7 +872,7 @@ function renderPatternDetail(){
   const r = S.psel, d = $('pdetail');
   if(!r){ d.innerHTML = '<p class="eyebrow">Select a setup</p><div class="empty">Click a row to see the pattern on the chart.</div>'; return; }
   const long = r.side === 'long', ref = r.entry != null ? r.entry : r.neckline, dist = Math.abs(ref - r.stop);
-  const lot = S.lots[r.symbol] || 0; const qty = lot && dist ? Math.floor(S.risk / dist / lot) * lot : 0;
+  const z = shareSize(ref, r.stop, r.side);
   const sector = S.sectorsOf[r.symbol] || ''; const sec = S.snap && S.snap.sectors ? S.snap.sectors[sector] : null;
   const row = rowFor(r.symbol); const dayPct = row ? sg(row.pct)+'%' : '';
   const checksText = [
@@ -887,10 +890,11 @@ function renderPatternDetail(){
    <div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px"><div class="mono" style="font-weight:700;font-size:15px">${r.symbol}</div><span class="chip ${long?'buy':'sell'}" style="font-size:12px">${PK.actionLabel(r)}</span></div>
    <dl class="kv"><dt>Entry</dt><dd>${fmt(ref)}${r.entry==null?' <span class="mut">(neckline)</span>':''}</dd><dt>Stop</dt><dd class="dn">${fmt(r.stop)} <span class="mut">(${fmt(dist/ref*100)}%)</span></dd>
     <dt>T1 / T2</dt><dd class="up">${r.facts&&r.facts.target1?fmt(r.facts.target1)+' / ':''}${fmt(r.target)}</dd><dt>R:R</dt><dd>1:${fmt(r.rr,1)} <span class="mut">to T2</span></dd>
-    <dt>Qty @ ₹${fmt(S.risk,0)}</dt><dd>${qty?qty.toLocaleString('en-IN')+' <span class="mut">('+qty/lot+' × '+lot+')</span>':'<span class="mut">'+(lot?'lot too large':'lot unknown')+'</span>'}</dd><dt>Confidence</dt><dd title="${r.confidence ? esc(r.confidence.basis) : ''}">${PK.confLabel(r.confidence)}${r.confidence ? ' <span class="mut">hit rate, 42d</span>' : ' <span class="mut">no history yet</span>'}</dd>
+    <dt>Shares @ ₹${fmt(S.risk,0)}</dt><dd${z && z.shares ? '' : ' class="mut"'}>${sharesText(z)}</dd><dt>Confidence</dt><dd title="${r.confidence ? esc(r.confidence.basis) : ''}">${PK.confLabel(r.confidence)}${r.confidence ? ' <span class="mut">hit rate, 42d</span>' : ' <span class="mut">no history yet</span>'}</dd>
     ${r.outcome?`<dt>Outcome</dt><dd>${outcomeLabel(r.outcome)}</dd>`:''}</dl>
    <div class="tfrow">${TFS.filter(t=>t!=='1D').map(t=>`<button class="tf ${curTf()===t?'on':''}" data-tf="${t}">${t}</button>`).join('')}<span class="readout mono"></span></div>
    <canvas class="chart" width="620" height="430"></canvas>
+   ${patternOdds(r.odds)}
    <div class="why"><b>Why this row</b><ul>${r.checks.map((ok,i)=>`<li class="${ok?'ok':'no'}">${checksText[i]}</li>`).join('')}</ul></div>`;
   wireChart({symbol: r.symbol, minimal: true, pattern: r});
 }
@@ -898,6 +902,14 @@ document.addEventListener('click', e => {
   const tr = e.target.closest('tr.prow'); if(tr){ const [sym, kind, formed] = tr.dataset.key.split('|'); S.psel = S.prows.find(r => r.symbol===sym && r.kind===kind && String(r.formed_at)===formed) || null; renderPatterns(); return; }
   const pill = e.target.closest('.pill'); if(pill){ S.pquick = pill.dataset.q; renderPatterns(); }
 });
+// The Trades drawer's odds bar for a pattern row: the rest of the day replayed, a record of past sessions, not a forecast.
+function patternOdds(o){
+  if(!o || !o.mc) return '';
+  const b = ScanTrades.oddsBar(o), m = o.mc, word = ScanTrades.verdictWord(o);
+  return `<div class="why" title="${esc(o.sentence || '')}"><b>Replays · ${Number(m.paths||0).toLocaleString('en-IN')} from ${m.sessions} past sessions</b>
+   <div class="obar"><span class="t" style="flex:${b.target} 0 0">T1 ${b.target} %</span><span class="s" style="flex:${b.stop} 0 0">stop ${b.stop} %</span><span class="n" style="flex:${b.none} 0 0">flat ${b.none} %</span></div>
+   <div class="tv ${ScanTrades.verdictClass(o)}" style="font-size:11.5px"><b>${esc(word.charAt(0).toUpperCase() + word.slice(1))}.</b> ${esc(o.sentence || '')}</div></div>`;
+}
 function notifyPatterns(rows){
   const live = S.following && (!S.day || S.day === todayIST());
   if(!live){ rows.forEach(r => { if(r.triggered_at) S.pseen.add(`${r.symbol}|${r.kind}|${r.formed_at}`); }); return; }
@@ -905,7 +917,7 @@ function notifyPatterns(rows){
   const fresh = [];
   for(const r of rows){ if(!r.triggered_at) continue; const k = `${r.symbol}|${r.kind}|${r.formed_at}`; if(!S.pseen.has(k)){ S.pseen.add(k); if(!seed) fresh.push(r); } }
   if(!S.notify) return;
-  fresh.slice(0,5).forEach(r => ScanNotify.show({title: `ScanRadar · ${PK.kindLabel(r.kind)}`, body: `${r.symbol}  ${r.side==='long'?'BUY':'SELL'}  ₹${fmt(r.entry)}  ·  ${String(r.triggered_at).slice(11,16)}`, symbol: r.symbol, at: String(r.triggered_at).slice(11,16)},
+  fresh.slice(0,5).forEach(r => ScanNotify.show(ScanNotify.patternMessage(r, PK.kindLabel(r.kind)),
     m => { setView('patterns'); S.psel = r; renderPatterns(); }));
 }
 
@@ -928,6 +940,7 @@ function verdictCard(v){
   return `<div class="vc ${h.cls}" data-sym="${esc(h.symbol)}" data-at="${esc(String(v.ts).slice(11,16))}">
     <div class="hd"><span class="call ${h.cls}">${h.call}</span><span class="who" title="Jump to this minute in the Scanner">${esc(h.symbol)} <span class="chip ${h.side==='BUY'?'buy':'sell'}">${h.side}</span><small>${esc(h.label)}</small></span><span class="conf">${esc(DK.confidenceLine(v))}</span></div>
     <div class="ticket"><div><b>Entry</b><span>${t.entry}</span></div><div><b>Stop</b><span class="dn">${t.stop}</span></div><div><b>Target</b><span class="up">${t.target}</span></div><div><b>${esc(t.riskLabel)}</b><span>${t.size}</span></div><div><b>R:R</b><span>${t.rr}</span></div></div>
+    ${DK.oddsLine(v) ? `<div class="mono mut" style="font-size:11px;margin:4px 0" title="What the desk was shown: the Time Machine replays (T1 first / stop first) and the day gate">${esc(DK.oddsLine(v))}</div>` : ''}
     ${o ? `<div class="rs">${DK.reasons(v).map(r => `<div><i class="${r.cls}">${r.mark}</i><span>${esc(r.text)}</span></div>`).join('')}</div>
     <div class="exit">Exit: ${esc(o.exit_rule)}${o.book_half_at ? ` · book half at <b>${fmt(o.book_half_at)}</b>` : ''}</div>` : `<div class="err">${esc(v.error || 'no verdict')}</div>`}
     <div class="ft"><span>${esc(f.left)}</span><span>${esc(f.right)}</span></div></div>`;
@@ -1110,7 +1123,7 @@ function openWatchDrawer(sym){ S.wsel = sym; $('wdrawer').classList.add('open');
 function closeWatchDrawer(){ S.wsel = null; $('wdrawer').classList.remove('open'); }
 $('wclose').onclick = closeWatchDrawer; document.addEventListener('keydown', e => { if(e.key === 'Escape') closeWatchDrawer(); });
 $('wgrid').onclick = e => { const x = e.target.closest('[data-wx]'); if(x){ S.watch = S.watch.filter(s => s !== x.dataset.wx); saveWatch(); renderWatch(); return; } const c = e.target.closest('.wc'); if(c) openWatchDrawer(c.dataset.sym); };
-$('wq').oninput = () => { const v = $('wq').value.trim().toUpperCase(); const box = $('wsugg'); if(!v){ box.style.display = 'none'; return; } const m = Object.keys(S.lots).filter(s => s.includes(v) && !S.watch.includes(s)).sort((a,b)=>a.indexOf(v)-b.indexOf(v)||a.localeCompare(b)).slice(0,8); box.innerHTML = m.map(s=>`<div data-ws="${s}">${s}<small>${esc(S.sectorsOf[s]||'')} · lot ${S.lots[s]||'?'}</small></div>`).join('') || '<div><small>no match</small></div>'; box.style.display = 'block'; };
+$('wq').oninput = () => { const v = $('wq').value.trim().toUpperCase(); const box = $('wsugg'); if(!v){ box.style.display = 'none'; return; } const m = Object.keys(S.lots).filter(s => s.includes(v) && !S.watch.includes(s)).sort((a,b)=>a.indexOf(v)-b.indexOf(v)||a.localeCompare(b)).slice(0,8); box.innerHTML = m.map(s=>`<div data-ws="${s}">${s}<small>${esc(S.sectorsOf[s]||'')}</small></div>`).join('') || '<div><small>no match</small></div>'; box.style.display = 'block'; };
 $('wq').onkeydown = e => { if(e.key === 'Enter'){ const f = $('wsugg').querySelector('[data-ws]'); if(f) addWatch(f.dataset.ws); } if(e.key === 'Escape'){ $('wsugg').style.display = 'none'; } };
 $('wsugg').onclick = e => { const d = e.target.closest('[data-ws]'); if(d) addWatch(d.dataset.ws); };
 document.addEventListener('click', e => { if(!e.target.closest('.wpick')) $('wsugg').style.display = 'none'; });
@@ -1158,14 +1171,14 @@ async function loadTrades(){
 }
 // "Double top" + score from the pattern row, or the scan name of a rule alert, from the row's ref
 function tradeSetup(r){
-  const ref = String(r.ref || '');
+  const ref = String(r.ref || ''), named = st => r.label ? {...st, label: r.label} : st;
   if(ref.startsWith('pattern:')){
     const [sym, kind, formed] = ref.slice(8).split('|');
     const p = (S.prows || []).find(x => x.symbol === sym && x.kind === kind && String(x.formed_at).slice(11,16) === formed);
-    return {label: PK.kindLabel(kind), score: p ? p.score : null};
+    return named({label: PK.kindLabel(kind), score: p ? p.score : null});
   }
-  if(ref.startsWith('alert:')){ const id = +ref.slice(6); const a = (S.alerts || []).find(x => x.id === id); return {label: a ? a.scan : 'rule alert', score: null}; }
-  return {label: r.source || '—', score: null};
+  if(ref.startsWith('alert:')){ const id = +ref.slice(6); const a = (S.alerts || []).find(x => x.id === id); return named({label: a ? a.scan : 'rule alert', score: null}); }
+  return named({label: r.source || '—', score: null});
 }
 function tradeTile(t){
   const split = (t.key === 'day_risk' || t.key === 'trades') && t.value.includes(' / ');

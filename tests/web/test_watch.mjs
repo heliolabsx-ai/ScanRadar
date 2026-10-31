@@ -5,6 +5,8 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 const here = path.dirname(fileURLToPath(import.meta.url));
 (0, eval)(readFileSync(path.join(here, '../../web/patterns.js'), 'utf8'));
+(0, eval)(readFileSync(path.join(here, '../../web/filter.js'), 'utf8'));
+(0, eval)(readFileSync(path.join(here, '../../web/trades.js'), 'utf8'));
 (0, eval)(readFileSync(path.join(here, '../../web/watch.js'), 'utf8'));
 const W = globalThis.ScanWatch;
 
@@ -59,4 +61,11 @@ test('prev-day levels widen the chart range only when they are near the price', 
   assert.equal(r.hi, 101); assert.deepEqual(r.lines.map(l => [l.k, l.shown]), [['PDH', true], ['PDL', false]]);
   r = W.levels(99, 101, 100, { prev_close: 100 });            // no prev-day levels -> nothing to draw
   assert.deepEqual(r.lines, []); assert.equal(r.lo, 99);
+});
+
+test('a pattern chip carries the replay odds when the row has them', () => {
+  const prows = [{ symbol: 'A', kind: 'double_bottom', state: 'triggered', triggered_at: '2026-10-19T10:45:00+05:30', formed_at: '2026-10-19T10:20:00+05:30',
+    odds: { mc: { target_pct: 39.4, stop_pct: 41.5 }, verdict: 'coin' } }];
+  assert.ok(W.events('A', prows, [])[0].t.endsWith(' · 39/42'));
+  assert.ok(!W.events('A', [{ ...prows[0], odds: null }], [])[0].t.includes('/'));
 });
