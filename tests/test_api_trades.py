@@ -47,3 +47,17 @@ def test_odds_by_ref_cuts_at_the_as_of_minute():
     trades.odds_by_ref(con, day)
     sql, params = con.cur.calls[-1]
     assert "ts <=" not in sql and params == (day,)
+
+
+def test_recent_alerts_carry_the_id_for_the_odds_join():
+    import alerts as al
+    ist = dt.timezone(dt.timedelta(hours=5, minutes=30))
+    con = _Con([(7, dt.datetime(2026, 10, 28, 10, 20, tzinfo=ist), "B0101", "KFINTECH", 854.6, {"tf": "5m", "side": "long"}, "live"),
+                (6, dt.datetime(2026, 10, 28, 10, 20, 30, tzinfo=ist), "B0101", "KFINTECH", 854.0, {"tf": "5m"}, "replay")])
+    rows = al.recent_alerts(con, 100)
+    sql, params = con.cur.calls[-1]
+    assert sql.startswith("SELECT id,") and params == (200,)
+    assert [r["id"] for r in rows] == [7]                                          # the replay twin merged away
+    by_ref = {"alert:7": {"id": 4, "odds": {"verdict": "edge"}, "size": {"shares": 3, "risk_inr": 90}, "gate": "PASS", "gate_reason": None}}
+    out = trades.attach(by_ref, rows, "alert")
+    assert out[0]["odds"] == {"verdict": "edge"} and out[0]["trade"]["shares"] == 3

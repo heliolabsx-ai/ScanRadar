@@ -45,6 +45,10 @@ def test_settle_target_stop_open_and_flat_by():
     r = row("X", "09:20", 100.0, shares=10); r["entry"] = 100.0; r["stop"] = 99.0; r["target"] = 102.0
     s = settle(r, df, "15:20", final=False)
     assert s["hit"] == "target" and s["exit_px"] == 102.0 and s["pnl_inr"] == 20.0 and s["settled_at"].endswith("+05:30")
+    after = df[df.ts > pd.Timestamp("2026-10-28 09:20", tz="Asia/Kolkata")]
+    touch = after.ts[after.high >= 102.0].iloc[0]                # the first 1-minute bar that touches T1 (in the 09:35 5-minute bar)
+    assert touch.strftime("%H:%M") >= "09:35" and touch.strftime("%H:%M") < "09:40"
+    assert s["settled_at"] == (touch + pd.Timedelta(minutes=1)).isoformat()   # settled at that bar's close
     r["target"] = 110.0
     assert settle(r, df[df.ts < pd.Timestamp("2026-10-28 12:00", tz="Asia/Kolkata")], "15:20", final=False) is None
     s = settle(r, df, "15:20", final=False)                      # the data reaches 15:19: flat at the last close before 15:20

@@ -76,7 +76,7 @@ def settle(row: dict, df1m: pd.DataFrame, flat_by: str, final: bool) -> dict | N
         level = target if o["hit"] == "target" else stop
         # the level is touched by the high (long target, short stop) or by the low (long stop, short target)
         touched = after.high >= level if (o["hit"] == "target") == (side == "long") else after.low <= level
-        return done(o, level, after.ts[touched].iloc[0])
+        return done(o, level, after.ts[touched].iloc[0] + pd.Timedelta(minutes=1))   # the touching bar's close
     reached = not cutdata.empty and cutdata.ts.iloc[-1] >= cut - pd.Timedelta(minutes=1)
     if not (final or reached):
         return None

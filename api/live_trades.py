@@ -60,14 +60,34 @@ def _set_odds(R, day, ref: str, row: dict) -> None:
         log.warning("odds key for %s not written: %s", ref, e)
 
 
+def _tombstones(R, day, alerts: list[dict], skip: set[str]) -> None:
+    """An empty key for every alert that gets no trade row, so its deferred message goes out at once."""
+    for a in alerts:
+        ref = f"alert:{a['id']}"
+        if ref in skip:
+            continue
+        try:
+            if not R.exists(f"trades:{day}:{ref}"):
+                R.set(f"trades:{day}:{ref}", "", ex=TTL)
+        except Exception as e:  # noqa: BLE001  the message then waits WAIT_S, as before
+            log.warning("tombstone for %s not written: %s", ref, e)
+
+
 def process_minute(con, R, day, at: dt.datetime, settings: dict) -> dict:
     """Rows for the minute's new triggers, then settle the open rows; {"rows", "settled"}."""
+    trades.forget_other_days(day)
     pat_stats, _ = live_desk.setup_stats(con, at)
     scans = {s["name"]: s for s, _ in al.scan_files()}
     have = trades.odds_by_ref(con, day)
     apply_rules = day >= trades.RULES_FROM
+    try:                                                      # read before candidates(): an alert inserted in between is judged next minute
+        alerts = [a for a in trades._alert_rows(con, day) if a.get("source") == "live" and trades._minute(a["ts"]) <= at]
+    except Exception:  # noqa: BLE001
+        log.exception("alert rows for tombstones failed")
+        alerts = []
+    cands = trades.candidates(con, day, at, include_replay=False, max_age=desk.MAX_AGE_MIN, pat_stats=pat_stats, scans=scans)
     n = 0
-    for cand in trades.candidates(con, day, at, include_replay=False, max_age=desk.MAX_AGE_MIN, pat_stats=pat_stats, scans=scans):
+    for cand in cands:
         ref = cand["ref"]
         if ref in have:
             continue
@@ -91,6 +111,7 @@ def process_minute(con, R, day, at: dt.datetime, settings: dict) -> dict:
                 _set_odds(R, day, ref, row)
     except Exception:  # noqa: BLE001
         log.exception("odds key backfill failed")
+    _tombstones(R, day, alerts, {c["ref"] for c in cands} | set(have))
     flat_by = dt.time.fromisoformat(settings["flat_by"])
     settled = trades.settle_open(con, day, at, settings["flat_by"], final=at.time() >= flat_by)
     log.info("trades %s: %d new rows, %d settled", at.strftime("%H:%M"), n, settled)
@@ -101,7 +122,8 @@ def process_minute(con, R, day, at: dt.datetime, settings: dict) -> dict:
 
 def flush_deferred(R, day, send, at: dt.datetime) -> int:
     """Send the deferred Telegram messages of `day`: with the odds line once the trade row
-    exists, as they are after WAIT_S without one, never after GIVE_UP_S. Returns the number sent."""
+    exists, at once and plain when the key is an empty tombstone (no row will come), as they are
+    after WAIT_S without a key, never after GIVE_UP_S. Returns the number sent."""
     key = f"tg:defer:{day}"
     later, n = [], 0
     try:
@@ -121,7 +143,9 @@ def flush_deferred(R, day, send, at: dt.datetime) -> int:
                 continue
             try:
                 row = R.get(f"trades:{day}:{ref}")
-                if row is not None:
+                if row == "":
+                    pass                                       # tombstone: no trade row will come, send plain now
+                elif row is not None:
                     text = text + "\n" + odds_line(json.loads(row))
                 elif age < WAIT_S:
                     later.append(raw)                          # pushed back once the list is drained, so the loop ends

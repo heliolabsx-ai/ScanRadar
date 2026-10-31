@@ -107,3 +107,13 @@ def test_rows_for_day_reads_scan_names_only_when_there_are_alert_rows():
     rows = trades.rows_for_day(con, dt.date(2026, 10, 28))
     assert [r["label"] for r in rows] == ["B0101", "Triple top"]
     assert "SELECT id, scan FROM alerts WHERE id = ANY(%s)" in con.cur.executed[-1] and con.cur.params[-1] == ([7],)
+
+
+def test_forget_other_days_keeps_only_the_day(monkeypatch):
+    d1, d2 = dt.date(2026, 10, 27), dt.date(2026, 10, 28)
+    monkeypatch.setattr(trades, "_HIST", {("A", d1): {"x": 1}, ("B", d1): {}, ("A", d2): {"y": 2}, ("C", d2): {}})
+    trades.forget_other_days(d2)
+    assert trades._HIST == {("A", d2): {"y": 2}, ("C", d2): {}}
+    trades.forget_other_days(d1)
+    assert trades._HIST == {}
+    assert trades.HIST_CACHE_MAX == 60

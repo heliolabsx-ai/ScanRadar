@@ -34,6 +34,18 @@ def test_flush_deferred_appends_the_line_or_waits_or_gives_up():
     assert json.loads(R.pushed[0])["ref"] == "alert:8"                             # 8 waits for the next minute
 
 
+def test_flush_deferred_sends_plain_at_once_on_a_tombstone():
+    now = dt.datetime(2026, 10, 28, 10, 20, 25, tzinfo=IST)
+    item = lambda ref, age_s, text: json.dumps({"ref": ref, "text": text, "ts": (now - dt.timedelta(seconds=age_s)).isoformat()})
+    R = FakeR([item("alert:1", 5, "a"), item("alert:2", 5, "b"), item("alert:3", 5, "c")],
+              {"trades:2026-10-28:alert:1": "",
+               "trades:2026-10-28:alert:2": json.dumps({"odds": None, "size": {"shares": 3}, "gate": None, "gate_reason": None})})
+    sent = []
+    assert lt.flush_deferred(R, dt.date(2026, 10, 28), sent.append, now) == 2
+    assert sent == ["a", "b\nno history · 3 sh"]                                  # 1 plain at 5 s old (no row will come), 2 with its line
+    assert [json.loads(p)["ref"] for p in R.pushed] == ["alert:3"]                 # no key at all: still waits
+
+
 def test_tick_gates_on_the_minute_so_15_30_runs(monkeypatch):
     class Empty:
         def lpop(self, k): return None
@@ -120,10 +132,17 @@ def test_process_minute_backfills_missing_odds_keys(monkeypatch):
     monkeypatch.setattr(lt.trades, "insert_row", insert)
     monkeypatch.setattr(lt.trades, "odds_by_ref", lambda con, day: {k: dict(v) for k, v in stored.items()})
     monkeypatch.setattr(lt.trades, "settle_open", lambda con, day, at, flat_by, final: 0)
+    alert = lambda i, hhmm, src="live": {"id": i, "ts": f"2026-10-28T{hhmm}:05+05:30", "source": src}
+    monkeypatch.setattr(lt.trades, "_alert_rows", lambda con, day: [alert(1, "10:01"), alert(2, "10:19"), alert(3, "10:20"), alert(4, "10:05"),
+                                                                       alert(5, "10:21"), alert(6, "10:10", "replay")])
     R = StoreR()
+    R.kv["trades:2026-10-28:alert:4"] = ("", 86400)                                # tombstoned last minute
     assert lt.process_minute(FakeCon(), R, day, at, dict(DEFAULTS)) == {"rows": 1, "settled": 0}
     assert json.loads(R.kv["trades:2026-10-28:alert:2"][0]) == new                 # the new row
     assert json.loads(R.kv["trades:2026-10-28:alert:1"][0]) == {"odds": None, "size": {"shares": 4}, "gate": "PASS", "gate_reason": ""}   # an older row whose key was missing
+    assert R.kv["trades:2026-10-28:alert:3"] == ("", 86400)                        # rejected by candidates(): tombstone
+    assert R.kv["trades:2026-10-28:alert:4"] == ("", 86400)
+    assert "trades:2026-10-28:alert:5" not in R.kv and "trades:2026-10-28:alert:6" not in R.kv   # after `at`; a replay alert
     assert {ex for _, ex in R.kv.values()} == {86400}
     assert R.pub == [("trades:updated", json.dumps({"at": "10:20", "new": 1}))]
     del stored["alert:2"]

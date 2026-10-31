@@ -192,6 +192,16 @@ def alerts_for_day(con, day: dt.date) -> list[dict]:
              "outcome": r["payload"].get("outcome")} for r in rows]
 
 
+def recent_alerts(con, limit: int) -> list[dict]:
+    """The latest `limit` alerts across days, live and replay merged, newest first, each with its id."""
+    with con.cursor() as cur:
+        cur.execute("SELECT id,ts,scan,symbol,price,payload,source FROM alerts ORDER BY ts DESC LIMIT %s", (limit * 2,))
+        rows = [{"id": r[0], "ts": r[1].astimezone(IST), "scan": r[2], "symbol": r[3], "price": r[4],
+                 "tf": (r[5] or {}).get("tf"), "source": r[6], "side": (r[5] or {}).get("side"),
+                 "outcome": (r[5] or {}).get("outcome")} for r in cur.fetchall()]
+    return [dict(r, ts=r["ts"].isoformat()) for r in merge_live_replay(rows)][:limit]
+
+
 def aggregate_stats(rows: list[dict]) -> list[dict]:
     """rows: {ts, scan, symbol, source, outcome}. Live and replay rows for the same fire
     are counted once (live wins); rows with outcome None count as fires only."""

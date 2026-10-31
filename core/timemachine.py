@@ -154,7 +154,7 @@ def verdict(mc: dict, rr: float, *, flat_by=FLAT_BY) -> tuple[str, str]:
     """One word (flat | coin | edge | bad) and its sentence, checked in that order."""
     t, s, none, avg = mc["target_pct"], mc["stop_pct"], mc["none_pct"], mc["avg_r"]
     if none >= 75:
-        return "flat", (f"Will not resolve before the close: {none:.1f} % of replays reach {flat_by} "
+        return "flat", (f"Does not resolve before the close in {none:.1f} % of replays: they reach {flat_by} "
                         f"with neither level touched.")
     if abs(t - s) < 8:
         return "coin", f"Close to a coin flip: T1 first {t:.1f} %, stop first {s:.1f} %, average {avg:.2f} R."

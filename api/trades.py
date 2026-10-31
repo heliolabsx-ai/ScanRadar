@@ -17,7 +17,7 @@ from core.sizing import DEFAULTS, validate, shares
 RULES_FROM = dt.date.fromisoformat(os.environ.get("TRADES_RULES_FROM", "2026-11-03"))   # gate and ledger apply from this day
 REPEAT_MIN = 60                     # a repeat alert of the same (scan, symbol) within this many minutes gets no row
 HIST_DAYS = 120                     # calendar days of candles read for the replay history
-HIST_CACHE_MAX = 300
+HIST_CACHE_MAX = 60                 # ~1.4 MB each, per process (API and the prep worker)
 _HIST: dict = {}                    # (symbol, day) -> history()
 
 COLS = ["id", "day", "ts", "ref", "symbol", "side", "source", "entry", "stop", "target", "target2", "rr",
@@ -138,6 +138,12 @@ def candidates(con, day, at: dt.datetime, *, include_replay: bool, max_age: int 
 
 
 # ---------- odds, size, gate ----------
+def forget_other_days(day: dt.date) -> None:
+    """Drop the cached histories of every day but `day` (yesterday's are never asked for again live)."""
+    for key in [k for k in _HIST if k[1] != day]:
+        _HIST.pop(key, None)
+
+
 def load_history(con, symbol: str, day: dt.date, sessions: int = 60) -> dict:
     """history() of the symbol's stored 1-minute candles for the `sessions` stored days before `day`."""
     key = (symbol, day)
@@ -335,6 +341,7 @@ def settle_open(con, day, at: dt.datetime, flat_by: str, final: bool) -> int:
 
 def backfill_day(con, day, settings) -> int:
     """Rows for a settled day (odds and size; gate only from RULES_FROM), then settle them all."""
+    forget_other_days(day)
     pat_stats, _ = live_desk.setup_stats(con, dt.datetime.now(IST))
     scans = {s["name"]: s for s, _ in al.scan_files()}
     _, end = session_bounds(day)

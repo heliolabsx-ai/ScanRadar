@@ -270,12 +270,10 @@ async def alerts(limit: int = 100, day: str | None = None):
     loop = asyncio.get_running_loop()
     if day is None:
         def q_recent():
-            with connect() as con, con.cursor() as cur:
-                cur.execute("SELECT ts,scan,symbol,price,payload,source FROM alerts ORDER BY ts DESC LIMIT %s", (limit * 2,))
-                rows = [{"ts": r[0].astimezone(IST), "scan": r[1], "symbol": r[2], "price": r[3],
-                         "tf": (r[4] or {}).get("tf"), "source": r[5], "side": (r[4] or {}).get("side"),
-                         "outcome": (r[4] or {}).get("outcome")} for r in cur.fetchall()]
-                return [dict(r, ts=r["ts"].isoformat()) for r in al.merge_live_replay(rows)][:limit]
+            with connect() as con:
+                rows = al.recent_alerts(con, limit)
+                by_ref = _odds_or_empty(con, _today())             # today's trade rows; older alerts get odds None
+                return rows if by_ref is None else tr.attach(by_ref, rows, "alert")
         return await loop.run_in_executor(None, q_recent)
     try:
         d = dt.date.fromisoformat(day)

@@ -42,13 +42,14 @@ def test_after_flat_by_is_flat_and_empty_history_is_none():
     assert tm.replay(dict(symbol="X", day="2026-08-01", at="10:15", side="long", entry=100, stop=99, target=102), h) is None
 
 def test_verdict_words_and_sentences():
-    assert tm.verdict({"none_pct": 75.0, "target_pct": 10.0, "stop_pct": 15.0, "avg_r": 0.1}, 1.0)[0] == "flat"
+    w, flat = tm.verdict({"none_pct": 75.0, "target_pct": 10.0, "stop_pct": 15.0, "avg_r": 0.1}, 1.0)
+    assert w == "flat" and flat == "Does not resolve before the close in 75.0 % of replays: they reach 15:20 with neither level touched."
     w, s = tm.verdict({"none_pct": 19.1, "target_pct": 39.4, "stop_pct": 41.5, "avg_r": -0.05}, 0.84)
     assert w == "coin" and s == "Close to a coin flip: T1 first 39.4 %, stop first 41.5 %, average -0.05 R."
     w, s = tm.verdict({"none_pct": 66.1, "target_pct": 29.8, "stop_pct": 4.1, "avg_r": 0.52}, 0.7)
     assert w == "edge" and s == "Odds favour T1: 29.8 % against 4.1 %, average 0.52 R."
     assert tm.verdict({"none_pct": 10.0, "target_pct": 20.0, "stop_pct": 70.0, "avg_r": -0.6}, 1.0) == ("bad", "Odds favour the stop: 70.0 % against 20.0 %.")
-    assert "will" not in s.lower()
+    assert "will" not in s.lower() and "will" not in flat.lower()
 
 def test_past_sessions_agree_with_backtest_outcome():
     df, _ = shaped_day([0, 0.2, 0.4, 0.3, 1.0, 1.8, 2.5, 2.2], day="2026-09-05")   # one clean session: long from the 09:30 bar reaches +2 %
