@@ -7,7 +7,7 @@ they agree.
 """
 import pandas as pd
 from .asof import view_at
-from .rules import resample, evaluate, DAY_SERIES, continuous, join_sessions
+from .rules import resample, evaluate, DAY_SERIES, continuous, join_sessions, in_hours
 
 TF_MIN = {"1m": 1, "3m": 3, "5m": 5, "15m": 15, "30m": 30, "60m": 60}
 FIELDS = ("open", "high", "low", "close", "volume", "oi", "vwap")
@@ -98,7 +98,7 @@ def fires(scan: dict, df1m: pd.DataFrame, ctx: dict, cooldown_min: int, prev1m: 
         lo = max(0, end - (k - 1))
         bars = pd.DataFrame({f: list(full_rows[f][lo:end]) + [forming[f]] for f in FIELDS})
         bars.attrs["session_start"] = max(0, P - lo)
-        if (not out or ts.iloc[i] - out[-1] >= cd) and evaluate(scan, bars, ctx):
+        if in_hours(scan, ts.iloc[i]) and (not out or ts.iloc[i] - out[-1] >= cd) and evaluate(scan, bars, ctx):
             out.append(ts.iloc[i])
         # fold this complete minute into the forming window for the next iteration
         f_open = o[i] if f_open is None else f_open

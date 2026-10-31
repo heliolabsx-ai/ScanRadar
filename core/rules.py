@@ -16,7 +16,11 @@ SIDE is one of:
   {"off": N, "field": "close", "ema": 20}   exponential moving average (standard 2/(n+1) smoothing) ending at that bar
 Any side may carry "mul": x to scale the value (Chartink's `Sma(Volume, 20) * 3`).
 Optional "trade": {"stop": SIDE | {"pct": x}, "target": SIDE | {"pct": x} | {"rr": r}} — the scan's own levels (see trade_levels).
+Optional "hours": {"from": "HH:MM", "to": "HH:MM"} — the scan only fires when the fire minute (bar close, IST) is
+  from <= t < to; no block = always in hours; a malformed block raises ValueError (see in_hours).
+Optional "min_rr": x — the scan's own R:R floor (0 = no floor) instead of the system default (see min_rr).
 """
+import datetime as dt
 import operator as op
 import pandas as pd
 
@@ -42,6 +46,28 @@ DAY_SERIES = {"day_low": ("low", "min"), "day_high": ("high", "max")}
 
 def continuous(scan: dict) -> bool:
     return bool(scan.get("continuous"))
+
+
+def _hhmm(scan: dict, key: str) -> dt.time:
+    try:
+        return dt.datetime.strptime(scan["hours"][key], "%H:%M").time()
+    except (KeyError, TypeError, ValueError):
+        raise ValueError(f"scan {scan.get('name', '?')}: hours.{key} must be \"HH:MM\"") from None
+
+
+def in_hours(scan: dict, ts) -> bool:
+    """True when the scan has no `hours` block or from <= ts.time() < to (ts: IST datetime / pd.Timestamp)."""
+    if "hours" not in scan:
+        return True
+    start, end = _hhmm(scan, "from"), _hhmm(scan, "to")
+    if end <= start:
+        raise ValueError(f"scan {scan.get('name', '?')}: hours.to must be after hours.from")
+    return start <= ts.time() < end
+
+
+def min_rr(scan: dict, default: float) -> float:
+    """The scan's own R:R floor when it sets one (0 allowed), else `default`."""
+    return float(scan["min_rr"]) if "min_rr" in scan else float(default)
 
 
 def join_sessions(prev: pd.DataFrame | None, today: pd.DataFrame) -> pd.DataFrame:
