@@ -160,3 +160,54 @@ def test_flush_deferred_passes_silent_through():
     def send(text, **kw): calls.append((text, kw.get("silent", False)))
     assert lt.flush_deferred(R, dt.date(2026, 10, 30), send, now) == 2
     assert calls == [("<b>PDH break</b>", True), ("<b>PDH fade</b>", False)]
+
+
+def _flush_items(now, *refs):
+    return [json.dumps({"ref": r, "text": r, "ts": (now - dt.timedelta(seconds=100)).isoformat(), "silent": r.endswith("s")}) for r in refs]
+
+
+def test_flush_records_ok_and_not_configured():
+    now = dt.datetime(2026, 11, 3, 10, 20, 25, tzinfo=IST)
+    R = FakeR(_flush_items(now, "alert:1", "alert:2s"), {})
+    replies = iter([(True, None), (False, "not configured")])
+    rec = []
+    n = lt.flush_deferred(R, dt.date(2026, 11, 3), lambda text, **kw: next(replies), now, record=lambda *a: rec.append(a))
+    assert n == 1 and rec == [("alert:1", True, None, False), ("alert:2s", False, "not configured", True)]
+
+
+def test_flush_records_failure_and_continues():
+    now = dt.datetime(2026, 11, 3, 10, 20, 25, tzinfo=IST)
+    R = FakeR(_flush_items(now, "alert:1", "alert:2"), {})
+    def send(text, **kw):
+        if text == "alert:1":
+            raise RuntimeError("boom")
+    rec = []
+    assert lt.flush_deferred(R, dt.date(2026, 11, 3), send, now, record=lambda *a: rec.append(a)) == 1
+    assert rec == [("alert:1", False, "boom", False), ("alert:2", True, None, False)]
+
+
+def test_flush_without_record_still_works_and_a_raising_record_is_swallowed():
+    now = dt.datetime(2026, 11, 3, 10, 20, 25, tzinfo=IST)
+    assert lt.flush_deferred(FakeR(_flush_items(now, "alert:1"), {}), dt.date(2026, 11, 3), lambda t, **kw: (True, None), now) == 1
+    def bad(*a): raise RuntimeError("db down")
+    assert lt.flush_deferred(FakeR(_flush_items(now, "alert:1", "alert:2"), {}), dt.date(2026, 11, 3), lambda t, **kw: (True, None), now, record=bad) == 2
+
+
+def test_desk_tick_records_each_ticket_as_telegram_desk(monkeypatch):
+    now = dt.datetime(2026, 11, 3, 10, 20, 20, tzinfo=IST)
+    ld = lt.live_desk
+    class Con(FakeCon):
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+    class R:
+        def get(self, k): return None
+        def publish(self, *a): pass
+    monkeypatch.setattr(ld, "desk_redis", lambda: R())
+    monkeypatch.setattr(ld, "process_minute", lambda con, R_, day, at, snap, prepare=None: ({"verdict": 2}, [{"ref": "alert:1"}, {"ref": "pattern:A|x|1"}]))
+    monkeypatch.setattr(ld.desk, "telegram_text", lambda rec: rec["ref"])
+    rec = []
+    monkeypatch.setattr(ld.deliveries, "record", lambda con, *a: rec.append(a))
+    replies = iter([(True, None), None])
+    ld.tick(lambda: Con(), now, lambda text: next(replies))
+    day, at = dt.date(2026, 11, 3), now.replace(second=0)
+    assert rec == [(day, "alert:1", "telegram-desk", True, None, False, now), (day, "pattern:A|x|1", "telegram-desk", True, None, False, now)]

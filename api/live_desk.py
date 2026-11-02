@@ -7,6 +7,7 @@ import desk
 import patterns as pt
 import alerts as al
 import trades
+import deliveries
 from replay import load_refs, session_bounds, COLS as CANDLE_COLS
 from core.calendar import is_trading_day
 from core import rules
@@ -248,9 +249,17 @@ def tick(connect, now: dt.datetime, send, prepare=None) -> dict:
     for rec in sent:
         if os.environ.get("DESK_TELEGRAM", "1") != "0":
             try:
-                send(desk.telegram_text(rec))
+                res = send(desk.telegram_text(rec))
+                ok, err = res if res is not None else (True, None)
             except Exception as e:  # noqa: BLE001
                 log.warning("telegram failed: %s", e)
+                ok, err = False, str(e)
+            try:                                              # the ticket's delivery, for the Alarms board
+                with connect() as con:
+                    deliveries.record(con, day, rec["ref"], "telegram-desk", ok, err, False, now)
+                    con.commit()
+            except Exception as e:  # noqa: BLE001
+                log.warning("delivery record for %s failed: %s", rec.get("ref"), e)
     if any(done.values()):
         R.publish("desk:updated", json.dumps({"at": at.strftime("%H:%M"), **done}))
     return done

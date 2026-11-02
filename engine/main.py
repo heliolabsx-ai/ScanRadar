@@ -18,6 +18,16 @@ IST = dt.timezone(dt.timedelta(hours=5, minutes=30))
 TOP_N = 3
 
 
+def record_delivery(ref: str, ok: bool, error: str | None, silent: bool, now: dt.datetime) -> None:
+    """One `deliveries` row for a message the engine sent itself (own connection; a failure is logged, never raised)."""
+    try:
+        with psycopg.connect(DB) as con:
+            con.execute("INSERT INTO deliveries(day, ref, channel, sent_at, ok, error, silent) VALUES (%s,%s,%s,%s,%s,%s,%s)",
+                        (now.astimezone(IST).date(), ref, "telegram", now, ok, error, silent))
+    except Exception as e:  # noqa: BLE001
+        log.warning("delivery record for %s failed: %s", ref, e)
+
+
 def defer(ref: str, text: str, now: dt.datetime, silent: bool = False) -> None:
     """Queue a Telegram message on `tg:defer:{day}` (never waits for the API); sent directly only if the push fails."""
     key = f"tg:defer:{now:%Y-%m-%d}"
@@ -25,7 +35,8 @@ def defer(ref: str, text: str, now: dt.datetime, silent: bool = False) -> None:
         R.rpush(key, json.dumps({"ref": ref, "text": text, "ts": now.isoformat(), "silent": silent}))
     except Exception as e:  # noqa: BLE001
         log.warning("deferred telegram failed (%s); sending directly", e)
-        telegram(text, silent=silent)
+        ok, err = telegram(text, silent=silent)
+        record_delivery(ref, ok, err, silent, now)
         return
     try:
         R.expire(key, 86400)
@@ -168,7 +179,8 @@ def run_once():
             if os.environ.get("TRADES_LIVE", "1") != "0":
                 defer(f"alert:{aid}", text, now, silent=(tg == "silent"))  # the API's trades loop sends it with the odds line
             else:
-                telegram(text, silent=(tg == "silent"))
+                ok, err = telegram(text, silent=(tg == "silent"))
+                record_delivery(f"alert:{aid}", ok, err, tg == "silent", now)
     log.info("scan: %d symbols, %d bull / %d bear, %d alerts", n, len(bulls), len(bears), len(fired))
 
 

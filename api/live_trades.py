@@ -9,6 +9,7 @@ import desk
 import live_desk
 import alerts as al
 import trades
+import deliveries
 from core.calendar import is_trading_day
 from core.gate import ledger
 
@@ -120,10 +121,12 @@ def process_minute(con, R, day, at: dt.datetime, settings: dict) -> dict:
     return {"rows": n, "settled": settled}
 
 
-def flush_deferred(R, day, send, at: dt.datetime) -> int:
+def flush_deferred(R, day, send, at: dt.datetime, record=None) -> int:
     """Send the deferred Telegram messages of `day`: with the odds line once the trade row
     exists, at once and plain when the key is an empty tombstone (no row will come), as they are
-    after WAIT_S without a key, never after GIVE_UP_S. Returns the number sent."""
+    after WAIT_S without a key, never after GIVE_UP_S. Returns the number sent. `send` may return
+    (ok, error) or None (= ok); every attempt is reported to `record(ref, ok, error, silent)` when given
+    (a failing `record` is logged, never raised)."""
     key = f"tg:defer:{day}"
     later, n = [], 0
     try:
@@ -153,20 +156,36 @@ def flush_deferred(R, day, send, at: dt.datetime) -> int:
             except Exception as e:  # noqa: BLE001  the message still goes out, without the line
                 log.warning("odds line for %s failed, sending plain: %s", ref, e)
                 text = item["text"]
+            silent = bool(item.get("silent"))
             try:
-                if item.get("silent"):
-                    send(text, silent=True)
-                else:
-                    send(text)
-                n += 1
+                res = send(text, silent=True) if silent else send(text)
+                ok, err = res if res is not None else (True, None)
             except Exception as e:  # noqa: BLE001
                 log.warning("telegram failed: %s", e)
+                ok, err = False, str(e)
+            if ok:
+                n += 1
+            if record:
+                try:
+                    record(ref, ok, err, silent)
+                except Exception as e:  # noqa: BLE001  the send happened; a lost record never stops the queue
+                    log.warning("delivery record for %s failed: %s", ref, e)
     finally:
         for raw in later:
             R.rpush(key, raw)
         if later:
             R.expire(key, TTL)
     return n
+
+
+def _record(connect, day, ref, channel, ok, error, silent, sent_at) -> None:
+    """Write one `deliveries` row on its own connection; a failure is logged, never raised."""
+    try:
+        with connect() as con:
+            deliveries.record(con, day, ref, channel, ok, error, silent, sent_at)
+            con.commit()
+    except Exception as e:  # noqa: BLE001
+        log.warning("delivery record for %s failed: %s", ref, e)
 
 
 def tick(connect, now: dt.datetime, send) -> dict:
@@ -183,7 +202,7 @@ def tick(connect, now: dt.datetime, send) -> dict:
         except Exception:  # noqa: BLE001
             log.exception("trades tick failed")
     try:
-        done["sent"] = flush_deferred(R, day, send, n)
+        done["sent"] = flush_deferred(R, day, send, n, record=lambda ref, ok, err, silent: _record(connect, day, ref, "telegram", ok, err, silent, n))
     except Exception:  # noqa: BLE001
         log.exception("deferred telegram flush failed")
     return done

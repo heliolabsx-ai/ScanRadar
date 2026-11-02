@@ -29,3 +29,20 @@ def test_telegram_silent_sets_disable_notification(monkeypatch):
     mod, sent = _notify(monkeypatch)
     mod.telegram("x", silent=True)
     assert sent[0]["disable_notification"] is True
+
+
+def test_telegram_returns_ok(monkeypatch):
+    mod, sent = _notify(monkeypatch)
+    assert mod.telegram("x") == (True, None)
+
+
+def test_telegram_not_configured(monkeypatch):
+    mod, sent = _notify(monkeypatch); monkeypatch.setattr(mod, "TOKEN", None)
+    assert mod.telegram("x") == (False, "not configured") and sent == []
+
+
+def test_telegram_reports_the_error(monkeypatch):
+    mod, sent = _notify(monkeypatch)
+    def boom(url, json=None, timeout=None): raise RuntimeError("timeout")
+    monkeypatch.setattr(mod.requests, "post", boom)
+    assert mod.telegram("x") == (False, "timeout")
