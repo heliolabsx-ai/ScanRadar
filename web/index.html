@@ -580,8 +580,8 @@ function drawChart(a){
   ctx.fillStyle=C('--muted'); ctx.fillText('VOL', pL+2, yv0+9); ctx.fillText('OI', pL+2, yo0+9);
   // ---- markers: alerts for this symbol up to the as-of minute
   if(!daily && S.alerts){
-    const at = S.at||'15:30';
-    S.alerts.filter(al => al.symbol===a.symbol && al.ts.slice(11,16) <= at).forEach(al => {
+    const at = S.at||'15:30', onDay = S.day || todayIST();   // LIVE keeps the last session's alerts in the list: never on today's chart
+    S.alerts.filter(al => al.symbol===a.symbol && al.ts.slice(0,10) === onDay && al.ts.slice(11,16) <= at).forEach(al => {
       const i = hhmmToMin(al.ts.slice(11,16)); const m = (chartCache.data||[]).find(c=>minIdx(c)===i); if(!m) return;
       const xx = xi(i)+ (W-pL-pR)/375*0.5; const longish = al.side==='long', kind = ScanWatch.alertKind(al.scan);
       const hw = kind==='fade' ? 5 : 4, ht = kind==='fade' ? 9 : 7;   // PD break note: grey; PD fade: a larger red/green one
@@ -621,7 +621,7 @@ function drawChart(a){
       const xx = daily ? xi(b.k)+bw/2 : xi(b.i0)+bw/2; ctx.strokeStyle=C('--fg'); ctx.globalAlpha=.35; ctx.beginPath(); ctx.moveTo(xx,pT); ctx.lineTo(xx,yo0+Ho); ctx.stroke(); ctx.globalAlpha=1;
       let extra = '';
       if(!daily){ const vw = vwapSeries(mins).filter(p=>p.i<=b.i0+tfm-1).pop(); if(vw) extra += `  VWAP ${fmt(vw.v)}`;
-        const hit = (S.alerts||[]).find(al=>al.symbol===a.symbol && Math.floor(hhmmToMin(al.ts.slice(11,16))/tfm)===Math.floor(b.i0/tfm)); if(hit) extra += `  ▲ ${hit.scan}`; }
+        const hit = (S.alerts||[]).find(al=>al.symbol===a.symbol && al.ts.slice(0,10) === (S.day || todayIST()) && Math.floor(hhmmToMin(al.ts.slice(11,16))/tfm)===Math.floor(b.i0/tfm)); if(hit) extra += `  ▲ ${hit.scan}`; }
       if(readout) readout.textContent = `${label}  O ${fmt(b.o)}  H ${fmt(b.h)}  L ${fmt(b.l)}  C ${fmt(b.c)}  V ${b.stub&&!b.v?'—':K(b.v)}${extra}  OI ${K(b.oi)}`;
     }
   } else if(readout) readout.textContent = daily ? `${bars.length} daily bars` : (chartCache.delta===false ? 'backfilled day · no tick delta' : '');
