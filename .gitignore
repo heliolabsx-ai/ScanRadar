@@ -9,3 +9,4 @@ graft/.cache/
 .superpowers/
 .pytest_cache/
 .claude/
+.archify/
