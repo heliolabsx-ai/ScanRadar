@@ -50,13 +50,22 @@
   }
 
   // Plain words for where the price sits; a clause is left out when its inputs are missing.
+  // Middle clause: above R2 / below S2 at the ends, else between the nearest ladder level at or below and the nearest above.
   function positionWords(price, vwap, prev_high, prev_low, ladderOut) {
-    const out = [], val = n => { const x = (ladderOut || []).find(l => l.name === n); return x ? x.value : null; };
+    const lv = (ladderOut || []).filter(l => !l.now && l.value != null);
+    const out = [], val = n => { const x = lv.find(l => l.name === n); return x ? x.value : null; };
     if (vwap != null) out.push(price >= vwap ? 'above VWAP' : 'below VWAP');
-    const r1 = val('R1'), r2 = val('R2'), s2 = val('S2');
+    const r2 = val('R2'), s2 = val('S2');
     if (r2 != null && price > r2) out.push('above R2');
     else if (s2 != null && price < s2) out.push('below S2');
-    else if (r1 != null && r2 != null && price >= r1) out.push('between R1 and R2');
+    else {
+      let lo = null, hi = null;
+      lv.forEach(l => {
+        if (l.value <= price) { if (!lo || l.value > lo.value) lo = l; }
+        else if (!hi || l.value < hi.value) hi = l;
+      });
+      if (lo && hi) out.push('between ' + lo.name + ' and ' + hi.name);
+    }
     if (prev_high != null && price > prev_high) out.push('above PDH');
     else if (prev_low != null && price < prev_low) out.push('below PDL');
     else if (prev_high != null && prev_low != null) out.push("inside yesterday's range");

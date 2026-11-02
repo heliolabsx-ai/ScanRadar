@@ -10,6 +10,7 @@
 <script src="desk.js?v=ec9593b"></script>
 <script src="watch.js?v=052fe9a"></script>
 <script src="trades.js?v=5e3d8fa"></script>
+<script src="alarms.js?v=c29e933"></script>
 <style>
 /* Layout: control strip → sector/breadth rail → bull/bear card grid → detail panel with canvas chart. Terminal-style data UI. */
 :root{
@@ -217,11 +218,66 @@ canvas.chart{cursor:zoom-in}.lightbox canvas.chart{cursor:crosshair}
 .foot{font-size:10.5px;color:var(--muted);margin-top:10px;line-height:1.4}
 .empty{color:var(--muted);font-size:12px;padding:20px 4px;line-height:1.6}
 .empty code{font-family:var(--mono);background:var(--bg);border:1px solid var(--line);padding:2px 6px;border-radius:3px}
+/* ---- Alarms tab: one column per setup, stock panel on click ---- */
+.abar{display:flex;flex-wrap:wrap;gap:4px 14px;align-items:baseline;font:500 11px var(--mono);color:var(--muted);margin-bottom:10px}
+.abar b{color:var(--fg);font-weight:600}.abar .sep{color:var(--line)}.abar .at{margin-left:auto}
+.agrid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+@media (max-width:1000px){.agrid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media (max-width:640px){.agrid{grid-template-columns:1fr}}
+.acol{background:var(--panel);border:1px solid var(--line);border-radius:8px;display:flex;flex-direction:column;height:340px;overflow:hidden;min-width:0;--c:var(--accent)}
+.acol .ahd{padding:8px 10px 6px;border-bottom:2px solid var(--c)}
+.acol .ahd .l1{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+.acol .ahd b{font-size:13px}.acol .ahd small{color:var(--muted);font-size:10.5px;margin-left:6px}
+.acol .ahd .n{font:700 13px var(--mono);color:var(--c);display:inline-flex;align-items:center;gap:6px}
+.acol .ahd .rec{font:500 10.5px var(--mono);color:var(--muted);margin-top:2px}
+.abadge{display:inline-block;min-width:16px;padding:0 5px;border-radius:8px;background:var(--bear);color:#fff;font:700 9.5px/15px var(--mono);text-align:center;margin-left:5px;vertical-align:1px}
+.tab .abadge{margin-left:6px}
+.alist{flex:1;overflow:auto;padding:5px;display:flex;flex-direction:column;gap:4px}
+.alist .none{color:var(--muted);font-size:11px;text-align:center;padding:18px 6px}
+.arow{display:grid;grid-template-columns:1fr auto;gap:2px 8px;padding:5px 8px;border-radius:5px;background:var(--bg);border-left:3px solid transparent;cursor:pointer}
+.arow:hover{outline:1px solid var(--line)}.arow.fresh{border-left-color:var(--c)}.arow.sel{outline:1px solid var(--accent)}
+.arow .s{font:700 12.5px var(--mono);min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.arow .s .lab{font:500 10.5px var(--sans);color:var(--muted);margin-left:4px}
+.arow .t{font:600 11.5px var(--mono);color:var(--c)}
+.arow .d{grid-column:1/3;display:flex;flex-wrap:wrap;gap:2px 8px;align-items:center;font:500 10.5px var(--mono);color:var(--muted)}
+.adesk{font:700 9.5px var(--mono);padding:0 4px;border-radius:3px;background:var(--line);color:var(--muted);margin-left:4px;text-transform:uppercase}.adesk.take{color:var(--bull)}.adesk.wait{color:var(--amber)}.adesk.skip{color:var(--bear)}
+.dm{font:600 9.5px var(--mono);padding:0 4px;border-radius:3px;border:1px solid var(--line)}.dm.d-ok{color:var(--bull);border-color:var(--bull)}.dm.d-warn{color:var(--amber);border-color:var(--amber)}.dm.d-bad{color:var(--bear);border-color:var(--bear)}.dm.d-mut{color:var(--muted)}
+.pdots{display:inline-flex;gap:2px;vertical-align:middle}.pdots i{width:6px;height:6px;border-radius:50%;background:var(--line);display:block}.pdots i.p-ok{background:var(--bull)}.pdots i.p-bad{background:var(--bear)}
+.afold{font:500 11px var(--sans);color:var(--muted);margin-top:10px}
+#adrawer{width:min(880px,100vw)}#adrawer:not(.open){box-shadow:none;visibility:hidden}
+.ahd2{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin:0 0 10px;padding-right:56px}
+.ahd2 .sym{font:700 22px var(--mono);display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.apill{font:700 10.5px var(--sans);padding:3px 8px;border-radius:999px;letter-spacing:.06em}.apill.s{background:var(--bear-soft);color:var(--bear)}.apill.l{background:var(--bull-soft);color:var(--bull)}.apill.k{background:var(--line);color:var(--fg);font-weight:600;letter-spacing:0}
+.ahd2 .when{color:var(--muted);font-size:11px;margin-top:4px}
+.ahd2 .px{text-align:right}.ahd2 .px b{font:600 26px/1 var(--mono);display:block}
+.ahd2 .px span{font:700 12px var(--mono);padding:2px 7px;border-radius:5px;display:inline-block;margin-top:5px}.ahd2 .px span.up{background:var(--bull-soft)}.ahd2 .px span.dn{background:var(--bear-soft)}
+.atiles{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-bottom:10px}
+@media (max-width:640px){.atiles{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.atile{background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:7px 9px;min-width:0}
+.atile .k{font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+.atile .v{font:600 14px var(--mono);margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.atile .u{font-size:10.5px;color:var(--muted);margin-top:2px}
+.arng{height:4px;border-radius:2px;background:var(--line);position:relative;margin-top:8px}.arng i{position:absolute;top:-3px;width:10px;height:10px;border-radius:50%;background:var(--fg);transform:translateX(-50%)}
+.amain{display:grid;grid-template-columns:minmax(0,1fr) 150px;gap:10px;align-items:start}
+@media (max-width:640px){.amain{grid-template-columns:1fr}}
+.amain canvas.chart{margin-top:6px}
+.aladder{background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:8px 10px;font:500 11px var(--mono);margin-top:10px}
+.aladder .k{font:500 9.5px var(--sans);letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:4px}
+.aladder .lr{display:flex;justify-content:space-between;gap:6px;padding:3px 0;border-bottom:1px dashed var(--line)}.aladder .lr small{font:700 9.5px var(--sans);letter-spacing:.06em}
+.aladder .now{display:flex;justify-content:space-between;padding:4px 6px;margin:3px -4px;border-radius:5px;background:var(--fg);color:var(--bg);font-weight:700}
+.atkt{margin-top:10px;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:9px 11px}
+.atkt .row2{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;font-size:11px;color:var(--muted);gap:4px 10px}
+.atkt .nums{display:flex;flex-wrap:wrap;gap:6px 18px;font:600 13px var(--mono);margin-top:6px}.atkt .nums span{color:var(--muted);font:500 9.5px var(--sans);display:block;letter-spacing:.08em;text-transform:uppercase}
+.arr{height:8px;border-radius:4px;display:flex;overflow:hidden;margin-top:8px}.arr i{display:block;height:100%}.arr .ar-s{background:var(--bear)}.arr .ar-t{background:var(--bull)}
+.atkt .foot2{display:flex;flex-wrap:wrap;gap:4px 12px;align-items:center;font:500 11px var(--mono);margin-top:6px}
+.atl{list-style:none;margin:0;padding:0 0 0 14px;border-left:2px solid var(--line)}
+.atl li{position:relative;padding:3px 0 5px;font-size:12px;display:grid;grid-template-columns:44px 1fr;gap:8px}
+.atl li::before{content:"";position:absolute;left:-19px;top:8px;width:8px;height:8px;border-radius:50%;background:var(--muted)}
+.atl li.alarm.s::before{background:var(--bear)}.atl li.alarm.l::before{background:var(--bull)}.atl li.desk::before{background:var(--accent)}.atl li.exit::before{background:transparent;border:1.5px solid var(--fg);border-radius:1px}
+.atl li.me{font-weight:600}.atl li .tm{font:600 11px var(--mono);color:var(--muted)}
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
 </style></head><body>
 <div class="top">
   <h1>ScanRadar</h1>
-  <span class="tabs"><button class="tab on" data-view="scanner">Scanner</button><button class="tab" data-view="patterns">Patterns</button><button class="tab" data-view="desk">Desk</button><button class="tab" data-view="watch">Watch</button><button class="tab" data-view="trades">Trades</button></span>
+  <span class="tabs"><button class="tab on" data-view="scanner">Scanner</button><button class="tab" data-view="patterns">Patterns</button><button class="tab" data-view="desk">Desk</button><button class="tab" data-view="watch">Watch</button><button class="tab" data-view="trades">Trades</button><button class="tab" data-view="alarms" title="One column per setup; stocks stack under it as they fire">Alarms<span class="abadge" id="alarmsBadge" hidden></span></button></span>
   <span class="daypick" id="daypick"><button class="nav" id="dayPrev" title="Previous session">‹</button><button class="cur" id="dayBtn" title="Choose a session" aria-haspopup="listbox"><b id="dayLbl">—</b><small id="dayTag"></small></button><button class="nav" id="dayNext" title="Next session">›</button><div class="daymenu" id="dayMenu" hidden role="listbox"></div></span><select id="day" title="Session" aria-hidden="true" tabindex="-1"></select>
   <span class="clock mono" id="clock">--:--</span>
   <span class="st" id="status"><i class="dot"></i><span id="statusText">WAITING</span></span>
@@ -303,6 +359,13 @@ canvas.chart{cursor:zoom-in}.lightbox canvas.chart{cursor:crosshair}
     <p class="note mut" style="font-size:11px;line-height:1.5;margin-top:8px">Grey rows were blocked by the day rules. Every pattern trigger and rule alert with a stop and a target lands here at its minute; live, the newest row is on top and the outcome fills in as the day goes. <b>Replays</b> = the rest of the day re-run from past sessions, and the same plan on each past session: a record, not a forecast. Shares are cash shares sized by the max loss at the stop, capped by the share of capital in one name. Nothing here places an order.</p>
   </div>
 </div>
+<div id="alarmsView" hidden>
+  <div class="abar" id="abar"></div>
+  <div class="agrid" id="agrid"></div>
+  <div class="afold" id="afold"></div>
+  <div class="empty" id="aempty"></div>
+</div>
+<div class="wdrawer" id="adrawer"><button class="close" id="aclose">Esc ✕</button><div id="abody"></div></div>
 <div class="wdrawer" id="tdrawer"><button class="close" id="tclose">Esc ✕</button><div id="tdbody"></div></div>
 <div class="lightbox" id="lightbox" hidden><div class="box" id="lightboxBody"><div class="lhd"><b id="lbSym"></b><span class="mut" id="lbSub"></span><button id="lbClose" title="Close (Esc)">Esc ✕</button></div><div class="tfrow"></div><canvas class="chart" width="1240" height="760"></canvas></div></div>
 <div class="wdrawer" id="wdrawer"><button class="close" id="wclose">Esc ✕</button><div id="wbody"></div></div>
@@ -339,7 +402,7 @@ $('theme').onclick = () => {
   const next = cur === 'dark' ? 'light' : 'dark';
   document.documentElement.dataset.theme = next;
   try{ localStorage.setItem('theme', next); }catch(e){}
-  if(S.view === 'patterns') renderPatternDetail(); else if(S.view === 'trades'){ if(S.tsel != null) renderTradeDrawer({full: true}); } else renderDetail();
+  if(S.view === 'patterns') renderPatternDetail(); else if(S.view === 'trades'){ if(S.tsel != null) renderTradeDrawer({full: true}); } else if(S.view === 'alarms'){ if(S.asel) renderAlarmPanel(); } else renderDetail();
 };
 $('riskChip').onclick = () => { setView('trades'); openTradeSettings(); };   // S.risk = the server's max loss per trade (Trades settings)
 
@@ -496,7 +559,7 @@ function wireChart(a){
   if(!S.lbA) cv.onclick = () => openChartBig(a);
   cv.onpointermove = e => { const r = cv.getBoundingClientRect(); const px = (e.clientX - r.left) / r.width * cv.width; hoverIdx = px; drawChart(a); };
   cv.onpointerleave = () => { hoverIdx = null; drawChart(a); };
-  loadAndDraw(a);
+  return loadAndDraw(a);
 }
 async function loadAndDraw(a){
   const day = S.day || todayIST();
@@ -508,7 +571,7 @@ async function loadAndDraw(a){
       if(chartCache.key !== key || S.following){ const r = await api(`/api/candles/${a.symbol}?day=${day}`); chartCache.key = key; chartCache.data = r.candles; chartCache.ref = r.ref || {}; chartCache.delta = r.delta_available; }
     }
   }catch(e){ return; }
-  const stillCurrent = S.view === 'patterns' ? (S.psel && S.psel.symbol === a.symbol) : S.view === 'watch' ? S.wsel === a.symbol : S.view === 'trades' ? !!(tradeSel() && tradeSel().symbol === a.symbol) : S.selected === a.symbol;
+  const stillCurrent = S.view === 'patterns' ? (S.psel && S.psel.symbol === a.symbol) : S.view === 'watch' ? S.wsel === a.symbol : S.view === 'trades' ? !!(tradeSel() && tradeSel().symbol === a.symbol) : S.view === 'alarms' ? !!(alarmSel() && alarmSel().symbol === a.symbol) : S.selected === a.symbol;
   if(stillCurrent) drawChart(a);
 }
 function drawChart(a){
@@ -529,7 +592,12 @@ function drawChart(a){
   if(daily) bars.forEach((b,k)=>b.k=k);
   // ---- price scale
   const mins = chartCache.data && !daily ? cutAt(chartCache.data, S.at||'15:30') : [];
-  const lv = (daily || a.minimal) ? [] : [a.R2,a.R1,a.S1,a.S2];
+  let lv = (daily || a.minimal) ? [] : [a.R2,a.R1,a.S1,a.S2];
+  let farLv = [];
+  if(a.levels_extra && !daily){                              // Alarms panel: pivots far from the day's range are tagged at the edge, not drawn
+    const cl = ScanAlarms.chartLevels([['R2',a.R2],['R1',a.R1],['S1',a.S1],['S2',a.S2]].filter(x => x[1] != null).concat(a.levels_extra.filter(x => x[1] != null)), Math.min(...bars.map(b=>b.l)), Math.max(...bars.map(b=>b.h)), bars[bars.length-1].c);
+    lv = cl.near.map(x => +x[1]); farLv = cl.far;
+  }
   if(a.pattern && !daily) lv.push(a.pattern.stop, a.pattern.target, a.pattern.neckline);
   if(a.trade && !daily) [a.trade.entry, a.trade.stop, a.trade.target, a.trade.target2].forEach(p => { if(p != null) lv.push(+p); });
   let lo = Math.min(...bars.map(b=>b.l), ...lv), hi = Math.max(...bars.map(b=>b.h), ...lv); const pd=(hi-lo)*.05||1; lo-=pd; hi+=pd;
@@ -561,6 +629,14 @@ function drawChart(a){
     ctx.strokeStyle=C('--accent'); ctx.setLineDash([2,2]); ctx.beginPath(); ctx.moveTo(xt,pT); ctx.lineTo(xt,pT+Hp); ctx.stroke(); ctx.setLineDash([]);
     ctx.fillStyle=C('--accent'); ctx.fillText(`${t.side==='long'?'BUY':'SELL'} ${String(t.ts).slice(11,16)}`, xt+4, pT+10);
   }
+  // ---- extra levels (Alarms panel): the row's STOP and TGT, dashed; far pivots as edge tags
+  if(a.levels_extra && !daily){
+    a.levels_extra.forEach(([nm,p]) => { if(p == null || p<lo || p>hi) return; const c = nm === 'STOP' ? '--bear' : '--bull';
+      ctx.strokeStyle=C(c); ctx.lineWidth=1.3; ctx.setLineDash([6,3]); ctx.beginPath(); ctx.moveTo(pL,y(p)); ctx.lineTo(W-pR,y(p)); ctx.stroke(); ctx.setLineDash([]); ctx.lineWidth=big?1.4:1;
+      const t = `${nm} ${fmt(p)}`; ctx.fillStyle=C(c); ctx.fillText(t, W-pR-ctx.measureText(t).width-4, y(p)-3); });   // inside the plot: TGT often equals PC
+    const lastC = bars[bars.length-1].c;
+    farLv.forEach(([nm,p],k) => { ctx.fillStyle=C('--muted'); ctx.fillText(`${p>lastC?'▲':'▼'} ${nm} ${fmt(p)}`, pL+4+k*(big?130:100), p>lastC ? pT+10 : pT+Hp-4); });
+  }
   // ---- candles + volume
   const vmax = Math.max(...bars.map(b=>b.v||0), 1);
   bars.forEach(b=>{ const up=b.c>=b.o, col = up?C('--bull'):C('--bear'); const x0 = bx(b);
@@ -579,13 +655,28 @@ function drawChart(a){
   }
   ctx.fillStyle=C('--muted'); ctx.fillText('VOL', pL+2, yv0+9); ctx.fillText('OI', pL+2, yo0+9);
   // ---- markers: alerts for this symbol up to the as-of minute
-  if(!daily && S.alerts){
+  if(!daily && S.alerts && !a.markers){
     const at = S.at||'15:30', onDay = S.day || todayIST();   // LIVE keeps the last session's alerts in the list: never on today's chart
     S.alerts.filter(al => al.symbol===a.symbol && al.ts.slice(0,10) === onDay && al.ts.slice(11,16) <= at).forEach(al => {
       const i = hhmmToMin(al.ts.slice(11,16)); const m = (chartCache.data||[]).find(c=>minIdx(c)===i); if(!m) return;
       const xx = xi(i)+ (W-pL-pR)/375*0.5; const longish = al.side==='long', kind = ScanWatch.alertKind(al.scan);
       const hw = kind==='fade' ? 5 : 4, ht = kind==='fade' ? 9 : 7;   // PD break note: grey; PD fade: a larger red/green one
       ctx.fillStyle = kind==='brk' ? C('--muted') : longish ? C('--bull') : C('--bear'); ctx.beginPath();
+      if(longish){ const yy=y(m.l)+4; ctx.moveTo(xx,yy); ctx.lineTo(xx-hw,yy+ht); ctx.lineTo(xx+hw,yy+ht); }
+      else { const yy=y(m.h)-4; ctx.moveTo(xx,yy); ctx.lineTo(xx-hw,yy-ht); ctx.lineTo(xx+hw,yy-ht); }
+      ctx.closePath(); ctx.fill();
+    });
+  }
+  // ---- timeline markers (Alarms panel): break grey, alarm red/green by side, desk blue dot, exit hollow square
+  if(!daily && a.markers){
+    const at = S.at||'15:30', cand = chartCache.data || [], step = (W-pL-pR)/375;
+    a.markers.filter(mk => mk.at && mk.at <= at).forEach(mk => {
+      const i = Math.min(374, hhmmToMin(mk.at)); const m = [...cand].reverse().find(c => minIdx(c) <= i && minIdx(c) <= hhmmToMin(at)); if(!m) return;
+      const xx = xi(i) + step*0.5;
+      if(mk.kind === 'desk'){ ctx.fillStyle=C('--accent'); ctx.beginPath(); ctx.arc(xx, y(m.h)-14, 3.5, 0, Math.PI*2); ctx.fill(); return; }
+      if(mk.kind === 'exit'){ const py = y(mk.px != null ? mk.px : m.c); ctx.strokeStyle=C('--fg'); ctx.lineWidth=1.5; ctx.strokeRect(xx-4, py-4, 8, 8); ctx.lineWidth=big?1.4:1; return; }
+      const longish = mk.side === 'long', hw = mk.kind === 'alarm' ? 5 : 4, ht = mk.kind === 'alarm' ? 9 : 7;
+      ctx.fillStyle = mk.kind === 'break' ? C('--muted') : longish ? C('--bull') : C('--bear'); ctx.beginPath();
       if(longish){ const yy=y(m.l)+4; ctx.moveTo(xx,yy); ctx.lineTo(xx-hw,yy+ht); ctx.lineTo(xx+hw,yy+ht); }
       else { const yy=y(m.h)-4; ctx.moveTo(xx,yy); ctx.lineTo(xx-hw,yy-ht); ctx.lineTo(xx+hw,yy-ht); }
       ctx.closePath(); ctx.fill();
@@ -632,7 +723,7 @@ function renderAll(){
   $('clock').textContent = S.at || S.snap.ts.slice(11,16);
   renderCards(); renderAlerts(); renderFoot();
   if(!S.selected && S.snap.bulls[0]) S.selected = S.snap.bulls[0].symbol;
-  if(S.view === 'patterns') loadPatterns(); else if(S.view === 'desk') loadDesk(); else if(S.view === 'watch'){ loadWatch(); loadPatterns(); loadDesk(); } else if(S.view === 'trades'){ loadTrades(); loadPatterns(); } else renderDetail();
+  if(S.view === 'patterns') loadPatterns(); else if(S.view === 'desk') loadDesk(); else if(S.view === 'watch'){ loadWatch(); loadPatterns(); loadDesk(); } else if(S.view === 'trades'){ loadTrades(); loadPatterns(); } else if(S.view === 'alarms') loadAlarms(); else renderDetail();
 }
 function outcomeLabel(o){
   if(o === null) return '<span class="mut">—</span>';
@@ -790,18 +881,19 @@ function notifyFromLive(snap, alerts){
 }
 
 // ---------- Patterns tab ----------
-S.view = location.hash === '#patterns' ? 'patterns' : location.hash === '#desk' ? 'desk' : location.hash === '#watch' ? 'watch' : location.hash === '#trades' ? 'trades' : 'scanner';
+S.view = location.hash === '#patterns' ? 'patterns' : location.hash === '#desk' ? 'desk' : location.hash === '#watch' ? 'watch' : location.hash === '#trades' ? 'trades' : location.hash === '#alarms' ? 'alarms' : 'scanner';
 S.prows = []; S.pcounts = {}; S.ppending = false; S.psel = null; S.pquick = 'grade'; S.pstats = null; S.pseen = new Set(); S.pseeded = false;
 const PK = ScanPatterns;
 function setView(v){
   if(v !== 'trades' && S.tsel != null) closeTradeDrawer();
-  S.view = v; location.hash = v === 'patterns' ? '#patterns' : v === 'desk' ? '#desk' : v === 'watch' ? '#watch' : v === 'trades' ? '#trades' : '';
+  if(v !== 'alarms' && S.asel) closeAlarmPanel();
+  S.view = v; location.hash = v === 'patterns' ? '#patterns' : v === 'desk' ? '#desk' : v === 'watch' ? '#watch' : v === 'trades' ? '#trades' : v === 'alarms' ? '#alarms' : '';
   document.querySelectorAll('.tab').forEach(b => b.classList.toggle('on', b.dataset.view === v));
-  $('scannerView').hidden = v !== 'scanner'; $('patternsView').hidden = v !== 'patterns'; $('deskView').hidden = v !== 'desk'; $('watchView').hidden = v !== 'watch'; $('tradesView').hidden = v !== 'trades';
-  if(v === 'patterns'){ loadPatterns(); loadPatternStats(); } else if(v === 'desk'){ loadDesk(); } else if(v === 'watch'){ loadWatch(); loadPatterns(); loadDesk(); } else if(v === 'trades'){ renderTrades(); loadTrades(); loadPatterns(); } else { renderDetail(); }
+  $('scannerView').hidden = v !== 'scanner'; $('patternsView').hidden = v !== 'patterns'; $('deskView').hidden = v !== 'desk'; $('watchView').hidden = v !== 'watch'; $('tradesView').hidden = v !== 'trades'; $('alarmsView').hidden = v !== 'alarms';
+  if(v === 'patterns'){ loadPatterns(); loadPatternStats(); } else if(v === 'desk'){ loadDesk(); } else if(v === 'watch'){ loadWatch(); loadPatterns(); loadDesk(); } else if(v === 'trades'){ renderTrades(); loadTrades(); loadPatterns(); } else if(v === 'alarms'){ renderAlarms(); loadAlarms(); } else { renderDetail(); }
 }
 document.querySelectorAll('.tab').forEach(b => b.onclick = () => setView(b.dataset.view));
-function panelEl(){ return S.lbA ? $('lightboxBody') : S.view === 'patterns' ? $('pdetail') : S.view === 'watch' ? $('wbody') : S.view === 'trades' ? $('tdrawer') : $('detail'); }
+function panelEl(){ return S.lbA ? $('lightboxBody') : S.view === 'patterns' ? $('pdetail') : S.view === 'watch' ? $('wbody') : S.view === 'trades' ? $('tdrawer') : S.view === 'alarms' ? $('abody') : $('detail'); }
 
 S.screen = ''; S.screenSet = null; S.screenAt = ''; S.screens = [];
 try{ S.screen = localStorage.getItem('screen') || ''; }catch(e){}
@@ -1374,6 +1466,182 @@ $('tqueue').onclick = e => { const tr = e.target.closest('tr.trow'); if(tr) open
 $('tclose').onclick = closeTradeDrawer;
 document.addEventListener('keydown', e => { if(e.key === 'Escape' && !S.lbA && S.tsel != null) closeTradeDrawer(); });
 
+// ---------- Alarms tab ----------
+// One column per setup (from /api/alarms), the stocks stacking under it newest first with the fire minute on every row,
+// and a stock panel on click. Pure helpers live in alarms.js (ScanAlarms); this block renders and wires.
+const AK = ScanAlarms;
+S.alarms = null; S.asel = null; S.aseen = {}; S.acounts = {}; S.afresh = {}; S.awatch = null; S.aerr = '';
+try{ S.aseen = JSON.parse(localStorage.getItem('alarms.seen') || '{}') || {}; }catch(e){ S.aseen = {}; }
+const alarmSel = () => S.asel && S.alarms ? (S.alarms.rows || []).find(r => r.ref === S.asel) || null : null;
+const aLive = () => S.following && !S.day;
+const aPct = (v, d=1) => v == null || isNaN(v) ? '—' : (v >= 0 ? '+' : '−') + fmt(Math.abs(v), d) + ' %';
+const aBreak = r => String(r.col || '').endsWith('_brk');
+const aColor = c => c.key.endsWith('_brk') ? 'var(--amber)' : c.key === 'pat' ? 'var(--vwap)' : c.key.endsWith('_fade') ? (c.side === 'long' ? 'var(--bull)' : 'var(--bear)') : 'var(--accent)';
+async function loadAlarms(){
+  const live = aLive(), day = S.day || todayIST(), at = S.at || '15:30';
+  const current = () => aLive() === live && (S.day || todayIST()) === day && (live || (S.at || '15:30') === at);
+  try{
+    const res = await api(live ? `/api/alarms?day=${day}` : `/api/alarms?day=${day}&at=${at}`);
+    if(!current()) return;
+    if(S.asel && S.alarms && S.alarms.day !== res.day) closeAlarmPanel();     // a row belongs to its day
+    S.alarms = res; S.aerr = '';
+    alarmUnread();
+    if(S.view === 'alarms') renderAlarms();
+    if(res.pending){ clearTimeout(S.atimer); S.atimer = setTimeout(loadAlarms, 10000); }
+  }catch(e){ if(!current()) return; S.aerr = String(e.message); if(S.view === 'alarms') renderAlarms(); }
+}
+// Unread badges count only the live day: a replay never moves the bookmarks in localStorage (alarms.seen = {col: ts}).
+function alarmUnread(){
+  const res = S.alarms; if(!res) return;
+  if(!res.live){ S.acounts = {}; S.afresh = {}; alarmBadge(); return; }
+  const visible = S.view === 'alarms' && !document.hidden, prev = S.aseen || {};
+  const u = AK.unread(prev, res.rows || [], (res.columns || []).map(c => c.key), visible);
+  S.acounts = u.counts; if(visible) S.afresh = {...prev};      // rows newer than the old bookmark get the fresh mark
+  S.aseen = u.seen; try{ localStorage.setItem('alarms.seen', JSON.stringify(u.seen)); }catch(e){}
+  alarmBadge();
+}
+function alarmBadge(){
+  const n = Object.values(S.acounts || {}).reduce((a, b) => a + b, 0), b = $('alarmsBadge');
+  b.hidden = !n; b.textContent = n > 99 ? '99+' : String(n); b.title = n ? `${n} new on the board since you last looked` : '';
+}
+document.addEventListener('visibilitychange', () => { if(!document.hidden && S.view === 'alarms' && S.alarms){ alarmUnread(); renderAlarms(); } });
+function alarmHeader(res){
+  const b = res.breadth, ix = res.index, secs = xs => (xs || []).map(([k, v]) => `${esc(k)} <span class="${v >= 0 ? 'up' : 'dn'}">${aPct(v)}</span>`).join(' ');
+  const br = b ? `BREADTH <b class="up">${b.bulls} ▲</b> / <b class="dn">${b.bears} ▼</b> · up ${secs(b.up) || '—'} · down ${secs(b.down) || '—'}` : 'BREADTH —';
+  const nx = ix && ix.ltp != null ? `${esc(ix.symbol || 'NIFTY 50')} <b>${fmt(ix.ltp, 0)}</b> <span class="${ix.pct >= 0 ? 'up' : 'dn'}">${aPct(ix.pct)}</span>` : 'NIFTY 50 —';
+  return `<span>${br}</span><span class="sep">|</span><span>${nx}</span><span class="sep">|</span><span>Telegram: <b class="${res.telegram === 'on' ? 'up' : 'am'}">${esc(res.telegram || '—')}</b></span><span class="at">as of <b>${esc(res.at || '—')}</b>${res.live ? ' · live' : ''}</span>`;
+}
+// The board's rows say alert or pattern; the day's alert list says live or replay, so a rule alert computed on replay reads "replay".
+let aSrc = {arr: null, map: null};
+function alarmDelivery(r){
+  if(r.delivery || !String(r.ref).startsWith('alert:')) return AK.deliveryMark(r);
+  if(aSrc.arr !== S.alerts){ aSrc = {arr: S.alerts, map: new Map((S.alerts || []).map(a => [a.id, a.source]))}; }
+  return AK.deliveryMark(aSrc.map.get(+String(r.ref).slice(6)) === 'replay' ? {...r, source: 'replay'} : r);
+}
+const aDots = past => { const d = AK.pastDots(past); return d.length ? `<span class="pdots" title="same plan on past sessions, oldest first">${d.map(x => `<i class="p-${x.cls}" title="${esc(x.title)}"></i>`).join('')}</span>` : ''; };
+function alarmRow(c, r){
+  const long = r.side === 'long', brk = aBreak(r), dm = alarmDelivery(r), seen = (S.afresh || {})[c.key];
+  const fresh = seen != null && String(r.ts) > seen;
+  return `<div class="arow${S.asel === r.ref ? ' sel' : ''}${fresh ? ' fresh' : ''}" data-ref="${esc(r.ref)}">
+    <span class="s">${esc(r.symbol)} <span class="side ${long ? 'L' : 'S'}">${long ? 'L' : 'S'}</span>${r.desk ? `<span class="adesk ${esc(r.desk.call)}" title="desk verdict at ${esc(r.desk.at)}">desk ${esc(r.desk.call)}</span>` : ''}${c.key === 'pat' ? `<span class="lab">${esc(r.setup)}</span>` : ''}</span><span class="t">${AK.fmtTime(r.ts)}</span>
+    <span class="d"><span>${brk ? fmt(r.price) : `${fmt(r.price)} · stop ${fmt(r.stop)} · tgt ${fmt(r.target)}`}</span>${r.odds ? `<span title="replays: T1 first / stop first">${esc(TK.oddsPair(r.odds))}</span>` : ''}${aDots(r.past)}<span class="dm d-${dm.cls}">${esc(dm.text)}</span>${!brk && r.outcome ? `<span>${outcomeLabel(r.outcome)}</span>` : ''}</span></div>`;
+}
+function alarmCol(c, rows){
+  const n = (S.acounts || {})[c.key] || 0, rec = c.record || {};
+  return `<div class="acol" style="--c:${aColor(c)}" data-col="${esc(c.key)}"><div class="ahd"><div class="l1"><span><b>${esc(c.name)}</b><small>${esc(c.sub)}</small></span><span class="n">${rows.length}${n ? `<span class="abadge" title="new since you last looked">${n}</span>` : ''}</span></div>
+    <div class="rec" title="record over the last ${rec.days || 20} sessions">${esc(rec.text || 'no record yet')}</div></div>
+    <div class="alist">${rows.map(r => alarmRow(c, r)).join('') || '<div class="none">nothing yet</div>'}</div></div>`;
+}
+function renderAlarms(){
+  const res = S.alarms, f = res && res.folded || {};
+  $('abar').innerHTML = res ? alarmHeader(res) : '';
+  const scroll = {}; document.querySelectorAll('#agrid .acol').forEach(x => scroll[x.dataset.col] = x.querySelector('.alist').scrollTop);
+  if(!res){ $('agrid').innerHTML = ''; $('afold').textContent = ''; $('aempty').textContent = S.aerr ? `could not load the board: ${S.aerr}` : 'loading…'; return; }
+  const cols = res.columns || [], g = AK.group(res.rows || [], cols.map(c => c.key));
+  $('agrid').innerHTML = cols.map(c => alarmCol(c, g[c.key])).join('');
+  document.querySelectorAll('#agrid .acol').forEach(x => { if(scroll[x.dataset.col]) x.querySelector('.alist').scrollTop = scroll[x.dataset.col]; });
+  $('afold').textContent = `${Number(f.alerts || 0).toLocaleString('en-IN')} alerts from ${f.scans || 0} other scans · ${Number(f.patterns || 0).toLocaleString('en-IN')} pattern triggers below trade grade are not on the board`;
+  $('aempty').textContent = S.aerr ? `could not load the board: ${S.aerr}` : res.pending ? 'preparing this day (replay alerts, outcomes, trade rows)… refreshing' : '';
+  if(S.asel) renderAlarmPanel();
+}
+$('agrid').onclick = e => { const x = e.target.closest('.arow'); if(!x || !S.alarms) return; const r = (S.alarms.rows || []).find(y => y.ref === x.dataset.ref); if(r) openAlarmPanel(r); };
+function openAlarmPanel(row){
+  if(!row) return;
+  S.asel = row.ref; hoverIdx = null; $('adrawer').classList.add('open'); $('adrawer').scrollTop = 0;
+  document.querySelectorAll('#agrid .arow').forEach(x => x.classList.toggle('sel', x.dataset.ref === row.ref));
+  renderAlarmPanel();
+}
+function closeAlarmPanel(){
+  S.asel = null; $('adrawer').classList.remove('open'); $('abody').dataset.ref = '';
+  document.querySelectorAll('#agrid .arow.sel').forEach(x => x.classList.remove('sel'));
+}
+$('aclose').onclick = closeAlarmPanel;
+document.addEventListener('keydown', e => { if(e.key === 'Escape' && !S.lbA && S.asel) closeAlarmPanel(); });
+// The panel's numbers come from /api/watch at the board's minute (refetched each live minute or slider step).
+function renderAlarmPanel(){
+  const r = alarmSel(), d = $('abody');
+  if(!r){ d.dataset.ref = ''; d.innerHTML = `<div class="ahd2"><div class="sym">Alarm</div></div><div class="mut">not on the board at ${esc(S.at || '15:30')}</div>`; return; }
+  const live = aLive(), day = S.day || todayIST(), at = S.at || '15:30', key = `${r.symbol}|${day}|${at}|${live ? 'live' : ''}`;
+  if(S.awatch && S.awatch.key === key){ drawAlarmPanel(r, S.awatch.row); return; }
+  if(d.dataset.ref !== r.ref){ d.dataset.ref = ''; d.innerHTML = `<div class="ahd2"><div class="sym">${esc(r.symbol)}</div></div><div class="mut">loading…</div>`; }
+  api(live ? `/api/watch?symbols=${encodeURIComponent(r.symbol)}` : `/api/watch?symbols=${encodeURIComponent(r.symbol)}&day=${day}&at=${at}`)
+    .then(res => { S.awatch = {key, row: (res.rows || {})[r.symbol] || null}; })
+    .catch(() => { S.awatch = {key, row: null}; })
+    .then(() => { const now = alarmSel(), k2 = `${r.symbol}|${S.day || todayIST()}|${S.at || '15:30'}|${aLive() ? 'live' : ''}`; if(now && now.ref === r.ref && k2 === key) drawAlarmPanel(now, S.awatch.row); });
+}
+// Timeline events as chart markers; an alarm or break takes its side from the board row at that minute.
+function alarmMarkers(r){
+  const rows = (S.alarms && S.alarms.rows || []).filter(x => x.symbol === r.symbol);
+  return (r.timeline || []).map(e => {
+    const mk = {at: e.at, kind: e.kind};
+    if(e.kind === 'alarm' || e.kind === 'break'){ const m = rows.find(x => aBreak(x) === (e.kind === 'break') && AK.fmtTime(x.ts) === e.at) || rows.find(x => aBreak(x) === (e.kind === 'break')); mk.side = m ? m.side : /\bBUY\b/.test(e.text) ? 'long' : 'short'; }
+    if(e.kind === 'exit'){ const m = rows.find(x => x.outcome && x.outcome.settled_at && AK.fmtTime(x.outcome.settled_at) === e.at); if(m) mk.px = m.outcome.exit_px; }
+    return mk;
+  });
+}
+function alarmRange(sym, px){
+  if(chartCache.key !== sym + '|' + (S.day || todayIST()) || !chartCache.data) return null;
+  const c = cutAt(chartCache.data, S.at || '15:30').filter(x => !x.stub); if(!c.length) return null;
+  const lo = Math.min(...c.map(x => x.l)), hi = Math.max(...c.map(x => x.h));
+  return {lo, hi, pos: Math.max(0, Math.min(100, ((px != null ? px : c[c.length-1].c) - lo) / ((hi - lo) || 1) * 100))};
+}
+const aRangeHtml = g => g ? `<div class="v" style="font-size:12px">${fmt(g.lo)} – ${fmt(g.hi)}</div><div class="arng"><i style="left:${g.pos}%"></i></div>` : '<div class="v mut">—</div><div class="u">from the candles</div>';
+const LADC = {PDH:'--bull', PDL:'--bear', R1:'--bull', R2:'--bull', S1:'--amber', S2:'--amber', VWAP:'--vwap', PIVOT:'--muted', PC:'--muted'};
+function alarmTicket(r, px){
+  const fired = AK.fmtTime(r.ts);
+  if(aBreak(r)) return `<div class="atkt"><div class="row2"><span>BREAK NOTE · ${esc(r.setup)} · ${fired}</span><span>no trade levels · watching for the fade</span></div></div>`;
+  if(r.stop == null || r.target == null) return `<div class="atkt"><div class="row2"><span>ALARM · ${esc(r.setup)} · fired ${fired}</span><span>no stop or target on this row</span></div></div>`;
+  const long = r.side === 'long', risk = Math.abs(r.price - r.stop), rew = Math.abs(r.target - r.price), tot = (risk + rew) || 1;
+  const rr = r.rr != null ? r.rr : risk ? rew / risk : null, nowR = risk && px != null ? (long ? px - r.price : r.price - px) / risk : null;
+  const gate = r.gate === 'PASS' ? '<span class="gate pass">PASS</span>' : r.gate === 'BLOCK' ? `<span class="gate block">BLOCK</span>${r.gate_reason ? ` <span class="mut">${esc(r.gate_reason)}</span>` : ''}` : '<span class="gate off" title="no trade row, or the day rules were not applied to it">rules not applied</span>';
+  const z = r.shares == null ? shareSize(r.price, r.stop, r.side) : null;
+  const sh = r.shares != null ? `${Number(r.shares).toLocaleString('en-IN')} sh${r.risk_inr != null ? ` · risk ${inr(r.risk_inr)}` : ''}` : z && z.shares ? `${sharesText(z)} <span class="mut">(today's settings)</span>` : sharesText(z);
+  const dk = r.desk ? ` · desk <b class="${r.desk.call === 'take' ? 'up' : r.desk.call === 'skip' ? 'dn' : 'am'}">${esc(String(r.desk.call).toUpperCase())}</b>${r.desk.confidence != null ? ` ${esc(r.desk.confidence)}` : ''} <span class="mut">at ${esc(r.desk.at)}</span>` : '';
+  let odds = '<div class="mut" style="font-size:11px;margin-top:8px">no replay odds for this row</div>';
+  if(r.odds && r.odds.mc){ const b = TK.oddsBar(r.odds);
+    odds = `<div class="obar" title="${esc(r.odds.sentence || '')}"><span class="t" style="flex:${b.target} 0 0">T1 ${b.target} %</span><span class="s" style="flex:${b.stop} 0 0">stop ${b.stop} %</span><span class="n" style="flex:${b.none} 0 0">flat ${b.none} %</span></div>
+     <div class="mono mut" style="font-size:11px">replays ${esc(TK.oddsPair(r.odds))} · ${esc(TK.verdictWord(r.odds))} · a record of past sessions, not a forecast</div>`; }
+  const o = r.outcome;
+  const out = o ? `<span>${outcomeLabel(o)}${o.exit_px != null ? ` · exit ${fmt(o.exit_px)}` : ''}${o.settled_at ? ` at ${AK.fmtTime(o.settled_at)}` : ''}</span>` : '';
+  return `<div class="atkt"><div class="row2"><span>ALARM · ${esc(r.setup)} · fired ${fired}</span><span>R:R 1:${fmt(rr, 1)} · ${sh} · gate ${gate}${dk}</span></div>
+    <div class="nums"><div><span>stop</span><b class="dn">${fmt(r.stop)}</b></div><div><span>entry</span><b>${fmt(r.price)}</b></div><div><span>target</span><b class="up">${fmt(r.target)}</b></div><div><span>now vs entry</span><b class="${nowR == null ? 'mut' : nowR >= 0 ? 'up' : 'dn'}">${nowR == null ? '—' : sg(nowR, 2) + ' R'}</b></div></div>
+    <div class="arr" title="risk to the stop against reward to the target"><i class="ar-s" style="width:${risk / tot * 100}%"></i><i class="ar-t" style="width:${rew / tot * 100}%"></i></div>
+    ${odds}
+    ${(r.past && r.past.length) || out ? `<div class="foot2">${r.past && r.past.length ? `<span class="mut">past sessions</span>${aDots(r.past)}` : ''}${out}</div>` : ''}</div>`;
+}
+// The timeline entry that is this row: its break (at the break minute) or its alarm (at the fire minute, same setup).
+const aMine = (r, e) => aBreak(r) ? e.kind === 'break' && e.at === ((r.story && r.story.break_at) || AK.fmtTime(r.ts)) : e.kind === 'alarm' && e.at === AK.fmtTime(r.ts) && String(e.text).startsWith(String(r.setup || ''));
+function drawAlarmPanel(r, w){
+  const d = $('abody'), at = (S.alarms && S.alarms.at) || S.at || '15:30', long = r.side === 'long', fired = AK.fmtTime(r.ts);
+  const px = w ? w.price : r.price, pct = w ? w.pct : null;
+  const lad = w ? AK.ladder([['PDH', w.prev_high], ['R2', w.R2], ['R1', w.R1], ['PIVOT', w.P], ['PC', w.prev_close], ['S1', w.S1], ['S2', w.S2], ['PDL', w.prev_low], ['VWAP', w.vwap]].filter(x => x[1] != null), px) : [];
+  const words = w ? AK.positionWords(px, w.vwap, w.prev_high, w.prev_low, lad) : [];
+  const sector = (w && w.sector) || S.sectorsOf[r.symbol] || '';
+  const tl = AK.timelineRows(r.timeline, at);
+  const tiles = w ? `<div class="atile"><div class="k">VWAP</div><div class="v" style="color:var(--vwap)">${fmt(w.vwap)}</div><div class="u ${px >= w.vwap ? 'up' : 'dn'}">${px >= w.vwap ? 'above' : 'below'} by ${fmt(Math.abs(px / w.vwap - 1) * 100)} %</div></div>
+     <div class="atile"><div class="k">OI vs yesterday</div><div class="v">${aPct(w.oi_pct)}</div><div class="u"><span class="chip ${esc(w.oi_cls)}">${esc(w.oi_label)}</span></div></div>
+     <div class="atile"><div class="k">RVOL</div><div class="v">${w.rvol != null ? fmt(w.rvol, 1) + '×' : '—'}</div><div class="u">vs 20-day average</div></div>
+     <div class="atile"><div class="k">Day range</div><div id="arange">${aRangeHtml(alarmRange(r.symbol, px))}</div></div>`
+   : `<div class="atile" style="grid-column:1/-1"><div class="u">no market data for ${esc(r.symbol)} at ${esc(at)}</div></div>`;
+  d.dataset.ref = r.ref;
+  d.innerHTML = `<div class="ahd2"><div><div class="sym">${esc(r.symbol)}<span class="apill ${long ? 'l' : 's'}">${long ? 'BUY' : 'SELL'}</span><span class="apill k">${esc(r.setup)}</span></div>
+     <div class="when">fired ${fired} · now ${esc(at)}${words.length ? ' · ' + esc(words.join(' · ')) : ''}${sector ? ' · ' + esc(sector) : ''}</div></div>
+     <div class="px"><b>${fmt(px)}</b>${pct != null ? `<span class="${pct >= 0 ? 'up' : 'dn'}">${aPct(pct, 2)}</span>` : ''}</div></div>
+   <div class="atiles">${tiles}</div>
+   <div class="amain"><div><div class="tfrow">${TFS.map(t => `<button class="tf ${curTf() === t ? 'on' : ''}" data-tf="${t}">${t}</button>`).join('')}<span class="readout mono"></span></div>
+     <canvas class="chart" width="700" height="440"></canvas></div>
+     <div class="aladder"><div class="k">Levels</div>${lad.map(l => l.now ? `<div class="now"><span>NOW</span><span>${fmt(l.value)}</span></div>` : `<div class="lr"><small style="color:var(${LADC[l.name] || '--muted'})">${l.name}</small><span>${fmt(l.value)}</span></div>`).join('') || '<span class="mut">—</span>'}</div></div>
+   ${alarmTicket(r, px)}
+   <h3>Story</h3>
+   <ul class="atl">${tl.map(e => `<li class="${esc(e.kind)}${e.kind === 'alarm' ? (alarmMarkers({...r, timeline: [e]})[0].side === 'long' ? ' l' : ' s') : ''}${aMine(r, e) ? ' me' : ''}"><span class="tm">${esc(e.at)}</span><span>${esc(e.text)}</span></li>`).join('') || '<li><span class="tm"></span><span class="mut">nothing yet</span></li>'}</ul>
+   <div class="wbtn"><button id="aToScanner">Open in Scanner at ${fired}</button><button id="aToTrades" title="The Trades tab, with this row's drawer when it has a trade row">Open in Trades</button></div>`;
+  const a = w ? {...w} : {symbol: r.symbol, minimal: true};
+  a.markers = alarmMarkers(r); a.levels_extra = [['STOP', r.stop], ['TGT', r.target]];
+  wireChart(a).then(() => { const el = $('arange'); if(el && S.asel === r.ref) el.innerHTML = aRangeHtml(alarmRange(r.symbol, px)); });
+  $('aToScanner').onclick = () => { S.selected = r.symbol; closeAlarmPanel(); setView('scanner'); enterReplay(S.day || todayIST(), fired); };
+  $('aToTrades').onclick = () => { const ref = r.ref; closeAlarmPanel(); setView('trades'); loadTrades().then(() => { const t = (S.trows || []).find(x => x.ref === ref); if(t && S.view === 'trades') openTradeDrawer(t.id); }); };
+}
+
 // ---------- chart pop-out ----------
 S.lbA = null;
 function openChartBig(a){
@@ -1386,7 +1654,7 @@ function openChartBig(a){
 }
 function closeChartBig(){
   if(!S.lbA) return; S.lbA = null; $('lightbox').hidden = true; hoverIdx = null;
-  if(S.view === 'patterns') renderPatternDetail(); else if(S.view === 'watch'){ if(S.wsel) renderWatchDrawer(); } else if(S.view === 'trades'){ if(S.tsel != null) renderTradeDrawer({full: true}); } else renderDetail();
+  if(S.view === 'patterns') renderPatternDetail(); else if(S.view === 'watch'){ if(S.wsel) renderWatchDrawer(); } else if(S.view === 'trades'){ if(S.tsel != null) renderTradeDrawer({full: true}); } else if(S.view === 'alarms'){ if(S.asel) renderAlarmPanel(); } else renderDetail();
 }
 $('lbClose').onclick = closeChartBig;
 $('lightbox').addEventListener('click', e => { if(e.target === $('lightbox')) closeChartBig(); });
@@ -1397,26 +1665,26 @@ function onLiveSnapshot(snap){
   const wasLive = S.live; S.liveSnap = snap; S.live = true;
   if(!wasLive){ populateDays(); $('live').hidden = false; }
   if(!S.following && !S.userReplay){ goLive(); return; }   // page was parked on the last session before the bell
-  if(S.following){ S.snap = snap; S.mode='live'; setAt(snap.ts.slice(11,16)); setStatus(snap.stale ? 'STALE · last ' + snap.ts.slice(11,16) : 'LIVE', snap.stale ? 'warn' : 'live'); renderAll(); loadAlerts().then(() => notifyFromLive(snap, S.alerts)); }
+  if(S.following){ S.snap = snap; S.mode='live'; setAt(snap.ts.slice(11,16)); setStatus(snap.stale ? 'STALE · last ' + snap.ts.slice(11,16) : 'LIVE', snap.stale ? 'warn' : 'live'); renderAll(); loadAlerts().then(() => notifyFromLive(snap, S.alerts)); if(S.view !== 'alarms') loadAlarms(); }
   else { api('/api/alerts?limit=30').then(al => notifyFromLive(snap, al)).catch(()=>{}); }
 }
 function connect(){
   const ws = new WebSocket((location.protocol==='https:'?'wss://':'ws://')+location.host+'/ws/scan');
-  ws.onmessage = e => { const m = JSON.parse(e.data); if(m && m.type === 'patterns'){ loadPatterns(); return; } if(m && m.type === 'desk'){ loadDesk(); return; } if(m && m.type === 'trades'){ if(S.view === 'trades') loadTrades(); else if(S.view === 'patterns' || S.view === 'watch') loadPatterns(); else if(S.view === 'scanner') loadAlerts(); return; } onLiveSnapshot(m); if(S.view === 'watch' && S.following) loadWatch(); };
+  ws.onmessage = e => { const m = JSON.parse(e.data); if(m && m.type === 'patterns'){ loadPatterns(); if(S.view === 'alarms') loadAlarms(); return; } if(m && m.type === 'desk'){ loadDesk(); return; } if(m && m.type === 'trades'){ if(S.view === 'alarms') loadAlarms(); else if(S.view === 'trades') loadTrades(); else if(S.view === 'patterns' || S.view === 'watch') loadPatterns(); else if(S.view === 'scanner') loadAlerts(); return; } onLiveSnapshot(m); if(S.view === 'watch' && S.following) loadWatch(); };
   ws.onclose = () => { if(S.following && S.liveSnap) setStatus('RECONNECTING','warn'); setTimeout(connect, 3000); };
 }
 document.addEventListener('click', e => {
   const c = e.target.closest('.card'); if(c){ S.selected = c.dataset.sym; renderCards(); renderDetail(); return; }
   const r = e.target.closest('.alert'); if(r){ S.selected = r.dataset.sym; enterReplay(S.day || todayIST(), r.dataset.at); }
 });
-matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => { if(S.view === 'patterns') renderPatternDetail(); else if(S.view === 'trades'){ if(S.tsel != null) renderTradeDrawer({full: true}); } else renderDetail(); });
+matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => { if(S.view === 'patterns') renderPatternDetail(); else if(S.view === 'trades'){ if(S.tsel != null) renderTradeDrawer({full: true}); } else if(S.view === 'alarms'){ if(S.asel) renderAlarmPanel(); } else renderDetail(); });
 
 (async () => {
   try{ const ins = await api('/api/instruments'); ins.forEach(i => { S.lots[i.symbol] = i.lot_size; S.sectorsOf[i.symbol] = i.sector; }); }catch(e){}
   populateSectors(); loadScreens(); loadTradeSettings();
   try{ const d = await api('/api/days'); S.days = d.days; S.live = d.live; S.expiry = d.expiry; }catch(e){ S.days = []; }
   populateDays(); loadStats(); setInterval(loadStats, 300000);
-  if(S.view !== 'scanner'){ document.querySelectorAll('.tab').forEach(b => b.classList.toggle('on', b.dataset.view === S.view)); $('scannerView').hidden = true; $('patternsView').hidden = S.view !== 'patterns'; $('deskView').hidden = S.view !== 'desk'; $('watchView').hidden = S.view !== 'watch'; $('tradesView').hidden = S.view !== 'trades'; if(S.view === 'patterns') loadPatternStats(); else if(S.view === 'desk') loadDesk(); else if(S.view === 'trades'){ renderTrades(); loadTrades(); loadPatterns(); } else { loadWatch(); loadPatterns(); loadDesk(); } }
+  if(S.view !== 'scanner'){ document.querySelectorAll('.tab').forEach(b => b.classList.toggle('on', b.dataset.view === S.view)); $('scannerView').hidden = true; $('patternsView').hidden = S.view !== 'patterns'; $('deskView').hidden = S.view !== 'desk'; $('watchView').hidden = S.view !== 'watch'; $('tradesView').hidden = S.view !== 'trades'; $('alarmsView').hidden = S.view !== 'alarms'; if(S.view === 'patterns') loadPatternStats(); else if(S.view === 'desk') loadDesk(); else if(S.view === 'trades'){ renderTrades(); loadTrades(); loadPatterns(); } else if(S.view === 'alarms'){ renderAlarms(); loadAlarms(); } else { loadWatch(); loadPatterns(); loadDesk(); } }
   connect();
   let liveSnap = null;
   try{ liveSnap = await api('/api/scan'); }catch(e){}

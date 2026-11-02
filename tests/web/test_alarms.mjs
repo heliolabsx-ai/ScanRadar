@@ -59,6 +59,13 @@ test('positionWords: three shapes', () => {
   assert.deepEqual(A.positionWords(70, 65, 118, 95, below), ['above VWAP', 'below S2', 'below PDL']);
 });
 
+test('positionWords: between any ladder pair, e.g. S1 and the pivot', () => {
+  const lad = A.ladder([['R1', 110], ['R2', 120], ['P', 100], ['S1', 90], ['S2', 80]], 95);
+  assert.deepEqual(A.positionWords(95, 97, 118, 85, lad), ['below VWAP', 'between S1 and P', "inside yesterday's range"]);
+  const mixed = A.ladder([['R1', 110], ['R2', 120], ['PDH', 105], ['VWAP', 102], ['S2', 80]], 103);
+  assert.deepEqual(A.positionWords(103, 102, 105, 85, mixed), ['above VWAP', 'between VWAP and PDH', "inside yesterday's range"]);
+});
+
 test('deliveryMark: five cases', () => {
   assert.deepEqual(A.deliveryMark({ delivery: { ok: true, sent_at: '2026-11-02T15:15:07+05:30' } }), { text: 'sent 15:15:07', cls: 'ok' });
   assert.deepEqual(A.deliveryMark({ delivery: { ok: false, error: 'not configured' } }), { text: 'not configured', cls: 'warn' });
