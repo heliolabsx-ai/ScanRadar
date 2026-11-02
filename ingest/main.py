@@ -29,6 +29,7 @@ index = IndexState()               # NIFTY 50: its own candle, never in `symbols
 kite = None
 ticker = None
 lock = threading.Lock()
+index_written_ts = None              # last index tick already written to Redis: the key is rewritten only when the feed advanced
 ticks_seen = 0                      # ticks received since the socket opened (watchdog)
 last_tick_at: dt.datetime | None = None
 ws_connected_at: dt.datetime | None = None     # this process's socket, not the Redis key a previous process left behind
@@ -215,6 +216,7 @@ def end_of_day():
 # ---------------- flush ----------------
 def flush():
     """Runs every minute: persist closed candles, publish live snapshot."""
+    global index_written_ts
     rows, live = [], {}
     with lock:
         index_rows = [(c.ts, INDEX_SYMBOL, c.open, c.high, c.low, c.close) for c in index.pop_closed()]
@@ -243,17 +245,19 @@ def flush():
                 cur.executemany("""INSERT INTO index_1m(ts,symbol,open,high,low,close)
                                    VALUES(%s,%s,%s,%s,%s,%s) ON CONFLICT DO NOTHING""", index_rows)
                 con.commit()
-        if index_ltp and index_ts:
+        if index_ltp and index_ts and index_ts != index_written_ts:
             prev = R.get(f"index:{INDEX_SYMBOL}:prev_close")
             try:
                 prev = float(prev) if prev else None
             except ValueError:
                 prev = None
-            # ts = the last index tick (not the flush), and the key expires: a stalled index feed reads as no index
+            # ts = the last index tick (not the flush); written only when it advanced, so a stalled feed's key stops
+            # refreshing, expires after 30 min and the API ignores it after 3 min (api/alarms.index_fresh)
             R.set(f"index:{INDEX_SYMBOL}", json.dumps({
                 "ltp": index_ltp, "prev_close": prev,
                 "pct": round((index_ltp / prev - 1) * 100, 4) if prev else None,
                 "ts": index_ts.isoformat()}), ex=1800)
+            index_written_ts = index_ts
     except Exception as e:  # noqa: BLE001
         log.warning("index flush failed: %s", e)
     log.info("flush: %d candles persisted, %d live, %d ticks so far", len(rows), len(live), ticks_seen)

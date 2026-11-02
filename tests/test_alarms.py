@@ -163,3 +163,12 @@ def test_origin_live_or_replay():
     origin = {r["ref"]: r["origin"] for r in b["rows"]}
     assert origin == {"alert:1": "replay", "alert:2": "live", "pattern:CCC|double_top|09:40": "replay", "pattern:DDD|orb_long|09:30": "live"}
     assert all(r["origin"] == "live" for r in run(alerts=alerts[1:], trade_rows=pats)["rows"])     # no map: patterns default live
+
+
+def test_index_fresh_age_rule():
+    now = T("10:00")
+    assert alarms.index_fresh((now - dt.timedelta(seconds=30)).isoformat(), now)
+    assert alarms.index_fresh((now - dt.timedelta(seconds=180)).isoformat(), now)
+    assert not alarms.index_fresh((now - dt.timedelta(seconds=181)).isoformat(), now)
+    assert not alarms.index_fresh(None, now) and not alarms.index_fresh("garbage", now)
+    assert alarms.index_fresh("2026-11-03T09:59:00", now)          # a naive ts reads as IST

@@ -285,6 +285,15 @@ def records(con) -> dict[str, dict]:
     return out
 
 
+def index_fresh(ts_iso, now: dt.datetime, max_age_s: int = 180) -> bool:
+    """True when the index's last tick (`ts_iso`) is at most `max_age_s` seconds before `now`; a missing or unparsable ts is stale."""
+    try:
+        t = _dt(ts_iso)
+    except (TypeError, ValueError):
+        return False
+    return t is not None and (now - t).total_seconds() <= max_age_s
+
+
 def index_at(con, R, day: dt.date, at: dt.datetime, live: bool) -> dict | None:
     """NIFTY 50 at the board's minute: live from Redis `index:NIFTY50`, a replay day from the last stored `index_1m` close at or before `at`
     (previous close = the last close of the previous stored session). None when nothing is stored."""
@@ -294,6 +303,8 @@ def index_at(con, R, day: dt.date, at: dt.datetime, live: bool) -> dict | None:
         except (TypeError, ValueError):
             j = None
         if j and j.get("ltp") is not None:
+            if not index_fresh(j.get("ts"), at):      # a stalled index feed reads as no index, not as an old price
+                return None
             return {"symbol": "NIFTY 50", "ltp": j["ltp"], "prev_close": j.get("prev_close"), "pct": j.get("pct"), "at": _hhmm(j.get("ts"))}
     start = dt.datetime.combine(day, dt.time(0), IST)
     with con.cursor() as cur:
@@ -341,10 +352,9 @@ def breadth_at(con, R, day: dt.date, at: dt.datetime, live: bool) -> dict | None
 
 
 def _desk_verdicts(con, day: dt.date) -> list[dict]:
-    import desk
     with con.cursor() as cur:
-        cur.execute(desk.SELECT + " WHERE kind='verdict' AND day=%s AND output IS NOT NULL ORDER BY ts, id", (day,))
-        out = [dict(zip(desk.COLS, rec)) for rec in cur.fetchall()]
+        cur.execute("SELECT ts, ref, output FROM desk_calls WHERE kind='verdict' AND day=%s AND output IS NOT NULL ORDER BY ts, id", (day,))
+        out = [{"ts": ts, "ref": ref, "output": output} for ts, ref, output in cur.fetchall()]
     for r in out:
         r["ts"] = r["ts"].astimezone(IST).isoformat()
     return out
@@ -372,7 +382,7 @@ def pattern_origins(con, day: dt.date) -> dict[str, str]:
     """Trade-row ref of each of the day's patterns -> its `source` (live | replay), the ref built as live_desk.pattern_ref does."""
     import live_desk as ld
     with con.cursor() as cur:
-        cur.execute("SELECT symbol, kind, formed_at, source FROM patterns WHERE day=%s AND superseded_at IS NULL", (day,))
+        cur.execute("SELECT symbol, kind, formed_at, source FROM patterns WHERE day=%s", (day,))
         recs = cur.fetchall()
     return {ld.pattern_ref({"symbol": sym, "kind": kind, "formed_at": _dt(formed).astimezone(IST)}): src
             for sym, kind, formed, src in recs if formed is not None}

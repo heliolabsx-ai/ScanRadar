@@ -181,11 +181,14 @@ def ensure_outcomes(con, day: dt.date, frames: dict, refs: dict, scans: list[tup
 
 def merge_live_replay(rows: list[dict]) -> list[dict]:
     """Drop a replay row when a live row for the same scan+symbol sits within ±1 minute."""
-    live = [(r["scan"], r["symbol"], r["ts"]) for r in rows if r.get("source") == "live"]
+    live: dict[tuple, list] = {}
+    for r in rows:
+        if r.get("source") == "live":
+            live.setdefault((r["scan"], r["symbol"]), []).append(r["ts"])
     out = []
     for r in rows:
-        if r.get("source") == "replay" and any(s == r["scan"] and y == r["symbol"] and abs((t - r["ts"]).total_seconds()) <= 60
-                                               for s, y, t in live):
+        if r.get("source") == "replay" and any(abs((t - r["ts"]).total_seconds()) <= 60
+                                               for t in live.get((r["scan"], r["symbol"]), ())):
             continue
         out.append(r)
     return out
