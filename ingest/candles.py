@@ -2,6 +2,10 @@
 import datetime as dt
 from dataclasses import dataclass, field
 
+INDEX_TOKEN = 256265          # NSE NIFTY 50 (Kite instrument token)
+INDEX_SYMBOL = "NIFTY50"
+_OPEN, _CLOSE = dt.time(9, 15), dt.time(15, 30)
+
 
 @dataclass
 class Candle:
@@ -49,6 +53,47 @@ class SymbolState:
 
     def finalize(self):
         """Market closed: move the forming candle to closed so the last minute is persisted."""
+        if self.cur is not None:
+            self.closed.append(self.cur)
+            self.cur = None
+
+    def pop_closed(self) -> list:
+        out, self.closed = self.closed, []
+        return out
+
+
+def split_ticks(ticks: list[dict], index_token: int = INDEX_TOKEN) -> tuple[list[dict], list[dict]]:
+    """(stock ticks, index ticks). The index must never reach the stock candle code or the tick watchdog."""
+    stock, index = [], []
+    for t in ticks:
+        (index if t.get("instrument_token") == index_token else stock).append(t)
+    return stock, index
+
+
+@dataclass
+class IndexState:
+    """NIFTY 50 as 1-minute OHLC from last_price (no volume/OI/delta on index ticks).
+    A tick outside 09:15 <= t < 15:30 only updates last_price."""
+    symbol: str = INDEX_SYMBOL
+    last_price: float = 0.0
+    cur: Candle | None = None
+    closed: list = field(default_factory=list)
+
+    def on_tick(self, tick: dict, now: dt.datetime) -> None:
+        price = tick["last_price"]
+        self.last_price = price
+        if not (_OPEN <= now.time() < _CLOSE):
+            return
+        minute = now.replace(second=0, microsecond=0)
+        if self.cur is None or self.cur.ts != minute:
+            if self.cur is not None:
+                self.closed.append(self.cur)
+            self.cur = Candle(ts=minute, open=price, high=price, low=price, close=price)
+            return
+        c = self.cur
+        c.high = max(c.high, price); c.low = min(c.low, price); c.close = price
+
+    def finalize(self) -> None:
         if self.cur is not None:
             self.closed.append(self.cur)
             self.cur = None

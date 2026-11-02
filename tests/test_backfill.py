@@ -49,3 +49,19 @@ def test_rebuild_daily_ref_sql_mentions_write_once_window():
 def test_universe_upsert_sql_keys_on_symbol():
     from backfill import UPSERT_INSTRUMENTS
     assert "ON CONFLICT(symbol) DO UPDATE" in UPSERT_INSTRUMENTS and "lot_size=EXCLUDED.lot_size" in UPSERT_INSTRUMENTS
+
+
+def test_parser_accepts_index_flags():
+    from backfill import build_parser
+    a = build_parser().parse_args(["--index", "--index-only", "--days", "3"])
+    assert a.index and a.index_only and a.days == 3
+    b = build_parser().parse_args([])
+    assert not b.index and not b.index_only
+
+
+def test_index_rows_map_kite_bars():
+    from backfill import index_rows, INSERT_INDEX_1M
+    t = T("2026-10-15", "09:15")
+    rows = index_rows([bar(t, open=1, high=3, low=0.5, close=2, volume=0)])
+    assert rows == [(t, "NIFTY50", 1, 3, 0.5, 2)]
+    assert "index_1m" in INSERT_INDEX_1M and "ON CONFLICT DO NOTHING" in INSERT_INDEX_1M

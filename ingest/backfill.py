@@ -19,6 +19,8 @@ SESSION_SETTLED = dt.time(15, 35)
 
 INSERT_1M = """INSERT INTO candles_1m(ts,symbol,open,high,low,close,volume,oi,delta)
                VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s) ON CONFLICT DO NOTHING"""
+INSERT_INDEX_1M = """INSERT INTO index_1m(ts,symbol,open,high,low,close)
+               VALUES(%s,%s,%s,%s,%s,%s) ON CONFLICT DO NOTHING"""
 UPSERT_1D = """INSERT INTO candles_1d(day,symbol,open,high,low,close,volume,oi) VALUES(%s,%s,%s,%s,%s,%s,%s,%s)
                ON CONFLICT (symbol,day) DO UPDATE SET open=EXCLUDED.open, high=EXCLUDED.high, low=EXCLUDED.low,
                close=EXCLUDED.close, volume=EXCLUDED.volume,
@@ -68,6 +70,13 @@ def merge_oi(eq: list[dict], fut: list[dict]) -> list[tuple]:
     return rows
 
 
+def index_rows(bars: list[dict], symbol: str | None = None) -> list[tuple]:
+    """Kite NIFTY 50 minute bars -> index_1m rows (ts, symbol, o, h, l, c)."""
+    from candles import INDEX_SYMBOL
+    sym = symbol or INDEX_SYMBOL
+    return [(b["date"], sym, b["open"], b["high"], b["low"], b["close"]) for b in bars]
+
+
 def _chunks(frm: dt.date, to: dt.date, span: int):
     a = frm
     while a <= to:
@@ -76,17 +85,24 @@ def _chunks(frm: dt.date, to: dt.date, span: int):
         a = b + dt.timedelta(days=1)
 
 
-def main(argv=None) -> int:
+def build_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser()
     ap.add_argument("--days", type=int, default=60, help="calendar days of 1-minute history")
     ap.add_argument("--daily-days", type=int, default=400, help="calendar days of daily history")
     ap.add_argument("--symbols", default="", help="comma-separated subset")
     ap.add_argument("--universe-only", action="store_true", help="only (re)write the instruments table from Kite's dump")
-    args = ap.parse_args(argv)
+    ap.add_argument("--index", action="store_true", help="also backfill the NIFTY 50 minute bars into index_1m")
+    ap.add_argument("--index-only", action="store_true", help="with --index: skip the stock loop")
+    return ap
+
+
+def main(argv=None) -> int:
+    args = build_parser().parse_args(argv)
 
     import redis, psycopg
     from kiteconnect import KiteConnect
     from hist import hist
+    from candles import INDEX_TOKEN
     R = redis.from_url(os.environ["REDIS_URL"], decode_responses=True)
     DB = os.environ["DATABASE_URL"]
 
@@ -105,6 +121,16 @@ def main(argv=None) -> int:
     now = dt.datetime.now(IST)
     frm, to = fetch_window(now, args.days)
     dfrm = to - dt.timedelta(days=args.daily_days)
+    index_inserted = 0
+    if args.index:
+        with psycopg.connect(DB) as con, con.cursor() as cur:
+            for a, b in _chunks(frm, to, MINUTE_CHUNK_DAYS):
+                cur.executemany(INSERT_INDEX_1M, index_rows(hist(kite, INDEX_TOKEN, a, b, "minute")))
+                index_inserted += cur.rowcount if cur.rowcount is not None and cur.rowcount >= 0 else 0
+            con.commit()
+        log.info("index: %d NIFTY50 1m rows inserted", index_inserted)
+        if args.index_only:
+            return 0
     with psycopg.connect(DB) as con, con.cursor() as cur:
         cur.execute("SELECT symbol, eq_token, fut_token FROM instruments ORDER BY symbol")
         uni = cur.fetchall()
@@ -153,8 +179,9 @@ def main(argv=None) -> int:
         con.commit()
         cur.execute("SELECT count(DISTINCT day) FROM candles_1d WHERE symbol='RELIANCE' AND day BETWEEN %s AND %s", (frm, to))
         tdays = cur.fetchone()[0]
-    log.info("done: %d symbols, %d trading days in the minute window, %d 1m rows inserted, %d failures, %.0fs",
-             len(uni), tdays, inserted, failures, time.time() - t0)
+    log.info("done: %d symbols, %d trading days in the minute window, %d 1m rows inserted%s, %d failures, %.0fs",
+             len(uni), tdays, inserted, f", {index_inserted} index rows inserted" if args.index else "",
+             failures, time.time() - t0)
     return 1 if failures else 0
 
 

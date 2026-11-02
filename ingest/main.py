@@ -12,7 +12,7 @@ from kiteconnect import KiteTicker
 import kite_auth, universe
 from hist import hist
 from tradingday import is_trading_day
-from candles import SymbolState
+from candles import SymbolState, IndexState, INDEX_TOKEN, INDEX_SYMBOL, split_ticks
 from notify import telegram
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
@@ -25,6 +25,7 @@ MARKET_OPEN, MARKET_CLOSE = dt.time(9, 15), dt.time(15, 30)
 
 state: dict[int, SymbolState] = {}   # token -> state (both eq and fut tokens map to the same object)
 symbols: dict[str, SymbolState] = {}
+index = IndexState()               # NIFTY 50: its own candle, never in `symbols`/`state` (it must not enter the ranking)
 kite = None
 ticker = None
 lock = threading.Lock()
@@ -70,6 +71,19 @@ def load_daily_refs(u):
     log.info("daily refs: %d/%d symbols loaded, %d without prev-day OI", ok, len(u), missing_oi)
 
 
+def load_index_ref():
+    """NIFTY 50's previous close for the Alarms board's index chip. Never fatal."""
+    try:
+        today = dt.date.today()
+        d = hist(kite, INDEX_TOKEN, today - dt.timedelta(days=35), today - dt.timedelta(days=1), "day")
+        if d:
+            R.set(f"index:{INDEX_SYMBOL}:prev_close", d[-1]["close"], ex=86400)
+        else:
+            log.warning("index ref: no daily candles for %s", INDEX_SYMBOL)
+    except Exception as e:  # noqa: BLE001
+        log.warning("index ref load failed: %s", e)
+
+
 def morning_setup():
     if not is_trading_day(dt.datetime.now(IST).date()):
         log.info("not a trading day; skipping morning setup")
@@ -104,6 +118,7 @@ def _morning_setup():
     log.info("universe ready: %d symbols; loading daily refs (takes ~3 min)", len(symbols))
     R.set("ingest:status", "loading daily refs")
     load_daily_refs(u)
+    load_index_ref()
     R.set("ingest:status", "ready")
 
 
@@ -111,6 +126,13 @@ def _morning_setup():
 def on_ticks(ws, ticks):
     global ticks_seen, last_tick_at
     now = dt.datetime.now(IST)
+    ticks, index_ticks = split_ticks(ticks)
+    if index_ticks:                      # index ticks never feed the watchdog: a dead stock feed must still read as silent
+        with lock:
+            for t in index_ticks:
+                index.on_tick(t, now)    # outside the session this only updates last_price
+    if not ticks:
+        return
     ticks_seen += len(ticks); last_tick_at = now
     # The socket opens at 09:14 and pre-open ticks arrive before 09:15; after 15:30
     # the closing-price/post-close ticks would open a bogus 15:30+ candle.
@@ -137,8 +159,8 @@ def on_connect(ws, response):
     ws_connected_at = dt.datetime.now(IST)
     eq = [s.eq_token for s in symbols.values()]
     fut = [s.fut_token for s in symbols.values()]
-    ws.subscribe(eq + fut)
-    ws.set_mode(ws.MODE_QUOTE, eq)
+    ws.subscribe(eq + fut + [INDEX_TOKEN])
+    ws.set_mode(ws.MODE_QUOTE, eq + [INDEX_TOKEN])
     ws.set_mode(ws.MODE_FULL, fut)      # FULL mode carries OI
     log.info("ws connected; subscribed %d eq + %d fut", len(eq), len(fut))
     R.set("ingest:ws", "connected")
@@ -182,6 +204,7 @@ def end_of_day():
     with lock:
         for s in symbols.values():
             s.finalize()
+        index.finalize()
     flush()
     log.info("session over; exiting so tomorrow starts with a fresh process")
     os._exit(0)
@@ -192,12 +215,29 @@ def flush():
     """Runs every minute: persist closed candles, publish live snapshot."""
     rows, live = [], {}
     with lock:
+        index_rows = [(c.ts, INDEX_SYMBOL, c.open, c.high, c.low, c.close) for c in index.pop_closed()]
+        index_ltp = index.last_price
         for s in symbols.values():
             for c in s.pop_closed():
                 rows.append((c.ts, s.symbol, c.open, c.high, c.low, c.close, c.volume, c.oi, c.delta))
             if s.cur:
                 live[s.symbol] = {"ts": s.cur.ts.isoformat(), "o": s.cur.open, "h": s.cur.high, "l": s.cur.low,
                                   "c": s.cur.close, "v": s.cur.volume, "oi": s.cur.oi, "d": s.cur.delta}
+    if index_rows:
+        with psycopg.connect(DB) as con, con.cursor() as cur:
+            cur.executemany("""INSERT INTO index_1m(ts,symbol,open,high,low,close)
+                               VALUES(%s,%s,%s,%s,%s,%s) ON CONFLICT DO NOTHING""", index_rows)
+            con.commit()
+    if index_ltp:
+        prev = R.get(f"index:{INDEX_SYMBOL}:prev_close")
+        try:
+            prev = float(prev) if prev else None
+        except ValueError:
+            prev = None
+        R.set(f"index:{INDEX_SYMBOL}", json.dumps({
+            "ltp": index_ltp, "prev_close": prev,
+            "pct": round((index_ltp / prev - 1) * 100, 4) if prev else None,
+            "ts": dt.datetime.now(IST).isoformat()}))
     if rows:
         with psycopg.connect(DB) as con, con.cursor() as cur:
             cur.executemany("""INSERT INTO candles_1m(ts,symbol,open,high,low,close,volume,oi,delta)
