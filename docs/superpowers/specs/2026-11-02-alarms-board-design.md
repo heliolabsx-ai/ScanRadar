@@ -1,6 +1,6 @@
 # Alarms board: one column per setup, the stock panel on click
 
-Date: 2 Nov 2026 (brainstormed the same evening). Owner: Saurabh Verma. Status: approved in chat ("add all and commit the deployment").
+Date: 2 Nov 2026 (brainstormed the same evening). Owner: Saurabh Verma. Status: approved in chat ("add all and commit the deployment"); builder check done, its seven questions settled below as my calls.
 
 ## Intent
 
@@ -33,14 +33,18 @@ the real 2 Nov rows) and `notifications-animated-v4.html` (the four earlier look
 
 - The tab is called **Alarms** (`#alarms`, after Trades in the header). "Notifications" is what he said;
   "Alarms" is what the rows are, and the word already names the PD fades in this repo.
-- **Which rows are alarms.** A scan is on the board only when its JSON carries `"board": true`; the four
-  `PD*` scans and `B0101` get it tonight, the three older scans (879 alerts on 2 Nov) do not and are folded
-  into one muted count line under the board ("879 alerts from 3 other scans"). Patterns: trade-grade
-  triggers only (`PATTERN_MIN_CONF`, score ≥ 5, the Trade-grade pill's rule), the rest counted in the same
-  line. Columns, in order: `PDH breakout` (scan "PDH break"), `PDL breakdown` ("PDL break"), `Patterns`,
-  `PDH fade`, `PDL fade`, then one column per other board scan in file order (`B0101`). Column names for
-  the PD scans are the mockup's; a scan may set `"board_name"` to override. Desk verdicts are not rows:
-  the call sits on the row it judged.
+- **Which rows are alarms.** The board's scan list lives in the API, **not in the scan files**: the
+  scan hash covers the whole file (`api/alerts.py`), so a new key there would make every stored day's
+  replay rows recompute under new ids and orphan their trade rows (the reviewer's first question). `api/alarms.py`
+  holds `BOARD_SCANS`, default `PDH break, PDL break, PDH fade, PDL fade, B0101`, overridable with the
+  env `ALARMS_SCANS` (comma-separated names). The three older scans (879 alerts on 2 Nov) are folded into
+  one muted count line under the board ("879 alerts from 3 other scans"). **Patterns column = exactly the
+  rows the Trades queue admits** (`trades.candidates`: judged as of the trigger minute, `PATTERN_MIN_CONF`,
+  `live_desk.gate(score, rr)`), so every pattern row has odds, shares and gate and no row disappears
+  later when the pattern fails; the other triggers are counted in the fold line. Columns, in order: `PDH
+  breakout` (scan "PDH break"), `PDL breakdown` ("PDL break"), `Patterns`, `PDH fade`, `PDL fade`, then
+  the other board scans in list order (`B0101`). Desk verdicts are not rows: the call sits on the row it
+  judged.
 - **One endpoint builds the board**: `GET /api/alarms?day&at` returns everything the tab needs in one
   call, cut at `at` (today without `at` = now, live). The tab never assembles rows from four feeds.
 - **Delivery is recorded, not inferred.** A `deliveries` table (migration 006) gets one row per Telegram
@@ -48,16 +52,27 @@ the real 2 Nov rows) and `notifications-animated-v4.html` (the four earlier look
   `engine/notify.telegram` return `(ok, error)` instead of nothing; every send site records (the trades
   loop's `flush_deferred`, the engine's direct sends, the desk ticket, the ingest watchdog is left alone).
   "Not configured" is a delivery row with `ok=false, error='not configured'`, so the board can say so per
-  row. The board header shows `Telegram: on` / `not set up` from the API's environment.
+  row. `channel` is `telegram` for the alarm's own message (the `tg:defer` flush and the engine's direct
+  sends) and `telegram-desk` for the desk ticket on the same ref; a row's `delivery` is the `telegram`
+  one only. `flush_deferred` gains an optional `record(ref, ok, error, silent)` callback (default none;
+  the trades tick passes one that writes through `connect()`), so its tests stay DB-free. Rows from
+  before tonight and every replay row have no delivery row: the board shows a grey "replay" mark for
+  `source='replay'` rows and "not recorded" for older live rows; "not configured" / "sent 09:35:04" appear
+  from the first live alarm after the deploy. The board header shows `Telegram: on` / `not set up` from
+  the API's environment.
 - **Story timeline** is built server-side per symbol per day from rows that already exist: PD break
   alerts (`payload.story` gives the break minute and the run), fade / pattern triggers, desk verdicts
   (`desk_calls`), trade settlement (`trade_rows.outcome.settled_at`, `exit_px`), the failed/abandoned minute
   of a pattern. Each row carries the symbol's whole timeline; the panel draws it as a vertical chain and the
   chart marks each event (the chart already draws the day's alert markers for the symbol; pattern trigger,
   desk call and exit markers are added on the Alarms panel only).
-- **Record on the header**: scans from `scan_stats` (the rail's numbers: fires, hit rate, avg R60) over
-  20 sessions; the Patterns column from `pattern_stats` (T1 hit over the same window). Shown as
-  `54 % · 1:1.2 · n 520`; "no record yet" under 20 decided rows.
+- **Record on the header**: scans from `scan_stats` (the rail's numbers, anchored to today: fires, hit
+  rate, average 60-minute return in %, over the last 20 sessions); the Patterns column from
+  `pattern_stats` (T1 hit over the same window, all kinds pooled). Shown as `54 % hit · +0.3 % @60m ·
+  n 520`; "no record yet" under 20 decided rows. The two break columns are never graded, so their record
+  is different and more useful: `137/day · 31 % faded`, the share of break notes followed the same day by
+  the matching fade on the same symbol (paired in `api/alarms.py` from the PD scans' alert rows over the
+  same 20 sessions).
 - **Past-12 dots**: `trade_rows.odds.past.last` as it is (date, result, minutes); green target, red stop,
   grey neither; no row = no dots.
 - **Breadth line**: `n_bull` / `n_bear` and the two strongest and two weakest sectors from the ranking
@@ -72,17 +87,21 @@ the real 2 Nov rows) and `notifications-animated-v4.html` (the four earlier look
   close comes from the last `index_1m` bar of the previous session, else from Kite's daily historical for
   the token at 08:55 (`hist(kite, 256265, …, "day")`, stored in Redis `index:NIFTY50:prev_close`).
   `backfill.py --index` fills `index_1m` from Kite minute history (60 days default; the index token's
-  minute candles exist). The board header shows `NIFTY 50 24,312 +0.4 %` live and the as-of value in replay.
-  The watchdog's silent-feed rule is unchanged (it counts stock ticks).
-- **Chime and badges**: `web/notify.js` gains `chime(kind)` with the Web Audio API (two short tones, no
-  audio file), played when the bell is on for a new fade row, a new trade-grade pattern row and a new board
-  scan row, never for a break note; the existing Mac notification stays. Each column shows an unread badge
-  = rows that arrived while the Alarms tab was not the visible tab, cleared when it becomes visible
-  (`localStorage` `alarms.seen` = the newest row `ts` per column at the last view). The header tab
-  button carries the total.
+  minute candles exist). The previous close is **Kite's daily close first** (the official close is not the
+  last minute's trade), the last `index_1m` bar of the previous session only as the fallback. The board
+  header shows `NIFTY 50 24,312 +0.4 %` live and the as-of value in replay. The watchdog counts every tick
+  today (`ticks_seen`, `last_tick_at` in `ingest/main.py`); index ticks must **not** feed those two, so a
+  dead stock feed with a live index is still reported.
+- **Chime and badges**: `web/notify.js` already has `chime()` and the `notifyTone` setting
+  (system / chime / none) played through `show()`, and break notes are already quiet; new live fade,
+  pattern and board-scan rows already notify. So no new sound: the chime follows `notifyTone` as today and
+  nothing plays twice. What is new: each column shows an unread badge = rows that arrived while the Alarms
+  tab was not the visible tab, cleared when it becomes visible (`localStorage` `alarms.seen` = the newest
+  row `ts` per column at the last view); the header tab button carries the total.
 - **Replay works the same way**: `day` and `at` from the header date and the time slider cut the rows,
   the breadth, the index and the panel's chart at that minute, as every other tab does.
-- Nothing else changes: no new Telegram text, no change to scans, desk, odds, gate, sizing, ranking.
+- Nothing else changes: no new Telegram text, the scan files are not touched, no change to desk, odds,
+  gate, sizing, ranking.
 
 ## Goals
 
@@ -117,8 +136,9 @@ the real 2 Nov rows) and `notifications-animated-v4.html` (the four earlier look
 - Deploy tonight: migration 006 via stdin (the postgres `/migrations` mount is stale), then
   `docker compose up -d --build api engine ingest` (ingest included on purpose: it is idle at night and must
   carry the index change before the 08:55 login), `backfill.py --index --days 60` with the cached token
-  (valid until about 04:55), then `/api/alarms?day=2026-11-02` must show Monday's board with the deliveries
-  column reading "not configured" and the NIFTY header filled from the backfill.
+  (valid until about 04:55), then `/api/alarms?day=2026-11-02` must show Monday's board (its rows marked
+  "replay", odds and shares intact because the scan files were not touched) and the NIFTY header filled
+  from the backfill; the first "not configured" / "sent" marks appear with Tuesday's first live alarm.
 
 ## The API
 
@@ -153,14 +173,14 @@ pivots) are computed in the browser from those candles and `ref`, exactly as the
 - `tests/web/test_alarms.mjs`: grouping into columns, unread badges across a view change, ladder placement
   (NOW between the right two levels, above R2, below S2), far-level selection for the chart, the position
   words, the timeline rendering order.
-- `tests/web/test_notify.mjs`: `chime` chosen for fade/pattern/board-scan rows, never for breaks.
+- `tests/web/test_notify.mjs`: unchanged behaviour pinned: a break note never notifies, a fade does.
 
 ## Rollout
 
 1. Migration 006 (`deliveries`, `index_1m`), `notify` returning `(ok, error)`, deliveries recorded.
-2. `api/alarms.py` + route; `board` flag on the five scans.
+2. `api/alarms.py` + route (`BOARD_SCANS`, the Trades-queue rule for patterns, the fold line).
 3. Ingest: index subscription, candle, Redis, `backfill.py --index`.
-4. `web/alarms.js` + the tab + the panel; `notify.js` chime and badges.
+4. `web/alarms.js` + the tab + the panel; the unread badges.
 5. Deploy tonight as under Constraints; first live check at 09:20 Tue 3 Nov.
 
 ## Left to the builder
