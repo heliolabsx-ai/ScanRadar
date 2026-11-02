@@ -652,7 +652,7 @@ function renderAlerts(){
 }
 async function loadAlerts(){
   const day = S.day;
-  try{ const res = await api(day ? `/api/alerts?day=${day}` : '/api/alerts?limit=30');
+  try{ const res = await api(`/api/alerts?day=${day || todayIST()}`);     // the whole day being shown, never the last 30 across days
     if(day !== S.day) return;
     S.alerts = Array.isArray(res) ? res : res.alerts; S.alertsPending = !!(res && res.pending);
     renderAlerts();
