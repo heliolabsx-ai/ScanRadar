@@ -71,6 +71,8 @@ test('deliveryMark: five cases', () => {
   assert.deepEqual(A.deliveryMark({ delivery: { ok: false, error: 'not configured' } }), { text: 'not configured', cls: 'warn' });
   assert.deepEqual(A.deliveryMark({ delivery: { ok: false, error: 'HTTP 400' } }), { text: 'failed: HTTP 400', cls: 'bad' });
   assert.deepEqual(A.deliveryMark({ delivery: null, source: 'replay' }), { text: 'replay', cls: 'mut' });
+  assert.deepEqual(A.deliveryMark({ delivery: null, source: 'alert', origin: 'replay' }), { text: 'replay', cls: 'mut' });
+  assert.deepEqual(A.deliveryMark({ delivery: null, source: 'pattern', origin: 'live' }), { text: 'not recorded', cls: 'mut' });
   assert.deepEqual(A.deliveryMark({ delivery: null, source: 'alert' }), { text: 'not recorded', cls: 'mut' });
 });
 

@@ -112,8 +112,12 @@ def _event_text(row: dict, col_key: str) -> tuple[str, str]:
 
 
 def assemble(day: dt.date, at: dt.datetime, *, alerts, trade_rows, desk_calls, deliveries, board_scans, scan_sides,
-             records, breadth, index, telegram_on: bool, live: bool, pending: bool, patterns_total: int) -> dict:
-    """The /api/alarms body. Everything is cut at `at`; rows ascend by ts (the tab puts the newest on top)."""
+             records, breadth, index, telegram_on: bool, live: bool, pending: bool, patterns_total: int,
+             pattern_origins: dict[str, str] | None = None) -> dict:
+    """The /api/alarms body. Everything is cut at `at`; rows ascend by ts (the tab puts the newest on top).
+    Every row carries `origin`: "replay" when the alarm was computed on replay (it never rang live), else "live";
+    alert rows from the alert's `source`, pattern rows from `pattern_origins` (trade-row ref -> patterns.source), default live."""
+    pattern_origins = pattern_origins or {}
     at = _dt(at)
     cols = columns(board_scans, scan_sides)
     col_of = {c["scan"]: c for c in cols if c["scan"]}
@@ -141,7 +145,8 @@ def assemble(day: dt.date, at: dt.datetime, *, alerts, trade_rows, desk_calls, d
         stop = tr["stop"] if tr and tr.get("stop") is not None else a.get("stop")
         target = tr["target"] if tr and tr.get("target") is not None else a.get("target")
         rows.append(_row(ref, col["key"], a["ts"], a["symbol"], a.get("side") or col["side"], a["scan"], "alert",
-                         a.get("price"), stop, target, tr, a.get("story"), verdict_by_ref, deliveries, at))
+                         a.get("price"), stop, target, tr, a.get("story"), verdict_by_ref, deliveries, at,
+                         "replay" if a.get("source") == "replay" else "live"))
     n_pat = 0
     for tr in trade_rows:
         if tr.get("source") != "pattern":
@@ -151,7 +156,8 @@ def assemble(day: dt.date, at: dt.datetime, *, alerts, trade_rows, desk_calls, d
             continue
         n_pat += 1
         rows.append(_row(tr["ref"], "pat", tr["ts"], tr["symbol"], tr.get("side"), tr.get("label"), "pattern",
-                         tr.get("entry"), tr.get("stop"), tr.get("target"), tr, None, verdict_by_ref, deliveries, at))
+                         tr.get("entry"), tr.get("stop"), tr.get("target"), tr, None, verdict_by_ref, deliveries, at,
+                         "replay" if pattern_origins.get(tr["ref"]) == "replay" else "live"))
     rows.sort(key=lambda r: (_dt(r["ts"]), r["ref"]))
 
     # one timeline per symbol: its break, alarms, desk calls and exits, in time order
@@ -181,14 +187,15 @@ def assemble(day: dt.date, at: dt.datetime, *, alerts, trade_rows, desk_calls, d
             "pending": pending}
 
 
-def _row(ref, col, ts, symbol, side, setup, source, price, stop, target, tr, story, verdict_by_ref, deliveries, at) -> dict:
+def _row(ref, col, ts, symbol, side, setup, source, price, stop, target, tr, story, verdict_by_ref, deliveries, at,
+         origin="live") -> dict:
     odds = (tr or {}).get("odds") or None
     size = (tr or {}).get("size") or {}
     v = verdict_by_ref.get(ref)
     d = deliveries.get(ref)
     if d is not None and (_dt(d.get("sent_at")) is None or _dt(d["sent_at"]) > at):
         d = None                                        # not sent yet as of `at`: a replay at the fire minute must not show "sent"
-    return {"ref": ref, "col": col, "ts": ts, "symbol": symbol, "side": side, "setup": setup, "source": source,
+    return {"ref": ref, "col": col, "ts": ts, "symbol": symbol, "side": side, "setup": setup, "source": source, "origin": origin,
             "price": price, "stop": stop, "target": target,
             "rr": tr["rr"] if tr and tr.get("rr") is not None else _rr(price, stop, target),
             "odds": odds, "past": list(((odds or {}).get("past") or {}).get("last") or [])[-12:],
@@ -358,4 +365,14 @@ def board(con, R, day: dt.date, at: dt.datetime, live: bool, pending: bool) -> d
                     board_scans=BOARD_SCANS, scan_sides=sides, records=records(con),
                     breadth=breadth_at(con, R, day, at, live), index=index_at(con, R, day, at, live),
                     telegram_on=bool(os.environ.get("TELEGRAM_BOT_TOKEN") and os.environ.get("TELEGRAM_CHAT_ID")),
-                    live=live, pending=pending, patterns_total=patterns_total)
+                    live=live, pending=pending, patterns_total=patterns_total, pattern_origins=pattern_origins(con, day))
+
+
+def pattern_origins(con, day: dt.date) -> dict[str, str]:
+    """Trade-row ref of each of the day's patterns -> its `source` (live | replay), the ref built as live_desk.pattern_ref does."""
+    import live_desk as ld
+    with con.cursor() as cur:
+        cur.execute("SELECT symbol, kind, formed_at, source FROM patterns WHERE day=%s AND superseded_at IS NULL", (day,))
+        recs = cur.fetchall()
+    return {ld.pattern_ref({"symbol": sym, "kind": kind, "formed_at": _dt(formed).astimezone(IST)}): src
+            for sym, kind, formed, src in recs if formed is not None}

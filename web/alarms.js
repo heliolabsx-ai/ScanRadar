@@ -77,7 +77,7 @@
     if (d && d.ok) return { text: 'sent ' + hhmmss(d.sent_at), cls: 'ok' };
     if (d && d.error === 'not configured') return { text: 'not configured', cls: 'warn' };
     if (d && d.error) return { text: 'failed: ' + d.error, cls: 'bad' };
-    if (row && row.source === 'replay') return { text: 'replay', cls: 'mut' };
+    if (row && (row.origin === 'replay' || row.source === 'replay')) return { text: 'replay', cls: 'mut' };   // origin from /api/alarms
     return { text: 'not recorded', cls: 'mut' };
   }
 

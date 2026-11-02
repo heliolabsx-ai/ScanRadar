@@ -153,3 +153,13 @@ def test_break_record_and_texts():
 def test_record_lands_on_column():
     b = run(records={"pdh_fade": {"n": 520, "hit": 54.0, "avg_r": 0.3, "text": "54 % hit · +0.3 % @60m · n 520"}})
     assert next(c for c in b["columns"] if c["key"] == "pdh_fade")["record"]["text"] == "54 % hit · +0.3 % @60m · n 520"
+
+
+def test_origin_live_or_replay():
+    alerts = [alert(1, "PDH fade", "AAA", "09:35", source="replay"), alert(2, "B0101", "BBB", "09:40", side="long")]
+    pats = [trade("pattern:CCC|double_top|09:40", "CCC", "09:45", source="pattern", label="Double top"),
+            trade("pattern:DDD|orb_long|09:30", "DDD", "09:30", source="pattern", label="Opening range break up")]
+    b = run(alerts=alerts, trade_rows=pats, pattern_origins={"pattern:CCC|double_top|09:40": "replay"})
+    origin = {r["ref"]: r["origin"] for r in b["rows"]}
+    assert origin == {"alert:1": "replay", "alert:2": "live", "pattern:CCC|double_top|09:40": "replay", "pattern:DDD|orb_long|09:30": "live"}
+    assert all(r["origin"] == "live" for r in run(alerts=alerts[1:], trade_rows=pats)["rows"])     # no map: patterns default live

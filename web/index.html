@@ -10,7 +10,7 @@
 <script src="desk.js?v=ec9593b"></script>
 <script src="watch.js?v=052fe9a"></script>
 <script src="trades.js?v=5e3d8fa"></script>
-<script src="alarms.js?v=c29e933"></script>
+<script src="alarms.js?v=34a84fd"></script>
 <style>
 /* Layout: control strip → sector/breadth rail → bull/bear card grid → detail panel with canvas chart. Terminal-style data UI. */
 :root{
@@ -1506,21 +1506,14 @@ function alarmBadge(){
 }
 document.addEventListener('visibilitychange', () => { if(!document.hidden && S.view === 'alarms' && S.alarms){ alarmUnread(); renderAlarms(); } });
 function alarmHeader(res){
-  const b = res.breadth, ix = res.index, secs = xs => (xs || []).map(([k, v]) => `${esc(k)} <span class="${v >= 0 ? 'up' : 'dn'}">${aPct(v)}</span>`).join(' ');
+  const b = res.breadth, ix = res.index, secs = xs => (xs || []).map(([k, v]) => `${esc(k)} <span class="${v == null ? 'mut' : v >= 0 ? 'up' : 'dn'}">${aPct(v)}</span>`).join(' ');
   const br = b ? `BREADTH <b class="up">${b.bulls} ▲</b> / <b class="dn">${b.bears} ▼</b> · up ${secs(b.up) || '—'} · down ${secs(b.down) || '—'}` : 'BREADTH —';
   const nx = ix && ix.ltp != null ? `${esc(ix.symbol || 'NIFTY 50')} <b>${fmt(ix.ltp, 0)}</b> <span class="${ix.pct >= 0 ? 'up' : 'dn'}">${aPct(ix.pct)}</span>` : 'NIFTY 50 —';
   return `<span>${br}</span><span class="sep">|</span><span>${nx}</span><span class="sep">|</span><span>Telegram: <b class="${res.telegram === 'on' ? 'up' : 'am'}">${esc(res.telegram || '—')}</b></span><span class="at">as of <b>${esc(res.at || '—')}</b>${res.live ? ' · live' : ''}</span>`;
 }
-// The board's rows say alert or pattern; the day's alert list says live or replay, so a rule alert computed on replay reads "replay".
-let aSrc = {arr: null, map: null};
-function alarmDelivery(r){
-  if(r.delivery || !String(r.ref).startsWith('alert:')) return AK.deliveryMark(r);
-  if(aSrc.arr !== S.alerts){ aSrc = {arr: S.alerts, map: new Map((S.alerts || []).map(a => [a.id, a.source]))}; }
-  return AK.deliveryMark(aSrc.map.get(+String(r.ref).slice(6)) === 'replay' ? {...r, source: 'replay'} : r);
-}
 const aDots = past => { const d = AK.pastDots(past); return d.length ? `<span class="pdots" title="same plan on past sessions, oldest first">${d.map(x => `<i class="p-${x.cls}" title="${esc(x.title)}"></i>`).join('')}</span>` : ''; };
 function alarmRow(c, r){
-  const long = r.side === 'long', brk = aBreak(r), dm = alarmDelivery(r), seen = (S.afresh || {})[c.key];
+  const long = r.side === 'long', brk = aBreak(r), dm = AK.deliveryMark(r), seen = (S.afresh || {})[c.key];
   const fresh = seen != null && String(r.ts) > seen;
   return `<div class="arow${S.asel === r.ref ? ' sel' : ''}${fresh ? ' fresh' : ''}" data-ref="${esc(r.ref)}">
     <span class="s">${esc(r.symbol)} <span class="side ${long ? 'L' : 'S'}">${long ? 'L' : 'S'}</span>${r.desk ? `<span class="adesk ${esc(r.desk.call)}" title="desk verdict at ${esc(r.desk.at)}">desk ${esc(r.desk.call)}</span>` : ''}${c.key === 'pat' ? `<span class="lab">${esc(r.setup)}</span>` : ''}</span><span class="t">${AK.fmtTime(r.ts)}</span>
@@ -1618,7 +1611,8 @@ function drawAlarmPanel(r, w){
   const words = w ? AK.positionWords(px, w.vwap, w.prev_high, w.prev_low, lad) : [];
   const sector = (w && w.sector) || S.sectorsOf[r.symbol] || '';
   const tl = AK.timelineRows(r.timeline, at);
-  const tiles = w ? `<div class="atile"><div class="k">VWAP</div><div class="v" style="color:var(--vwap)">${fmt(w.vwap)}</div><div class="u ${px >= w.vwap ? 'up' : 'dn'}">${px >= w.vwap ? 'above' : 'below'} by ${fmt(Math.abs(px / w.vwap - 1) * 100)} %</div></div>
+  const vw = w && w.vwap ? `<div class="u ${px >= w.vwap ? 'up' : 'dn'}">${px >= w.vwap ? 'above' : 'below'} by ${fmt(Math.abs(px / w.vwap - 1) * 100)} %</div>` : '<div class="u">—</div>';
+  const tiles = w ? `<div class="atile"><div class="k">VWAP</div><div class="v" style="color:var(--vwap)">${fmt(w.vwap)}</div>${vw}</div>
      <div class="atile"><div class="k">OI vs yesterday</div><div class="v">${aPct(w.oi_pct)}</div><div class="u"><span class="chip ${esc(w.oi_cls)}">${esc(w.oi_label)}</span></div></div>
      <div class="atile"><div class="k">RVOL</div><div class="v">${w.rvol != null ? fmt(w.rvol, 1) + '×' : '—'}</div><div class="u">vs 20-day average</div></div>
      <div class="atile"><div class="k">Day range</div><div id="arange">${aRangeHtml(alarmRange(r.symbol, px))}</div></div>`
