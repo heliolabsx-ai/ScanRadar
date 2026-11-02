@@ -201,7 +201,7 @@ def alerts_for_day(con, day: dt.date) -> list[dict]:
     return [{"id": r["id"], "ts": r["ts"].isoformat(), "scan": r["scan"], "symbol": r["symbol"], "price": r["price"],
              "tf": r["payload"].get("tf"), "source": r["source"], "side": r["payload"].get("side"),
              "stop": r["payload"].get("stop"), "target": r["payload"].get("target"),
-             "outcome": r["payload"].get("outcome")} for r in rows]
+             "outcome": r["payload"].get("outcome"), "story": r["payload"].get("story")} for r in rows]
 
 
 def recent_alerts(con, limit: int) -> list[dict]:

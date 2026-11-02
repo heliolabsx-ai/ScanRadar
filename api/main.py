@@ -12,6 +12,7 @@ import desk
 import live_desk as ld
 import live_trades as lt
 import trades as tr
+import alarms as alm
 import watch as wt
 import screens as sc
 from core.patterns import detector_hash
@@ -593,6 +594,35 @@ async def trades_day(day: str, at: str):
     if pending:
         await _kick_prepare(d)
     return {**tr.trades_view(rows, settings, d, at_dt.strftime("%H:%M")), "pending": pending}
+
+
+# ---------- Alarms board ----------
+@app.get("/api/alarms")
+async def alarms_board(day: str, at: str | None = None):
+    now = dt.datetime.now(IST)
+    try:
+        d = dt.date.fromisoformat(day)
+    except ValueError:
+        raise HTTPException(400, "day must be YYYY-MM-DD")
+    live = at is None and d == now.date()
+    try:
+        if live:
+            at_dt = now
+        else:
+            d, at_dt = rp.parse_replay_args(day, at or "15:30")
+            rp.assert_not_future(at_dt, now)
+    except rp.ReplayError as e:
+        raise HTTPException(e.status_code, e.detail)
+    settled = rp.day_is_settled(d, now)
+
+    def q():
+        with connect() as con:
+            need = settled and (al.replay_needed(con, d, al.scan_files()) or al.outcomes_needed(con, d))
+            return bool(need), alm.board(con, ld.desk_redis(), d, at_dt, live, bool(need))
+    need, body = await asyncio.get_running_loop().run_in_executor(None, q)
+    if need:
+        await _kick_prepare(d)
+    return json.loads(json.dumps(body, default=float))
 
 
 @app.get("/api/trades/settings")
