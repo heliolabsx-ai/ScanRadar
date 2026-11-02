@@ -55,6 +55,9 @@ def test_parser_accepts_index_flags():
     from backfill import build_parser
     a = build_parser().parse_args(["--index", "--index-only", "--days", "3"])
     assert a.index and a.index_only and a.days == 3
+    from backfill import parse_args
+    assert parse_args(["--index-only"]).index is True       # implies --index
+    assert parse_args([]).index is False
     b = build_parser().parse_args([])
     assert not b.index and not b.index_only
 

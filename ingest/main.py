@@ -130,6 +130,8 @@ def on_ticks(ws, ticks):
     if index_ticks:                      # index ticks never feed the watchdog: a dead stock feed must still read as silent
         with lock:
             for t in index_ticks:
+                if t.get("last_price") is None:
+                    continue             # a malformed index tick must not drop the batch's stock ticks
                 index.on_tick(t, now)    # outside the session this only updates last_price
     if not ticks:
         return
@@ -216,28 +218,13 @@ def flush():
     rows, live = [], {}
     with lock:
         index_rows = [(c.ts, INDEX_SYMBOL, c.open, c.high, c.low, c.close) for c in index.pop_closed()]
-        index_ltp = index.last_price
+        index_ltp, index_ts = index.last_price, index.last_tick_at
         for s in symbols.values():
             for c in s.pop_closed():
                 rows.append((c.ts, s.symbol, c.open, c.high, c.low, c.close, c.volume, c.oi, c.delta))
             if s.cur:
                 live[s.symbol] = {"ts": s.cur.ts.isoformat(), "o": s.cur.open, "h": s.cur.high, "l": s.cur.low,
                                   "c": s.cur.close, "v": s.cur.volume, "oi": s.cur.oi, "d": s.cur.delta}
-    if index_rows:
-        with psycopg.connect(DB) as con, con.cursor() as cur:
-            cur.executemany("""INSERT INTO index_1m(ts,symbol,open,high,low,close)
-                               VALUES(%s,%s,%s,%s,%s,%s) ON CONFLICT DO NOTHING""", index_rows)
-            con.commit()
-    if index_ltp:
-        prev = R.get(f"index:{INDEX_SYMBOL}:prev_close")
-        try:
-            prev = float(prev) if prev else None
-        except ValueError:
-            prev = None
-        R.set(f"index:{INDEX_SYMBOL}", json.dumps({
-            "ltp": index_ltp, "prev_close": prev,
-            "pct": round((index_ltp / prev - 1) * 100, 4) if prev else None,
-            "ts": dt.datetime.now(IST).isoformat()}))
     if rows:
         with psycopg.connect(DB) as con, con.cursor() as cur:
             cur.executemany("""INSERT INTO candles_1m(ts,symbol,open,high,low,close,volume,oi,delta)
@@ -250,6 +237,25 @@ def flush():
         pipe.set("live:ts", dt.datetime.now(IST).isoformat())
         pipe.publish("candles:closed", json.dumps([r[1] for r in rows]))
         pipe.execute()
+    try:                                  # the index is never worth a stock candle: never fatal
+        if index_rows:
+            with psycopg.connect(DB) as con, con.cursor() as cur:
+                cur.executemany("""INSERT INTO index_1m(ts,symbol,open,high,low,close)
+                                   VALUES(%s,%s,%s,%s,%s,%s) ON CONFLICT DO NOTHING""", index_rows)
+                con.commit()
+        if index_ltp and index_ts:
+            prev = R.get(f"index:{INDEX_SYMBOL}:prev_close")
+            try:
+                prev = float(prev) if prev else None
+            except ValueError:
+                prev = None
+            # ts = the last index tick (not the flush), and the key expires: a stalled index feed reads as no index
+            R.set(f"index:{INDEX_SYMBOL}", json.dumps({
+                "ltp": index_ltp, "prev_close": prev,
+                "pct": round((index_ltp / prev - 1) * 100, 4) if prev else None,
+                "ts": index_ts.isoformat()}), ex=1800)
+    except Exception as e:  # noqa: BLE001
+        log.warning("index flush failed: %s", e)
     log.info("flush: %d candles persisted, %d live, %d ticks so far", len(rows), len(live), ticks_seen)
     watchdog()
 

@@ -76,12 +76,16 @@ class IndexState:
     A tick outside 09:15 <= t < 15:30 only updates last_price."""
     symbol: str = INDEX_SYMBOL
     last_price: float = 0.0
+    last_tick_at: dt.datetime | None = None
     cur: Candle | None = None
     closed: list = field(default_factory=list)
 
     def on_tick(self, tick: dict, now: dt.datetime) -> None:
-        price = tick["last_price"]
+        price = tick.get("last_price")
+        if price is None:
+            return
         self.last_price = price
+        self.last_tick_at = now
         if not (_OPEN <= now.time() < _CLOSE):
             return
         minute = now.replace(second=0, microsecond=0)

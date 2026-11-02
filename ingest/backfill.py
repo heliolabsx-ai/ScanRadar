@@ -96,8 +96,15 @@ def build_parser() -> argparse.ArgumentParser:
     return ap
 
 
-def main(argv=None) -> int:
+def parse_args(argv=None) -> argparse.Namespace:
     args = build_parser().parse_args(argv)
+    if args.index_only:
+        args.index = True            # --index-only alone must never fall through to the full stock backfill
+    return args
+
+
+def main(argv=None) -> int:
+    args = parse_args(argv)
 
     import redis, psycopg
     from kiteconnect import KiteConnect

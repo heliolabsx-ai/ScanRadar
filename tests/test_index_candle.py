@@ -53,3 +53,12 @@ def test_finalize_moves_the_forming_candle():
     s.finalize()
     assert s.cur is None
     assert [c.ts for c in s.pop_closed()] == [at(15, 29)]
+
+
+def test_last_tick_at_and_malformed_tick():
+    s = IndexState()
+    s.on_tick({"last_price": 100.0}, at(9, 20, 10))
+    s.on_tick({}, at(9, 20, 40))                      # no last_price: ignored, not a crash
+    s.on_tick({"last_price": None}, at(9, 20, 50))
+    assert s.last_price == 100.0 and s.last_tick_at == at(9, 20, 10)
+    assert s.cur.close == 100.0
