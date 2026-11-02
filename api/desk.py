@@ -255,10 +255,10 @@ def telegram_text(v: dict) -> str:
             + [WORDS.get(odds.get("verdict"), odds.get("verdict") or "")]
         ticket += "\nOdds: " + " · ".join(p for p in parts if p)
     if gate and gate.get("state") == "BLOCK":
-        ticket += "\nGate: BLOCK" + (f" — {gate['reason']}" if gate.get("reason") else "")
-    reasons = " · ".join(f"{MARK[r['mark']]} {r['text']}" for r in o["reasons"])
+        ticket += "\nGate: BLOCK" + (f" — {html.escape(gate['reason'])}" if gate.get("reason") else "")
+    reasons = " · ".join(f"{MARK[r['mark']]} {html.escape(r['text'])}" for r in o["reasons"])
     extra = f"\nBook half at {o['book_half_at']:,.2f}" if o.get("book_half_at") else ""
-    return f"{head}\n{ticket}\n{reasons}\nExit: {o['exit_rule']}{extra}\n{_hhmm(v['ts'])} · scanradar.tech"
+    return f"{head}\n{ticket}\n{reasons}\nExit: {html.escape(o['exit_rule'])}{extra}\n{_hhmm(v['ts'])} · scanradar.tech"
 
 
 # ---------- the call ----------

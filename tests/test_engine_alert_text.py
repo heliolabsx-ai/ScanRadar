@@ -18,13 +18,13 @@ def test_fade_text_has_the_side_word_and_the_entry_line():
     t = alert_text(scan("PDH_fade"), "MAXHEALTH", 864.20, lv, st, dt.datetime(2026, 10, 30, 15, 10, tzinfo=IST))
     assert t.splitlines() == ["<b>PDH fade · SELL</b>",
                               "MAXHEALTH broke above PDH 866.45 at 15:00, ran to 873.90 (+0.9 %), first 5m close back below at 15:10.",
-                              "entry ₹864.20 · stop ₹873.90 (run high) · target ₹851.15 (prev close) · R:R 1:1.3",
+                              "entry ₹864.20 · stop ₹873.90 (day high) · target ₹851.15 (prev close) · R:R 1:1.3",
                               "15:10  ·  scanradar.tech"]
     st = {"line": 1500.0, "break_at": "09:30", "run_px": 1480.0, "run_pct": -1.3}
     t = alert_text(scan("PDL_fade"), "M&M", 1502.0, {"stop": 1480.0, "target": 1530.0, "basis": "scan+rr"}, st,
                    dt.datetime(2026, 10, 30, 9, 45, tzinfo=IST))
     assert t.startswith("<b>PDL fade · BUY</b>\nM&amp;M broke below PDL 1,500.00")
-    assert "stop ₹1,480.00 (run low) · target ₹1,530.00 · R:R 1:1.3" in t      # fallback target: not labelled prev close
+    assert "stop ₹1,480.00 (day low) · target ₹1,530.00 · R:R 1:1.3" in t      # fallback target: not labelled prev close
 
 
 def test_break_note_has_no_side_word_and_no_levels():

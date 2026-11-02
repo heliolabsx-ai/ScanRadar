@@ -4,7 +4,7 @@ Every minute at ~:20 s, in a worker thread: a trade row (odds, size in cash shar
 gate) for every new trigger the desk would judge, settlement of the open rows, then the
 deferred Telegram queue (`tg:defer:{day}`, filled by the engine's rule alerts and the
 pattern loop) goes out with the row's odds line appended, then the desk's minute."""
-import os, json, logging, asyncio, datetime as dt
+import os, json, html, logging, asyncio, datetime as dt
 import desk
 import live_desk
 import alerts as al
@@ -47,7 +47,7 @@ def odds_line(row: dict | None) -> str:
         parts.append(f"{size['shares']} sh")
     g = row.get("gate")
     if g == "BLOCK":
-        parts.append(f"BLOCK: {row['gate_reason']}" if row.get("gate_reason") else "BLOCK")
+        parts.append(f"BLOCK: {html.escape(row['gate_reason'])}" if row.get("gate_reason") else "BLOCK")   # Telegram HTML: M&M
     elif g:
         parts.append(g)
     return " · ".join(p for p in parts if p)

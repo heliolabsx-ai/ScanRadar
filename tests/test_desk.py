@@ -101,9 +101,18 @@ def test_telegram_text_order():
     assert t.splitlines() == ["<b>TAKE 7/10 · TATASTEEL · BUY · double bottom</b>",
                               "Entry 174.90 · Stop 172.35 · Target 177.45 · Size 784 sh",
                               "✓ OI -1.9% between the lows: covering · ✓ Metals +0.6%, stock +1.2% · ! Prev close 176.80 sits before target",
-                              "Exit: 5m close < 174.20 in the next 3 bars", "Book half at 176.80", "10:45 · scanradar.tech"]
+                              "Exit: 5m close &lt; 174.20 in the next 3 bars", "Book half at 176.80", "10:45 · scanradar.tech"]   # Telegram HTML: a bare < is rejected
     rec = _verdict_rec(); rec["context"]["symbol"] = "GVT&D"
     assert desk.telegram_text(rec).splitlines()[0] == "<b>TAKE 7/10 · GVT&amp;D · BUY · double bottom</b>"   # Telegram HTML rejects a bare &
+
+
+def test_telegram_text_escapes_the_models_words_and_the_gate_reason():
+    rec = _verdict_rec({"odds": None, "size": {"shares": 5}, "gate": "BLOCK", "gate_reason": "already in M&M since 10:05"})
+    rec["output"]["reasons"] = [{"mark": "ok", "text": "M&M OI <1% up"}]
+    rec["output"]["exit_rule"] = "5m close < VWAP & below 174.20"
+    lines = desk.telegram_text(rec).splitlines()
+    assert "✓ M&amp;M OI &lt;1% up" in lines and "Exit: 5m close &lt; VWAP &amp; below 174.20" in lines
+    assert "Gate: BLOCK — already in M&amp;M since 10:05" in desk.telegram_text(rec)
 
 
 def test_telegram_text_shows_shares_odds_and_a_blocking_gate():

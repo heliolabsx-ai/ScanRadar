@@ -99,3 +99,30 @@ def test_aggregate_stats_dedups_live_replay_and_tolerates_null():
     ]
     st = aggregate_stats(rows)
     assert st == [{"scan": "s", "fires": 3, "hit_rate": 50.0, "avg_r30": 0.0, "avg_r60": 2.0}]
+
+
+def _scan_dir(tmp_path):
+    import json as _json
+    (tmp_path / "a_good.json").write_text(_json.dumps({"name": "good", "side": "long", "rules": [], "min_rr": 0}))
+    (tmp_path / "b_bad_hours.json").write_text(_json.dumps({"name": "bad hours", "rules": [], "hours": {"from": "11:00", "to": "09:20"}}))
+    (tmp_path / "c_bad_rr.json").write_text(_json.dumps({"name": "bad rr", "rules": [], "min_rr": "x"}))
+    (tmp_path / "d_not_json.json").write_text("{")
+    return tmp_path
+
+
+def test_scan_files_skips_invalid_scans(tmp_path, monkeypatch, caplog):
+    import alerts
+    monkeypatch.setattr(alerts, "SCAN_DIR", str(_scan_dir(tmp_path)))
+    with caplog.at_level("WARNING", logger="alerts"):
+        got = alerts.scan_files()
+    assert [s["name"] for s, _ in got] == ["good"]
+    assert all(f in caplog.text for f in ("b_bad_hours.json", "c_bad_rr.json", "d_not_json.json"))
+
+
+def test_scan_hash_covers_the_alert_schema(tmp_path, monkeypatch):
+    import alerts
+    monkeypatch.setattr(alerts, "SCAN_DIR", str(_scan_dir(tmp_path)))
+    h1 = alerts.scan_files()[0][1]
+    assert h1 == alerts.scan_files()[0][1]                     # stable for the same build
+    monkeypatch.setattr(alerts, "ALERT_SCHEMA", "test-other")
+    assert alerts.scan_files()[0][1] != h1                      # a schema bump invalidates every stored replay row

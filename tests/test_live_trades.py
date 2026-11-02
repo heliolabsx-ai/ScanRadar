@@ -12,6 +12,7 @@ def test_odds_line():
     row = {"odds": {"mc": {"target_pct": 39.4, "stop_pct": 41.5}, "verdict": "coin"}, "size": {"shares": 229}, "gate": "PASS", "gate_reason": ""}
     assert lt.odds_line(row) == "T1 39 % · stop 42 % · coin flip · 229 sh · PASS"
     assert lt.odds_line({**row, "gate": "BLOCK", "gate_reason": "5 trades today"}) == "T1 39 % · stop 42 % · coin flip · 229 sh · BLOCK: 5 trades today"
+    assert lt.odds_line({**row, "gate": "BLOCK", "gate_reason": "already in M&M since 10:05"}).endswith("BLOCK: already in M&amp;M since 10:05")   # Telegram HTML
     assert lt.odds_line({**row, "odds": None}) == "no history · 229 sh · PASS"
     assert lt.odds_line({**row, "gate": None}) == "T1 39 % · stop 42 % · coin flip · 229 sh"
     assert lt.odds_line(None) == ""

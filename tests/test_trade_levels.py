@@ -56,3 +56,12 @@ def test_replay_payload_uses_the_scans_levels():
     assert p["outcome"]["hit"] in ("target", "stop", "none")
     q = _trade_payload("X", d, ref, ts, "long", price, {"side": "long"})
     assert q["levels"] == "pivot"
+
+
+def test_zero_levels_are_unresolved():
+    b = bars([100, 101, 102], highs=[101, 102, 103])
+    # a ref row without prev_close gives 0: a short target of 0 is no target, so the 1.5x fallback applies
+    lv = trade_levels({"side": "short", "trade": {"stop": {"pct": 1.0}, "target": {"series": "prev_day_close"}}}, b, {"prev_day_close": 0}, entry=100.0)
+    assert lv["stop"] == 101.0 and lv["target"] == 98.5 and lv["basis"] == "scan+rr"
+    # a long stop of 0 (missing prev_day_low) is no stop
+    assert trade_levels({"side": "long", "trade": {"stop": {"series": "prev_day_low"}}}, b, {"prev_day_low": 0}, entry=100.0) is None

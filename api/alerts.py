@@ -1,16 +1,18 @@
 """Per-day alerts: live rows written by the engine, replay rows computed here from
 stored candles with core.backtest, and the outcome of each alert once the day is
 over (what a trade taken at the alert did)."""
-import os, json, glob, hashlib, datetime as dt
+import os, json, glob, hashlib, logging, datetime as dt
 import pandas as pd
 from core.analytics import analyse
 from core.asof import view_at
-from core.rules import resample, trade_levels, continuous, join_sessions, story
+from core.rules import resample, trade_levels, continuous, join_sessions, story, validate_scan
 from core.backtest import fires, outcome, prev_bars
 
 from replay import IST, SETTLED, day_is_settled  # noqa: F401  (re-exported for tests)
 
 SCAN_DIR = os.environ.get("SCAN_DIR", "/app/scans")
+ALERT_SCHEMA = "2"      # bump when the code that builds replay rows changes: every stored row's scan hash then mismatches and recomputes
+log = logging.getLogger("alerts")
 
 
 def ist_day_bounds(day: dt.date) -> tuple[dt.datetime, dt.datetime]:
@@ -19,14 +21,19 @@ def ist_day_bounds(day: dt.date) -> tuple[dt.datetime, dt.datetime]:
 
 
 def scan_files() -> list[tuple[dict, str]]:
+    """(scan, hash) per valid `scans/*.json`; the hash covers ALERT_SCHEMA and the file bytes.
+    A file that does not parse or fails core.rules.validate_scan is logged and skipped (as the engine does)."""
     out = []
     for p in sorted(glob.glob(os.path.join(SCAN_DIR, "*.json"))):
-        with open(p, "rb") as f:
-            b = f.read()
         try:
-            out.append((json.loads(b), hashlib.sha256(b).hexdigest()))
-        except ValueError:
+            with open(p, "rb") as f:
+                b = f.read()
+            sc = json.loads(b)
+            validate_scan(sc)
+        except (OSError, ValueError) as e:
+            log.warning("bad scan %s: %s", p, e)
             continue
+        out.append((sc, hashlib.sha256(ALERT_SCHEMA.encode() + b).hexdigest()))
     return out
 
 

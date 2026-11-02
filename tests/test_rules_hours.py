@@ -40,3 +40,30 @@ def test_windowed_fires_equal_unwindowed_filtered_to_the_window():
     assert got == ref and len(got) > 0
     assert len(fires(plain, d, {}, cooldown_min=1)) > len(got)
     assert fires_naive(windowed, d, {}, cooldown_min=1) == got
+
+
+def test_validate_scan_accepts_good_and_rejects_bad():
+    from core.rules import validate_scan
+    validate_scan({"name": "ok"})
+    validate_scan({"name": "ok", "hours": {"from": "09:20", "to": "11:00"}, "min_rr": 0})
+    validate_scan({"name": "ok", "min_rr": 1.5})
+    for bad in ({"name": "w", "hours": {"from": "11:00", "to": "09:20"}},
+                {"name": "w", "min_rr": "x"}, {"name": "w", "min_rr": -1}, {"name": "w", "min_rr": True}, {"name": "w", "min_rr": None}):
+        with pytest.raises(ValueError, match="w"):
+            validate_scan(bad)
+    with pytest.raises(ValueError):
+        validate_scan([{"name": "w"}])
+
+
+def test_resampler_resamples_each_symbol_once_per_timeframe(monkeypatch):
+    import core.rules as rules
+    d = synthetic_day(seed=3)
+    calls = []
+    real = rules.resample
+    monkeypatch.setattr(rules, "resample", lambda df, tf: calls.append(tf) or real(df, tf))
+    get = rules.resampler({"A": d, "B": d})
+    for _ in range(8):                                   # eight scans
+        for s in ("A", "B"):
+            a5 = get(s, "5m"); get(s, "15m")
+    assert sorted(calls) == ["15m", "15m", "5m", "5m"]
+    pd.testing.assert_frame_equal(a5, real(d, "5m"))     # same bars as resampling directly

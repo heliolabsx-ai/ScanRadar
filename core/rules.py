@@ -46,6 +46,20 @@ def resample(df1m: pd.DataFrame, tf: str) -> pd.DataFrame:
     return out
 
 
+def resampler(frames: dict):
+    """`get(symbol, tf)` = resample(frames[symbol], tf), computed once per (symbol, tf) for the life of this
+    resampler (the engine makes one per run, so every scan on a timeframe shares the symbol's bars).
+    The frames it hands out are shared: callers must not mutate them (join_sessions only sets session_start=0)."""
+    cache: dict = {}
+
+    def get(symbol: str, tf: str) -> pd.DataFrame:
+        key = (symbol, tf)
+        if key not in cache:
+            cache[key] = resample(frames[symbol], tf)
+        return cache[key]
+    return get
+
+
 DAY_SERIES = {"day_low": ("low", "min"), "day_high": ("high", "max")}
 
 
@@ -86,6 +100,18 @@ def in_hours(scan: dict, ts, window=None) -> bool:
 def min_rr(scan: dict, default: float) -> float:
     """The scan's own R:R floor when it sets one (0 allowed), else `default`."""
     return float(scan["min_rr"]) if "min_rr" in scan else float(default)
+
+
+def validate_scan(scan: dict) -> None:
+    """Raise ValueError when a scan cannot run: a malformed `hours` block, or a `min_rr` that is not a
+    non-negative number. The engine (load_scans) and the API (scan_files) both drop such a scan at load."""
+    if not isinstance(scan, dict):
+        raise ValueError("a scan file must hold one JSON object")
+    hours_window(scan)
+    if "min_rr" in scan:
+        x = scan["min_rr"]
+        if not (isinstance(x, (int, float)) and not isinstance(x, bool) and x >= 0):
+            raise ValueError(f"scan {scan.get('name', '?')}: min_rr must be a non-negative number, got {x!r}")
 
 
 def join_sessions(prev: pd.DataFrame | None, today: pd.DataFrame) -> pd.DataFrame:
@@ -166,6 +192,8 @@ def trade_levels(scan: dict, bars: pd.DataFrame, ctx: dict, entry: float) -> dic
         stop = float(_level(t["stop"], bars, ctx, entry, side))
     except (IndexError, KeyError, TypeError, ValueError):
         return None
+    if not stop > 0:                  # a missing ref value (0) is no level
+        return None
     risk = (entry - stop) if side == "long" else (stop - entry)
     if not (risk > entry * MIN_RISK):
         return None
@@ -179,7 +207,7 @@ def trade_levels(scan: dict, bars: pd.DataFrame, ctx: dict, entry: float) -> dic
             target = float(_level(tspec, bars, ctx, entry, "short" if side == "long" else "long"))   # a pct target lies on the far side
     except (IndexError, KeyError, TypeError, ValueError):
         target = None
-    if target is None or (target <= entry if side == "long" else target >= entry):
+    if target is None or not target > 0 or (target <= entry if side == "long" else target >= entry):
         target = entry + 1.5 * risk if side == "long" else entry - 1.5 * risk
         basis = "scan+rr"
     return {"stop": stop, "target": target, "basis": basis}
@@ -238,7 +266,7 @@ def alert_text(scan: dict, symbol: str, price: float, lv: dict | None, st: dict 
         lvl = ""
         if lv and scan.get("trade"):
             t = scan["trade"]
-            stop_why = {"day_high": " (run high)", "day_low": " (run low)"}.get((t.get("stop") or {}).get("series"), "")
+            stop_why = {"day_high": " (day high)", "day_low": " (day low)"}.get((t.get("stop") or {}).get("series"), "")
             tgt_why = " (prev close)" if lv.get("basis") == "scan" and (t.get("target") or {}).get("series") == "prev_day_close" else ""
             lvl = (f"\nentry ₹{price:,.2f} · stop ₹{lv['stop']:,.2f}{stop_why} · target ₹{lv['target']:,.2f}{tgt_why}"
                    f" · R:R 1:{rr:.1f}")

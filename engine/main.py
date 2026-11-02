@@ -7,7 +7,7 @@ ScanRadar engine: every minute (on the ingest's 'candles:closed' signal)
 import os, json, glob, time, logging, datetime as dt
 import redis, psycopg, pandas as pd
 from analytics import analyse, score
-from rules import resample, evaluate, trade_levels, continuous, join_sessions, in_hours, hours_window, story, alert_text
+from rules import resample, resampler, evaluate, trade_levels, continuous, join_sessions, in_hours, hours_window, validate_scan, story, alert_text
 from notify import telegram
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
@@ -84,7 +84,7 @@ def load_scans() -> list[dict]:
         try:
             with open(p) as f:
                 sc = json.load(f)
-            hours_window(sc)                  # a malformed hours block drops this scan here, not every run
+            validate_scan(sc)                 # a malformed hours block or min_rr drops this scan here, not every run
             sc["_file"] = os.path.basename(p); out.append(sc)
         except Exception as e:  # noqa
             log.warning("bad scan %s: %s", p, e)
@@ -126,6 +126,7 @@ def run_once():
     scans = load_scans()
     now = dt.datetime.now(IST)
     fired = []
+    bars_of = resampler(frames)                 # each symbol resampled once per timeframe per run, not once per scan
     with psycopg.connect(DB) as con, con.cursor() as cur:
         cur.executemany("INSERT INTO scan_snapshots(ts,symbol,score,rank,payload) VALUES(%s,%s,%s,%s,%s) ON CONFLICT DO NOTHING",
                         [(now, a["symbol"], a["score"], a["rank"], json.dumps({k: a[k] for k in ("pct", "oi_pct", "oi_label", "rvol", "rr", "picked")}, default=float)) for a in rows])
@@ -136,8 +137,8 @@ def run_once():
             tf = sc.get("timeframe", "5m")
             cooldown = int(sc.get("alert", {}).get("cooldown_min", 30))
             prev = prev_session_bars(tf) if continuous(sc) else {}
-            for s, df in frames.items():
-                bars = join_sessions(prev.get(s), resample(df, tf))
+            for s in frames:
+                bars = join_sessions(prev.get(s), bars_of(s, tf))
                 ref = refs.get(s, {})
                 ctx = {"prev_day_close": ref.get("prev_close", 0), "prev_day_high": ref.get("prev_high", 0),
                        "prev_day_low": ref.get("prev_low", 0)}
