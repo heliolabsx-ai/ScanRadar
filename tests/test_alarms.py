@@ -97,6 +97,17 @@ def test_join_trade_desk_delivery():
     assert (r["shares"], r["risk_inr"], r["gate"], r["rr"]) == (120, 240.0, "PASS", 1.5)
     assert r["desk"] == {"call": "take", "confidence": 72, "at": "09:36"}
     assert r["delivery"] == dl["alert:7"]
+    # as of 09:35 (before the 09:35:04 send) the row has not rung yet
+    b = run(alerts=[alert(7, "PDH fade", "AAA", "09:35")], trade_rows=[t], deliveries=dl, at=T("09:35"))
+    assert b["rows"][0]["delivery"] is None
+
+
+def test_null_price_and_confidence_do_not_break_the_board():
+    t = trade("alert:5", "AAA", "09:35", entry=None, stop=None, target=None, rr=None)
+    desk = [{"ref": "alert:5", "ts": iso("09:36"), "symbol": "AAA", "output": {"call": "wait", "confidence": None}}]
+    b = run(alerts=[alert(5, "PDH fade", "AAA", "09:35", price=None)], trade_rows=[t], desk_calls=desk)
+    assert [e["text"] for e in b["rows"][0]["timeline"]] == ["PDH fade · SELL at —", "desk WAIT"]
+    assert b["rows"][0]["rr"] is None
 
 
 def test_timeline_order_for_one_symbol():

@@ -71,6 +71,11 @@ def _hhmm(s) -> str | None:
     return s[:5]
 
 
+def _px(x) -> str:
+    """A price for an event text; a missing number reads as a dash (alerts.price and a trade row's entry are nullable)."""
+    return "—" if x is None else f"{x:,.2f}"
+
+
 def _sell(side) -> str:
     return "SELL" if side == "short" else "BUY"
 
@@ -99,10 +104,11 @@ def _event_text(row: dict, col_key: str) -> tuple[str, str]:
     if col_key in _BREAK_TEXT:
         word, st = _BREAK_TEXT[col_key], row.get("story")
         if st and st.get("line") is not None:
-            return "break", (f"{word} {st['line']:,.2f} at {_hhmm(st.get('break_at'))} · "
-                             f"ran to {st['run_px']:,.2f} ({st['run_pct']:+.1f} %)")
+            pct = st.get("run_pct")
+            return "break", (f"{word} {_px(st['line'])} at {_hhmm(st.get('break_at'))} · "
+                             f"ran to {_px(st.get('run_px'))} ({'—' if pct is None else f'{pct:+.1f}'} %)")
         return "break", word
-    return "alarm", f"{row['setup']} · {_sell(row['side'])} at {row['price']:,.2f}"
+    return "alarm", f"{row['setup']} · {_sell(row['side'])} at {_px(row['price'])}"
 
 
 def assemble(day: dt.date, at: dt.datetime, *, alerts, trade_rows, desk_calls, deliveries, board_scans, scan_sides,
@@ -157,11 +163,11 @@ def assemble(day: dt.date, at: dt.datetime, *, alerts, trade_rows, desk_calls, d
         ev.append({"at": _hhmm(st["break_at"]) if st and st.get("break_at") else _hhmm(r["ts"]), "kind": kind, "text": text})
         v = verdict_by_ref.get(r["ref"])
         if v:
-            ev.append({"at": v["at"], "kind": "desk", "text": f"desk {str(v['call']).upper()} {v['confidence']}"})
+            ev.append({"at": v["at"], "kind": "desk", "text": " ".join(["desk", str(v["call"]).upper()] + ([] if v["confidence"] is None else [str(v["confidence"])]))})
         o = r["outcome"]
         if o and o.get("exit_px") is not None:
             word = {"target": "target", "stop": "stop"}.get(o.get("hit"), "flat")
-            ev.append({"at": _hhmm(o["settled_at"]), "kind": "exit", "text": f"{word} at {o['exit_px']:,.2f}"})
+            ev.append({"at": _hhmm(o["settled_at"]), "kind": "exit", "text": f"{word} at {_px(o['exit_px'])}"})
     for sym, ev in events.items():
         ev.sort(key=lambda e: (e["at"], _KIND_ORDER[e["kind"]]))
     for r in rows:
@@ -179,6 +185,9 @@ def _row(ref, col, ts, symbol, side, setup, source, price, stop, target, tr, sto
     odds = (tr or {}).get("odds") or None
     size = (tr or {}).get("size") or {}
     v = verdict_by_ref.get(ref)
+    d = deliveries.get(ref)
+    if d is not None and (_dt(d.get("sent_at")) is None or _dt(d["sent_at"]) > at):
+        d = None                                        # not sent yet as of `at`: a replay at the fire minute must not show "sent"
     return {"ref": ref, "col": col, "ts": ts, "symbol": symbol, "side": side, "setup": setup, "source": source,
             "price": price, "stop": stop, "target": target,
             "rr": tr["rr"] if tr and tr.get("rr") is not None else _rr(price, stop, target),
@@ -186,7 +195,7 @@ def _row(ref, col, ts, symbol, side, setup, source, price, stop, target, tr, sto
             "shares": size.get("shares"), "risk_inr": size.get("risk_inr"),
             "gate": (tr or {}).get("gate"), "gate_reason": (tr or {}).get("gate_reason"),
             "desk": {k: v[k] for k in ("call", "confidence", "at")} if v else None,
-            "outcome": _outcome(tr, at), "story": story, "delivery": deliveries.get(ref)}
+            "outcome": _outcome(tr, at), "story": story, "delivery": d}
 
 
 def break_record(rows: list[dict], break_scan: str, fade_scan: str, days: int) -> dict | None:
@@ -231,22 +240,30 @@ def scan_sides() -> dict[str, str]:
     return {s["name"]: s.get("side") for s, _ in al.scan_files()}
 
 
+_REC: dict = {}          # {"until": datetime, "val": records dict}; the board asks on every slider step and refresh
+
+
 def records(con) -> dict[str, dict]:
     """Column key -> its record dict (numbers + `text`): the scans from the rail's stats, the break columns from the PD alert rows,
-    Patterns from the pooled T1 hit rate, all over the last RECORD_DAYS sessions."""
+    Patterns from the pooled T1 hit rate, all over the last RECORD_DAYS sessions. Cached for 10 minutes; the scan and pattern
+    stats come from `live_desk.setup_stats` (its own 10-minute cache)."""
     import alerts as al
-    import patterns as pt
+    import live_desk as ld
+    now = dt.datetime.now(IST)
+    if _REC.get("until") and _REC["until"] > now:
+        return _REC["val"]
+    pat, scan = ld.setup_stats(con, now)
     out: dict[str, dict] = {}
     key_of = {name: v[0] for name, v in _FIXED.items()}
-    for s in al.scan_stats(con, RECORD_DAYS):
-        key = key_of.get(s["scan"], f"scan:{s['scan']}")
+    for name, s in scan.items():
+        key = key_of.get(name, f"scan:{name}")
         if key in _BREAK_TEXT:
             continue
         out[key] = {"n": s["fires"], "hit": s["hit_rate"], "avg_r": s["avg_r60"], "days": RECORD_DAYS}
-    pooled = _pooled_t1(pt.stats(con, RECORD_DAYS))
+    pooled = _pooled_t1(pat)
     if pooled:
         out["pat"] = {**pooled, "days": RECORD_DAYS}
-    since = dt.datetime.now(IST) - dt.timedelta(days=int(RECORD_DAYS * 7 / 5) + 3)
+    since = now - dt.timedelta(days=int(RECORD_DAYS * 7 / 5) + 3)
     with con.cursor() as cur:
         cur.execute("SELECT ts, scan, symbol, source FROM alerts WHERE ts >= %s AND scan = ANY(%s)", (since, list(_FIXED)))
         rows = [{"ts": ts.astimezone(IST), "scan": sc, "symbol": sym, "source": src} for ts, sc, sym, src in cur.fetchall()]
@@ -257,6 +274,7 @@ def records(con) -> dict[str, dict]:
             out[_FIXED[brk][0]] = rec
     for key, rec in out.items():
         rec["text"] = record_text(key, rec)
+    _REC.update(until=now + dt.timedelta(minutes=10), val=out)
     return out
 
 
