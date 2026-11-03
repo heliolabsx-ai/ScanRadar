@@ -1,0 +1,78 @@
+{
+  "name": "Pin day low",
+  "side": "long",
+  "timeframe": "15m",
+  "match": "all",
+  "rules": [
+    {
+      "lhs": {
+        "off": 1,
+        "field": "range"
+      },
+      "op": ">",
+      "rhs": {
+        "off": 1,
+        "field": "body",
+        "mul": 3
+      }
+    },
+    {
+      "lhs": {
+        "off": 1,
+        "field": "body"
+      },
+      "op": ">",
+      "rhs": {
+        "number": 0
+      }
+    },
+    {
+      "lhs": {
+        "off": 1,
+        "field": "upper_wick"
+      },
+      "op": "==",
+      "rhs": {
+        "number": 0
+      }
+    },
+    {
+      "lhs": {
+        "series": "day_low"
+      },
+      "op": "==",
+      "rhs": {
+        "off": 1,
+        "field": "low"
+      }
+    },
+    {
+      "lhs": {
+        "off": 0,
+        "field": "close"
+      },
+      "op": ">",
+      "rhs": {
+        "number": 1000
+      }
+    }
+  ],
+  "hours": {
+    "from": "09:45",
+    "to": "15:00"
+  },
+  "alert": {
+    "telegram": true,
+    "cooldown_min": 400
+  },
+  "trade": {
+    "stop": {
+      "off": 1,
+      "field": "low"
+    },
+    "target": {
+      "rr": 2.0
+    }
+  },
+  "note": "Chartink translation, 4 Nov 2026 (Saurabh's 15-minute pin-bar scan, groups 2 and 4 folded into one): the last closed 15m bar's range is more than 3x its body, it has no upper wick (a green bar closing at its high, or a red bar opening at its high) and its low is the day's low: a long lower wick rejected at the low of the day. Chartink's [0] (forming bar) became off 1 (last closed bar), plus 09:45-15:00, price > 1000 and one alarm per stock per day, because the literal version rang 80-111 times a day. PARKED in scans/parked/ (the engine and API read only scans/*.json): move it up one folder to switch it on. Backtest 20 sessions (6 Oct-3 Nov 2026), stop = the bar's low, target 1:2, before costs. As Chartink has it (forming bar, all day, any price): 111 fires/day, target first 29 %, stop first 65 %, -0.10 R a trade, -14,460 INR at 1,000 INR max loss. This closed-bar version: 5.5 fires/day, 33 % target, -0.00 R, -2,108 INR; the 10:00 and 12:00 hours were mildly positive (38 % and 36 %), the rest negative. Parked: break-even at best."
+}

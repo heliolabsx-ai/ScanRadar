@@ -4,11 +4,18 @@ import pandas as pd
 from core.rules import evaluate, _resolve, validate_scan, trade_levels
 
 
-def bars(rows):
-    """rows = [(open, high, low, close), ...] as 15-minute bars from 09:15."""
+def bars(rows, forming=None):
+    """rows = [(open, high, low, close), ...] as 15-minute bars from 09:15; the parked pin scans read the last closed bar
+    (off 1), so the scan tests append a flat forming bar (inside the pin bar's range, above the price floor) after it."""
+    if forming is not None:
+        rows = list(rows) + [forming]
     o, h, l, c = zip(*rows)
     return pd.DataFrame({"ts": pd.date_range("2026-11-03 09:15", periods=len(rows), freq="15min", tz="Asia/Kolkata"),
                          "open": o, "high": h, "low": l, "close": c, "volume": 1, "oi": 1, "vwap": c})
+
+
+FH = (1050, 1050, 1050, 1050)   # the forming bar the parked short scan sees at off 0: above the 1000 floor, inside the pin bar's range
+FL = (1950, 1950, 1950, 1950)   # the same for the long scan's bars around 1900-2010
 
 
 def test_derived_fields_of_the_offset_bar():
@@ -34,28 +41,29 @@ def _scan(path):
 
 
 def test_pin_day_high_fires_on_a_green_or_red_bar_with_no_lower_wick_at_the_day_high():
-    s = _scan("scans/pin_day_high_short.json")
-    green = bars([(100, 101, 99, 100.5), (100.5, 110, 100.5, 102)])      # open = low, body 1.5, range 9.5
-    red = bars([(100, 101, 99, 100.5), (102, 110, 100.5, 100.5)])        # close = low, body 1.5
+    s = _scan("scans/parked/pin_day_high_short.json")
+    green = bars([(1000, 1010, 990, 1005), (1005, 1100, 1005, 1020)], FH)   # open = low, body 15, range 95
+    red = bars([(1000, 1010, 990, 1005), (1020, 1100, 1005, 1005)], FH)     # close = low, body 15
     assert evaluate(s, green, {}) is True
     assert evaluate(s, red, {}) is True
-    assert trade_levels(s, green, {}, entry=102)["stop"] == 110
+    assert trade_levels(s, green, {}, entry=1050)["stop"] == 1100
 
 
 def test_pin_day_high_needs_the_day_high_a_small_body_and_no_lower_wick():
-    s = _scan("scans/pin_day_high_short.json")
-    assert evaluate(s, bars([(100, 115, 99, 100.5), (100.5, 110, 100.5, 102)]), {}) is False   # an earlier bar is the day high
-    assert evaluate(s, bars([(100, 101, 99, 100.5), (100.5, 110, 100.5, 108)]), {}) is False   # body 7.5 of range 9.5
-    assert evaluate(s, bars([(100, 101, 99, 100.5), (101, 110, 100.5, 102)]), {}) is False     # lower wick 0.5
-    assert evaluate(s, bars([(100, 101, 99, 100.5), (100.5, 110, 100.5, 100.5)]), {}) is False  # doji: Chartink's green/red both fail
+    s = _scan("scans/parked/pin_day_high_short.json")
+    assert evaluate(s, bars([(1000, 1150, 990, 1005), (1005, 1100, 1005, 1020)], FH), {}) is False   # an earlier bar is the day high
+    assert evaluate(s, bars([(1000, 1010, 990, 1005), (1005, 1100, 1005, 1080)], FH), {}) is False   # body 75 of range 95
+    assert evaluate(s, bars([(1000, 1010, 990, 1005), (1010, 1100, 1005, 1020)], FH), {}) is False   # lower wick 5
+    assert evaluate(s, bars([(1000, 1010, 990, 1005), (1005, 1100, 1005, 1005)], FH), {}) is False   # doji: Chartink's green/red both fail
+    assert evaluate(s, bars([(1000, 1010, 990, 1005), (1005, 1100, 1005, 1020)], (900, 900, 900, 900)), {}) is False  # price floor 1000
 
 
 def test_pin_day_low_is_the_mirror():
-    s = _scan("scans/pin_day_low_long.json")
-    green = bars([(100, 101, 99, 100.5), (97, 99, 90, 99)])              # close = high, body 2, range 9
-    red = bars([(100, 101, 99, 100.5), (99, 99, 90, 97.5)])              # open = high, body 1.5
+    s = _scan("scans/parked/pin_day_low_long.json")
+    green = bars([(2000, 2010, 1990, 2005), (1970, 1990, 1900, 1990)], FL)   # close = high, body 20, range 90
+    red = bars([(2000, 2010, 1990, 2005), (1990, 1990, 1900, 1975)], FL)     # open = high, body 15
     assert evaluate(s, green, {}) is True
     assert evaluate(s, red, {}) is True
-    assert evaluate(s, bars([(100, 101, 85, 100.5), (97, 99, 90, 99)]), {}) is False   # not the day low
-    assert evaluate(s, bars([(100, 101, 99, 100.5), (97, 99.5, 90, 99)]), {}) is False  # upper wick 0.5
-    assert trade_levels(s, green, {}, entry=99)["stop"] == 90
+    assert evaluate(s, bars([(2000, 2010, 1850, 2005), (1970, 1990, 1900, 1990)], FL), {}) is False   # not the day low
+    assert evaluate(s, bars([(2000, 2010, 1990, 2005), (1970, 1995, 1900, 1990)], FL), {}) is False   # upper wick 5
+    assert trade_levels(s, green, {}, entry=1950)["stop"] == 1900

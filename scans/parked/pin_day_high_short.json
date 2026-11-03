@@ -1,0 +1,78 @@
+{
+  "name": "Pin day high",
+  "side": "short",
+  "timeframe": "15m",
+  "match": "all",
+  "rules": [
+    {
+      "lhs": {
+        "off": 1,
+        "field": "range"
+      },
+      "op": ">",
+      "rhs": {
+        "off": 1,
+        "field": "body",
+        "mul": 3
+      }
+    },
+    {
+      "lhs": {
+        "off": 1,
+        "field": "body"
+      },
+      "op": ">",
+      "rhs": {
+        "number": 0
+      }
+    },
+    {
+      "lhs": {
+        "off": 1,
+        "field": "lower_wick"
+      },
+      "op": "==",
+      "rhs": {
+        "number": 0
+      }
+    },
+    {
+      "lhs": {
+        "series": "day_high"
+      },
+      "op": "==",
+      "rhs": {
+        "off": 1,
+        "field": "high"
+      }
+    },
+    {
+      "lhs": {
+        "off": 0,
+        "field": "close"
+      },
+      "op": ">",
+      "rhs": {
+        "number": 1000
+      }
+    }
+  ],
+  "hours": {
+    "from": "09:45",
+    "to": "15:00"
+  },
+  "alert": {
+    "telegram": true,
+    "cooldown_min": 400
+  },
+  "trade": {
+    "stop": {
+      "off": 1,
+      "field": "high"
+    },
+    "target": {
+      "rr": 2.0
+    }
+  },
+  "note": "Chartink translation, 4 Nov 2026 (Saurabh's 15-minute pin-bar scan, groups 1 and 3 folded into one): the last closed 15m bar's range is more than 3x its body, it has no lower wick (a green bar opening at its low, or a red bar closing at its low) and its high is the day's high: a long upper wick rejected at the high of the day. Chartink's [0] (forming bar) became off 1 (last closed bar), plus 09:45-15:00, price > 1000 and one alarm per stock per day, because the literal version rang 80-111 times a day. PARKED in scans/parked/ (the engine and API read only scans/*.json): move it up one folder to switch it on. Backtest 20 sessions (6 Oct-3 Nov 2026), stop = the bar's high, target 1:2, before costs. As Chartink has it (forming bar, all day, any price): 80 fires/day, target first 28 %, stop first 65 %, -0.12 R a trade, -33,222 INR at 1,000 INR max loss; 43 % of fires in the 09:15 hour because the forming bar's range is tiny and its high is the day high by definition. This closed-bar version: 6.8 fires/day, 24 % target, -0.23 R, -5,743 INR; no hour was positive. Parked: not an edge as a stop-at-wick trade."
+}
