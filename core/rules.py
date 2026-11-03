@@ -11,7 +11,9 @@ SIDE is one of:
   {"number": 1000}
   {"series": "prev_day_close"}          (prev_day_close/high/low, vwap)
   {"series": "day_low"}                 today's low (day_high) over the bars seen so far, forming bar included
-  {"off": N, "field": "close"}          N candles back (0 = forming), field open/high/low/close/volume/vwap/oi
+  {"off": N, "field": "close"}          N candles back (0 = forming), field open/high/low/close/volume/vwap/oi,
+                                        or a derived candle field: range (high - low), body (|close - open|),
+                                        upper_wick (high - max(open, close)), lower_wick (min(open, close) - low)
   {"off": N, "field": "close", "sma": 13}   simple moving average of the field over 13 bars ending at that bar
   {"off": N, "field": "close", "ema": 20}   exponential moving average (standard 2/(n+1) smoothing) ending at that bar
 Any side may carry "mul": x to scale the value (Chartink's `Sma(Volume, 20) * 3`).
@@ -30,6 +32,20 @@ import re
 import pandas as pd
 
 OPS = {">": op.gt, "<": op.lt, ">=": op.ge, "<=": op.le, "==": op.eq, "!=": op.ne}
+
+DERIVED = {
+    "range": lambda b: b["high"] - b["low"],
+    "body": lambda b: (b["close"] - b["open"]).abs(),
+    "upper_wick": lambda b: b["high"] - b[["open", "close"]].max(axis=1),
+    "lower_wick": lambda b: b[["open", "close"]].min(axis=1) - b["low"],
+}
+
+
+def _field(bars: pd.DataFrame, field: str) -> pd.Series:
+    """A candle column, or one of the derived candle fields (KeyError for an unknown name, as for a column)."""
+    if field in DERIVED:
+        return DERIVED[field](bars)
+    return bars[field]
 
 
 def resample(df1m: pd.DataFrame, tf: str) -> pd.DataFrame:
@@ -146,13 +162,13 @@ def _value(side: dict, bars: pd.DataFrame, ctx: dict):
         raise IndexError
     if "sma" in side or "ema" in side:
         n = int(side.get("sma") or side.get("ema"))
-        series = bars[side["field"]].iloc[: len(bars) + i + 1]
+        series = _field(bars, side["field"]).iloc[: len(bars) + i + 1]
         if len(series) < n:
             raise IndexError
         if "sma" in side:
             return float(series.iloc[-n:].mean())
         return float(series.ewm(span=n, adjust=False).mean().iloc[-1])
-    return float(bars.iloc[i][side["field"]])
+    return float(_field(bars, side["field"]).iloc[i])
 
 
 def evaluate(scan: dict, bars: pd.DataFrame, ctx: dict) -> bool:

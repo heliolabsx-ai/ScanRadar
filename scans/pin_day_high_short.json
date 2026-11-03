@@ -1,0 +1,18 @@
+{
+  "name": "Pin day high",
+  "side": "short",
+  "timeframe": "15m",
+  "match": "all",
+  "rules": [
+    {"lhs": {"off": 0, "field": "range"},      "op": ">",  "rhs": {"off": 0, "field": "body", "mul": 3}},
+    {"lhs": {"off": 0, "field": "body"},       "op": ">",  "rhs": {"number": 0}},
+    {"lhs": {"off": 0, "field": "lower_wick"}, "op": "==", "rhs": {"number": 0}},
+    {"lhs": {"series": "day_high"},            "op": "==", "rhs": {"off": 0, "field": "high"}}
+  ],
+  "alert": {"telegram": true, "cooldown_min": 30},
+  "trade": {
+    "stop": {"off": 0, "field": "high"},
+    "target": {"rr": 2.0}
+  },
+  "note": "Chartink translation, 4 Nov 2026 (Saurabh's 15-minute pin-bar scan, the two 'at the day's high' groups): the forming 15m bar's range is more than 3x its body, it has no lower wick (a green bar opening at its low, or a red bar closing at its low: Chartink's groups 1 and 3), and its high is the day's high. A long upper wick rejected at the high of the day. Stop = the bar's high (the day high), target at twice the risk."
+}
