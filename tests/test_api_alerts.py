@@ -126,3 +126,35 @@ def test_scan_hash_covers_the_alert_schema(tmp_path, monkeypatch):
     assert h1 == alerts.scan_files()[0][1]                     # stable for the same build
     monkeypatch.setattr(alerts, "ALERT_SCHEMA", "test-other")
     assert alerts.scan_files()[0][1] != h1                      # a schema bump invalidates every stored replay row
+
+
+class _Cur:
+    def __init__(self, recs): self.recs, self.calls = recs, []
+    def execute(self, sql, params=None): self.calls.append((sql, params))
+    def fetchall(self): return self.recs
+    def __enter__(self): return self
+    def __exit__(self, *a): return False
+
+
+class _Con:
+    def __init__(self, recs): self.cur = _Cur(recs)
+    def cursor(self): return self.cur
+
+
+def test_symbol_history_reads_back_two_calendar_days_per_session_and_cuts_to_the_last_days():
+    import alerts as al
+    ist = dt.timezone(dt.timedelta(hours=5, minutes=30))
+    now = dt.datetime(2026, 11, 4, 22, 0, tzinfo=ist)
+    recs = [(9, dt.datetime(2026, 11, 3, 10, 4, tzinfo=ist), "VWAP reclaim long", "JSWENERGY", 503.35, {"side": "long", "outcome": {"hit": "target"}}, "live"),
+            (8, dt.datetime(2026, 11, 3, 10, 4, 30, tzinfo=ist), "VWAP reclaim long", "JSWENERGY", 503.3, {"side": "long"}, "replay"),
+            (7, dt.datetime(2026, 11, 2, 15, 15, tzinfo=ist), "PDH break", "JSWENERGY", 511.0, {"side": "short", "story": {"line": 510.85}}, "live"),
+            (6, dt.datetime(2026, 10, 30, 9, 20, tzinfo=ist), "PDL break", "JSWENERGY", 497.0, {"side": "long"}, "replay")]
+    con = _Con(recs)
+    rows = al.symbol_history(con, "JSWENERGY", 2, now=now)
+    sql, params = con.cur.calls[-1]
+    assert "symbol=%s" in sql and params[0] == "JSWENERGY"
+    assert params[1] == dt.datetime(2026, 10, 31, 0, 0, tzinfo=ist)          # 2 × days calendar days back
+    assert params[2] == dt.datetime(2026, 11, 4, 0, 0, tzinfo=ist)           # strictly before today
+    assert [r["id"] for r in rows] == [9, 7]                                 # replay twin merged, third day cut
+    assert rows[0]["outcome"] == {"hit": "target"} and rows[1]["story"] == {"line": 510.85} and rows[0]["ts"].startswith("2026-11-03T10:04")
+    assert al.symbol_history(_Con([]), "X", 20, now=now) == []

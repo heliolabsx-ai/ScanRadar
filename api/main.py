@@ -267,8 +267,14 @@ async def candles(symbol: str, day: str | None = None, tf: str | None = None, da
 
 
 @app.get("/api/alerts")
-async def alerts(limit: int = 100, day: str | None = None):
+async def alerts(limit: int = 100, day: str | None = None, symbol: str | None = None, days: int = 20):
     loop = asyncio.get_running_loop()
+    if symbol:                                                  # one stock's alerts over its last `days` sessions (the stock panel's history)
+        sym, n = symbol.upper(), max(1, min(days, 60))
+        def q_hist():
+            with connect() as con:
+                return {"symbol": sym, "days": n, "alerts": al.symbol_history(con, sym, n)}
+        return await loop.run_in_executor(None, q_hist)
     if day is None:
         def q_recent():
             with connect() as con:

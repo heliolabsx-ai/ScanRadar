@@ -207,6 +207,32 @@ def alerts_for_day(con, day: dt.date) -> list[dict]:
              "outcome": r["payload"].get("outcome"), "story": r["payload"].get("story")} for r in rows]
 
 
+def symbol_history(con, symbol: str, days: int, now: dt.datetime | None = None) -> list[dict]:
+    """One symbol's alerts over its last `days` stored sessions (strictly before today), live and replay
+    merged, newest first, in the `alerts_for_day` row shape. Reads 2×days calendar days back so holidays
+    and weekends still leave `days` sessions, then keeps the first `days` distinct days."""
+    now = now or dt.datetime.now(IST)
+    today = now.astimezone(IST).date()
+    since = dt.datetime.combine(today - dt.timedelta(days=max(1, days) * 2), dt.time(0, 0), IST)
+    with con.cursor() as cur:
+        cur.execute("SELECT id, ts, scan, symbol, price, payload, source FROM alerts WHERE symbol=%s AND ts>=%s AND ts<%s ORDER BY ts DESC",
+                    (symbol, since, dt.datetime.combine(today, dt.time(0, 0), IST)))
+        rows = [{"id": i, "ts": ts.astimezone(IST), "scan": sc, "symbol": sym, "price": pr, "payload": p or {}, "source": src}
+                for i, ts, sc, sym, pr, p, src in cur.fetchall()]
+    out, seen = [], []
+    for r in merge_live_replay(rows):
+        d = r["ts"].date()
+        if d not in seen:
+            if len(seen) >= days:
+                break
+            seen.append(d)
+        out.append({"id": r["id"], "ts": r["ts"].isoformat(), "scan": r["scan"], "symbol": r["symbol"], "price": r["price"],
+                    "tf": r["payload"].get("tf"), "source": r["source"], "side": r["payload"].get("side"),
+                    "stop": r["payload"].get("stop"), "target": r["payload"].get("target"),
+                    "outcome": r["payload"].get("outcome"), "story": r["payload"].get("story")})
+    return out
+
+
 def recent_alerts(con, limit: int) -> list[dict]:
     """The latest `limit` alerts across days, live and replay merged, newest first, each with its id."""
     with con.cursor() as cur:
