@@ -59,6 +59,7 @@ test('mapIndex puts a 5m event on the right 1m / 15m bar', () => {
   assert.equal(X.mapIndex(b15, b5, 2, true), 0);
   assert.equal(X.mapIndex(b1.slice(0, 7), b5, 1, true), 6);   // as-of cut: the last bar at or before the minute
   assert.equal(X.mapIndex(b1, b5, 9, true), -1);
+  assert.equal(X.mapIndex([{ day: 'd', m: 0, slot: 0 }], b5, 2, true, 15), 0);   // a one-bar session: the timeframe comes from the caller
 });
 
 test('view helpers: fitView, niceStep, axisEvery, positionWords', () => {

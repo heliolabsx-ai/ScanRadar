@@ -45,9 +45,9 @@
   }
 
   // The index in `bars` (any timeframe) of the bar holding 5m bar j's start minute (or its last minute with `end`).
-  function mapIndex(bars, b5, j, end) {
+  function mapIndex(bars, b5, j, end, tfOverride) {
     const b = b5[j]; if (!b) return -1;
-    const tf = bars.length > 1 && bars[0].day === bars[1].day ? Math.max(1, bars[1].m - bars[0].m) : 1;
+    const tf = tfOverride || (bars.length > 1 && bars[0].day === bars[1].day ? Math.max(1, bars[1].m - bars[0].m) : 1);
     const target = Math.floor((b.m + (end ? 4 : 0)) / tf);
     let k = -1;
     for (let q = 0; q < bars.length; q++) {

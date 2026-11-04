@@ -11,6 +11,7 @@
 <script src="watch.js?v=052fe9a"></script>
 <script src="trades.js?v=5e3d8fa"></script>
 <script src="alarms.js?v=3fbe8e1"></script>
+<script src="structure.js?v=9337f0c"></script>
 <style>
 /* Layout: control strip → sector/breadth rail → bull/bear card grid → detail panel with canvas chart. Terminal-style data UI. */
 :root{
@@ -108,6 +109,10 @@ canvas{display:block;width:100%;max-width:100%;margin-top:10px;border-radius:4px
 .tfrow{display:flex;gap:4px;align-items:center;margin-top:10px;flex-wrap:wrap}
 .tfrow .tf{padding:2px 7px;font:600 10.5px var(--mono)}.tfrow .tf.on{background:var(--fg);color:var(--bg);border-color:var(--fg)}
 .readout{font-size:10.5px;color:var(--muted);margin-left:auto;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
+.tfrow .ctl{display:inline-flex;gap:6px;align-items:center;flex-wrap:wrap}.tfrow .grp{display:inline-flex;gap:3px;align-items:center;padding-left:8px;border-left:1px solid var(--line)}
+.tfrow .lbl{font:500 9px var(--sans);letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-right:2px}
+.tfrow .ov{font:600 10px var(--mono);padding:1px 6px;border:1px solid var(--line);border-radius:10px;color:var(--muted);background:var(--panel);cursor:pointer}.tfrow .ov.on{border-color:var(--fg);color:var(--fg)}.tfrow .ov.bos.on{border-color:var(--accent);color:var(--accent)}
+.tfrow .ctl[hidden]{display:none}
 .filters{display:flex;flex-wrap:wrap;gap:6px 14px;align-items:center;margin:-4px 0 12px;padding:8px 10px;border:1px solid var(--line);border-radius:6px;background:var(--panel)}
 .filters .eyebrow{margin:0}.filters label{gap:4px}.filters input[type=number]{width:64px}.filters select{max-width:150px}
 .filters .chk{display:inline-flex;align-items:center;gap:4px;cursor:pointer}.filters.on{border-color:var(--accent)}
@@ -205,7 +210,14 @@ pre.tticket{background:var(--bg);border:1px dashed var(--line);border-radius:6px
 @keyframes zoomin{from{transform:scale(.92);opacity:0}to{transform:none;opacity:1}}
 .lightbox .lhd{display:flex;align-items:baseline;gap:10px;margin-bottom:6px}.lightbox .lhd b{font:700 18px var(--mono)}.lightbox .lhd .mut{font:500 11px var(--mono)}.lightbox .lhd button{margin-left:auto}
 .lightbox canvas.chart{width:100%;height:auto;display:block;border:1px solid var(--line);border-radius:6px;background:var(--bg)}
-.lightbox .tfrow .tf{font-size:12px;padding:3px 10px}.lightbox .readout{font-size:12px}
+.lightbox .tfrow .tf{font-size:12px;padding:3px 10px}.lightbox .readout{font-size:12px;flex-basis:100%;margin-left:0}
+.lightbox .box.sp{width:min(1560px,97vw);height:96vh;padding:14px 20px 18px;position:relative}.sp .ahd2{padding-right:0;align-items:flex-start}.sp .ahd2 .close{position:static;margin-left:12px}
+.sp .ahd2 .px{display:flex;flex-direction:column;align-items:flex-end;margin-left:auto}.sp .atiles.five{grid-template-columns:repeat(5,minmax(0,1fr))}@media (max-width:900px){.sp .atiles.five{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.sp .amain{grid-template-columns:minmax(0,1fr) 210px}.sp .aladder{font-size:12px;margin-top:0}.aladder .snow{margin-top:10px;padding-top:8px;border-top:1px solid var(--line)}.aladder .snow div{display:flex;justify-content:space-between;gap:6px;padding:2px 0}
+.sp .cols2{display:grid;grid-template-columns:1fr 1fr;gap:16px}@media (max-width:900px){.sp .cols2{grid-template-columns:1fr}}
+.atl li.bos::before{background:transparent;border:1.5px solid var(--accent)}.atl li.choch::before{background:var(--amber)}.atl li.bos span:last-child,.atl li.choch span:last-child{color:var(--muted)}
+table.hist{width:100%;border-collapse:collapse;font:11px var(--mono)}table.hist td{padding:3px 6px;border-bottom:1px dashed var(--line);white-space:nowrap}table.hist td:first-child,table.hist td:nth-child(2){color:var(--muted)}
+.sp h3{font:500 10.5px var(--sans);letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin:14px 0 6px}.sp .wbtn button{font-size:11px}
 .expand{margin-left:6px;font:600 10.5px var(--mono);padding:2px 7px;color:var(--muted)}.expand:hover{color:var(--fg)}
 canvas.chart{cursor:zoom-in}.lightbox canvas.chart{cursor:crosshair}
 .score{display:inline-flex;gap:2px;vertical-align:middle}.score i{width:6px;height:6px;border-radius:50%;background:var(--line);display:block}.score i.on{background:currentColor}
@@ -367,7 +379,7 @@ canvas.chart{cursor:zoom-in}.lightbox canvas.chart{cursor:crosshair}
 </div>
 <div class="wdrawer" id="adrawer"><button class="close" id="aclose">Esc ✕</button><div id="abody"></div></div>
 <div class="wdrawer" id="tdrawer"><button class="close" id="tclose">Esc ✕</button><div id="tdbody"></div></div>
-<div class="lightbox" id="lightbox" hidden><div class="box" id="lightboxBody"><div class="lhd"><b id="lbSym"></b><span class="mut" id="lbSub"></span><button id="lbClose" title="Close (Esc)">Esc ✕</button></div><div class="tfrow"></div><canvas class="chart" width="1240" height="760"></canvas></div></div>
+<div class="lightbox" id="lightbox" hidden><div class="box sp" id="lightboxBody"><div class="ahd2"><div class="sym">Stock</div><button class="close" id="lbClose" title="Close (Esc)">Esc ✕</button></div></div></div>
 <div class="wdrawer" id="wdrawer"><button class="close" id="wclose">Esc ✕</button><div id="wbody"></div></div>
 <div class="dgrid" id="deskView" hidden>
   <div class="panel">
@@ -551,14 +563,70 @@ async function renderDetail(){
    <div class="rule">RULE · ${a.picked?`<b>PICKED</b> — #${bIdx+1} among ${side}s (top 3 taken).`:`<b>NOT PICKED</b> — #${bIdx+1} among ${side}s.`} ${a.rr<1.5?'R:R below 1.5 vetoes a pick.':''}</div>`;
   wireChart(a);
 }
+// ---------- chart: one renderer for every panel (helpers in structure.js) ----------
+const SX = ScanStructure;
+const OV_DEF = {vwap:1, pd:1, piv:0, or:0, ob:0, bos:1, sw:0, al:1, ses:1};
+S.ov = Object.assign({}, OV_DEF, (() => { try{ return JSON.parse(localStorage.getItem('chart.ov') || '{}'); }catch(e){ return {}; } })());
+S.swing = (() => { try{ return [2,3,5].includes(+localStorage.getItem('chart.swing')) ? +localStorage.getItem('chart.swing') : 3; }catch(e){ return 3; } })();
+S.cdays = 1; S.cfull = false; S.cview = null;
+chartCache.prev = {}; chartCache.prevList = []; chartCache.calc = null;
+const saveOv = () => { try{ localStorage.setItem('chart.ov', JSON.stringify(S.ov)); localStorage.setItem('chart.swing', String(S.swing)); }catch(e){} };
+const chartPR = cv => cv.width > 900 ? 84 : 72;
+// The n stored sessions strictly before `day`, oldest first (S.days is newest first).
+function prevSessions(day, n){ return (S.days || []).filter(d => d < day).slice().sort().slice(-n); }
+async function loadPrev(sym, day, n){
+  const want = prevSessions(day, n);
+  await Promise.all(want.map(async d => { const k = sym + '|' + d; if(chartCache.prev[k]) return; try{ const r = await api(`/api/candles/${sym}?day=${d}`); chartCache.prev[k] = r.candles || []; }catch(e){ chartCache.prev[k] = []; } }));
+  const keys = Object.keys(chartCache.prev); if(keys.length > 24) keys.slice(0, keys.length - 24).forEach(k => delete chartCache.prev[k]);
+  return want.map(d => ({day: d, candles: chartCache.prev[sym + '|' + d] || []}));
+}
+function vwapBySession(ms){ let d = null, pv = 0, vv = 0; return ms.map(c => { if(c.day !== d){ d = c.day; pv = 0; vv = 0; } pv += (c.h + c.l + c.c) / 3 * (c.v || 0); vv += c.v || 0; return vv ? pv / vv : c.c; }); }
+// The 1-minute series behind the chart: the shown sessions (S.cdays) and the structure's (one previous session + today), all cut at the as-of minute.
+function chartSeries(){
+  const day = S.day || todayIST(), at = S.at || '15:30';
+  const today = (chartCache.data ? cutAt(chartCache.data, at) : []).map(c => ({...c, day, m: minIdx(c)}));
+  const prev = (chartCache.prevList || []).map(p => p.candles.map(c => ({...c, day: p.day, m: minIdx(c)}))).filter(x => x.length);
+  const shown = prev.slice(Math.max(0, prev.length - (S.cdays - 1)));
+  return {ms: [].concat(...shown, today), msStruct: [].concat(...prev.slice(-1), today), days: shown.map(x => x[0].day).concat([day]), day, at};
+}
+function clampView(){ const v = S.cview; if(!v) return; const n = v.n || 0, w = v.b - v.a; if(v.a > n - 5){ v.a = n - 5; v.b = v.a + w; } if(v.b < 5){ v.b = 5; v.a = v.b - w; } }
+function renderChartCtl(el, a){
+  if(!el) return;
+  const daily = curTf() === '1D'; el.hidden = daily; if(daily) return;
+  const chips = [['vwap','VWAP'],['pd','PDH/PDL'],['piv','pivot lines'],['or','opening range'],['ob','order block'],['bos','BOS / CHoCH'],['sw','swings'],['al','alarms'],['ses','session lines']];
+  const open = S.lbA || S.ctlOpen;
+  el.innerHTML = `<span class="grp"><span class="lbl">days</span>${[1,2,3].map(d => `<button class="ov ${S.cdays === d ? 'on' : ''}" data-days="${d}" title="Sessions on the chart">${d}</button>`).join('')}</span>
+   ${open ? `<span class="grp">${chips.map(([k, n]) => `<button class="ov ${k === 'bos' ? 'bos' : ''} ${S.ov[k] ? 'on' : ''}" data-ov="${k}">${n}</button>`).join('')}</span>
+   <span class="grp"><span class="lbl">swing</span>${[2,3,5].map(k => `<button class="ov ${S.swing === k ? 'on' : ''}" data-swing="${k}" title="Swing strength on 5-minute bars">${k}</button>`).join('')}</span>` : ''}
+   ${curTf() === '1m' && S.cdays === 1 ? `<button class="ov" data-fit>${S.cfull ? 'last 2 h' : 'fit day'}</button>` : ''}${S.lbA ? '' : `<button class="ov ${S.ctlOpen ? 'on' : ''}" data-gear title="Show or hide the chart overlays">⚙</button><button class="expand" title="Open the stock panel (or click the chart)">⤢ enlarge</button>`}`;
+  const g = el.querySelector('[data-gear]'); if(g) g.onclick = () => { S.ctlOpen = !S.ctlOpen; renderChartCtl(el, a); };
+  el.querySelectorAll('[data-days]').forEach(b => b.onclick = () => { S.cdays = +b.dataset.days; S.cview = null; chartCache.calc = null; hoverIdx = null; renderChartCtl(el, a); loadAndDraw(a); });
+  el.querySelectorAll('[data-ov]').forEach(b => b.onclick = () => { S.ov[b.dataset.ov] = S.ov[b.dataset.ov] ? 0 : 1; saveOv(); b.classList.toggle('on', !!S.ov[b.dataset.ov]); drawChart(a); });
+  el.querySelectorAll('[data-swing]').forEach(b => b.onclick = () => { S.swing = +b.dataset.swing; saveOv(); chartCache.calc = null; renderChartCtl(el, a); drawChart(a); fillStructureUI(); });
+  const f = el.querySelector('[data-fit]'); if(f) f.onclick = () => { S.cfull = !S.cfull; S.cview = null; renderChartCtl(el, a); drawChart(a); };
+  const x = el.querySelector('.expand'); if(x) x.onclick = () => openStockPanel(a);
+}
 function wireChart(a){
+  if(S.lbA && S.lbA.symbol !== a.symbol) return Promise.resolve();      // a tab re-render must not hijack the open stock panel
   const d = panelEl();
-  if(!S.lbA){ const row = d.querySelector('.tfrow'); if(row && !row.querySelector('.expand')){ const b = document.createElement('button'); b.className = 'expand'; b.title = 'Enlarge the chart (or click the chart)'; b.textContent = '⤢ enlarge'; row.insertBefore(b, row.querySelector('.readout')); } const b = d.querySelector('.expand'); if(b) b.onclick = () => openChartBig(a); }
-  d.querySelectorAll('.tf').forEach(b => b.onclick = () => { S.tf = b.dataset.tf; try{ localStorage.setItem('tf', S.tf); }catch(e){} d.querySelectorAll('.tf').forEach(x=>x.classList.toggle('on', x.dataset.tf===S.tf)); hoverIdx = null; loadAndDraw(a); });
-  const cv = d.querySelector('canvas');
-  if(!S.lbA) cv.onclick = () => openChartBig(a);
-  cv.onpointermove = e => { const r = cv.getBoundingClientRect(); const px = (e.clientX - r.left) / r.width * cv.width; hoverIdx = px; drawChart(a); };
-  cv.onpointerleave = () => { hoverIdx = null; drawChart(a); };
+  const row = d.querySelector('.tfrow');
+  if(row){ if(!row.querySelector('.ctl')){ const c = document.createElement('span'); c.className = 'ctl'; row.insertBefore(c, row.querySelector('.readout')); } renderChartCtl(row.querySelector('.ctl'), a); }
+  d.querySelectorAll('.tf').forEach(b => b.onclick = () => { S.tf = b.dataset.tf; try{ localStorage.setItem('tf', S.tf); }catch(e){} d.querySelectorAll('.tf').forEach(x => x.classList.toggle('on', x.dataset.tf === S.tf)); hoverIdx = null; S.cview = null; chartCache.calc = null; if(row) renderChartCtl(row.querySelector('.ctl'), a); loadAndDraw(a); });
+  const cv = d.querySelector('canvas.chart'); if(!cv) return Promise.resolve();
+  let drag = null;
+  const px = e => { const r = cv.getBoundingClientRect(); return (e.clientX - r.left) / r.width * cv.width; };
+  cv.onpointerdown = e => { drag = {x: px(e), cx: e.clientX, cy: e.clientY, moved: false, v: S.cview ? {a: S.cview.a, b: S.cview.b} : null}; };
+  cv.onpointermove = e => {
+    const x = px(e);
+    if(drag && S.cview && curTf() !== '1D'){ if(Math.abs(e.clientX - drag.cx) + Math.abs(e.clientY - drag.cy) > 5) drag.moved = true;
+      if(drag.moved && drag.v){ const slot = (cv.width - 8 - chartPR(cv)) / (drag.v.b - drag.v.a), dx = (x - drag.x) / slot; S.cview.a = drag.v.a - dx; S.cview.b = drag.v.b - dx; clampView(); } }
+    hoverIdx = x; drawChart(a);
+  };
+  cv.onpointerup = () => { cv.dataset.moved = drag && drag.moved ? '1' : ''; drag = null; };
+  cv.onpointerleave = () => { hoverIdx = null; drag = null; drawChart(a); };
+  cv.onclick = () => { const moved = cv.dataset.moved === '1'; cv.dataset.moved = ''; if(!moved && !S.lbA) openStockPanel(a); };
+  cv.onwheel = e => { if(curTf() === '1D' || !S.cview) return; e.preventDefault(); const v = S.cview, f = (px(e) - 8) / (cv.width - 8 - chartPR(cv)), k = v.a + f * (v.b - v.a), z = e.deltaY > 0 ? 1.15 : 0.87;
+    const a2 = k - (k - v.a) * z, b2 = k + (v.b - k) * z; if(b2 - a2 < 12 || b2 - a2 > 3000) return; v.a = a2; v.b = b2; clampView(); drawChart(a); };
   return loadAndDraw(a);
 }
 async function loadAndDraw(a){
@@ -568,162 +636,172 @@ async function loadAndDraw(a){
       if(dailyCache.sym !== a.symbol){ const r = await api(`/api/candles/${a.symbol}?tf=1d&days=250`); dailyCache.sym = a.symbol; dailyCache.bars = r.bars; }
     }else{
       const key = a.symbol + '|' + day;
-      if(chartCache.key !== key || S.following){ const r = await api(`/api/candles/${a.symbol}?day=${day}`); chartCache.key = key; chartCache.data = r.candles; chartCache.ref = r.ref || {}; chartCache.delta = r.delta_available; }
+      if(chartCache.key !== key || S.following){ const r = await api(`/api/candles/${a.symbol}?day=${day}`); chartCache.key = key; chartCache.data = r.candles; chartCache.ref = r.ref || {}; chartCache.delta = r.delta_available; chartCache.calc = null; }
+      const want = Math.max(1, S.cdays - 1), pk = a.symbol + '|' + day + '|' + want;
+      if(chartCache.prevKey !== pk){ chartCache.prevList = await loadPrev(a.symbol, day, want); chartCache.prevKey = pk; chartCache.calc = null; }
     }
   }catch(e){ return; }
-  const stillCurrent = S.view === 'patterns' ? (S.psel && S.psel.symbol === a.symbol) : S.view === 'watch' ? S.wsel === a.symbol : S.view === 'trades' ? !!(tradeSel() && tradeSel().symbol === a.symbol) : S.view === 'alarms' ? !!(alarmSel() && alarmSel().symbol === a.symbol) : S.selected === a.symbol;
-  if(stillCurrent) drawChart(a);
+  const stillCurrent = S.lbA ? S.lbA.symbol === a.symbol : S.view === 'patterns' ? (S.psel && S.psel.symbol === a.symbol) : S.view === 'watch' ? S.wsel === a.symbol : S.view === 'trades' ? !!(tradeSel() && tradeSel().symbol === a.symbol) : S.view === 'alarms' ? !!(alarmSel() && alarmSel().symbol === a.symbol) : S.selected === a.symbol;
+  if(stillCurrent){ drawChart(a); if(S.lbA) fillStructureUI(); }
 }
+// Structure at the as-of minute from the chart's own calculation (5m bars, the previous session included).
+function structureNow(){ const c = chartCache.calc; return c ? {st: c.st, B5: c.B5} : null; }
 function drawChart(a){
-  const cv = panelEl().querySelector('canvas'); if(!cv) return; const ctx = cv.getContext('2d');
-  const C = k => getComputedStyle(document.documentElement).getPropertyValue(k).trim();
-  const big = cv.width > 900; const W=cv.width, H=cv.height, pL=8, pR=big?90:70, pT=10, pB=big?22:18, gap=6, Hv=big?110:64, Ho=big?110:64, Hp=H-pT-pB-Hv-Ho-2*gap;
-  const yv0 = pT+Hp+gap, yo0 = yv0+Hv+gap;
-  ctx.clearRect(0,0,W,H); ctx.font=(big?'13px':'10px')+' JetBrains Mono, monospace'; ctx.lineWidth=big?1.4:1;
-  const readout = panelEl().querySelector('.readout');
-  const daily = curTf() === '1D';
-  const bars = daily ? (dailyCache.bars||[]) : (chartCache.data ? resampleBrowser(cutAt(chartCache.data, S.at||'15:30'), TFMIN[curTf()]) : []);
-  if(!bars.length){ ctx.fillStyle=C('--muted'); ctx.fillText(daily?'no daily bars':'no data for '+a.symbol+' on '+(S.day||todayIST()), pL+4, pT+14); if(readout) readout.textContent=''; return; }
-  const n = daily ? bars.length : 375;
-  const xi = i => pL + i/n*(W-pL-pR);
-  const tfm = daily ? 1 : TFMIN[curTf()];
-  const bw = Math.max(1, (W-pL-pR)/n*tfm*0.7);
-  const bx = b => daily ? xi(b.k) : xi(b.i0);
-  if(daily) bars.forEach((b,k)=>b.k=k);
-  // ---- price scale
-  const mins = chartCache.data && !daily ? cutAt(chartCache.data, S.at||'15:30') : [];
-  let lv = (daily || a.minimal) ? [] : [a.R2,a.R1,a.S1,a.S2];
-  let farLv = [];
-  if(a.levels_extra && !daily){                              // Alarms panel: pivots far from the day's range are tagged at the edge, not drawn
-    const cl = ScanAlarms.chartLevels([['R2',a.R2],['R1',a.R1],['S1',a.S1],['S2',a.S2]].filter(x => x[1] != null).concat(a.levels_extra.filter(x => x[1] != null)), Math.min(...bars.map(b=>b.l)), Math.max(...bars.map(b=>b.h)), bars[bars.length-1].c);
-    lv = cl.near.map(x => +x[1]); farLv = cl.far;
+  const cv = panelEl().querySelector('canvas.chart'); if(!cv) return;
+  if(curTf() === '1D') return drawChartDaily(a, cv);
+  const ctx = cv.getContext('2d'), C = k => getComputedStyle(document.documentElement).getPropertyValue(k).trim();
+  const big = cv.width > 900, W = cv.width, H = cv.height, pL = 8, pR = chartPR(cv), pT = 18, pB = big ? 20 : 16, gap = 6, Hv = big ? 80 : 50, Ho = big ? 70 : 44, Hp = H - pT - pB - Hv - Ho - 2 * gap, yv0 = pT + Hp + gap, yo0 = yv0 + Hv + gap;
+  ctx.clearRect(0, 0, W, H); ctx.font = (big ? '12px' : '10.5px') + ' JetBrains Mono, monospace'; ctx.lineWidth = 1;
+  const readout = panelEl().querySelector('.readout'), tfm = TFMIN[curTf()] || 5, ser = chartSeries();
+  const ckey = [a.symbol, tfm, S.cdays, ser.at, S.swing, ser.day, ser.ms.length, ser.msStruct.length].join('|');
+  let CC = chartCache.calc;
+  if(!CC || CC.key !== ckey){
+    CC = chartCache.calc = {key: ckey, BARS: SX.resample(ser.ms, tfm), B5: SX.resample(ser.msStruct, 5), idx: {}, lidx: {}};
+    CC.st = SX.structure(CC.B5, S.swing); CC.VW = vwapBySession(ser.ms);
+    ser.ms.forEach((c, k) => { const kk = c.day + '|' + Math.floor(c.m / tfm); if(CC.idx[kk] == null) CC.idx[kk] = k; CC.lidx[kk] = k; });
+    CC.BARS.forEach(b => { CC.idx[b.day + '|' + b.slot] = b.i; });
   }
-  if(a.pattern && !daily) lv.push(a.pattern.stop, a.pattern.target, a.pattern.neckline);
-  if(a.trade && !daily) [a.trade.entry, a.trade.stop, a.trade.target, a.trade.target2].forEach(p => { if(p != null) lv.push(+p); });
-  let lo = Math.min(...bars.map(b=>b.l), ...lv), hi = Math.max(...bars.map(b=>b.h), ...lv); const pd=(hi-lo)*.05||1; lo-=pd; hi+=pd;
-  const y = p => pT + (1-(p-lo)/(hi-lo))*Hp;
-  // ---- overlays (intraday only, from 1-minute data)
-  if(!daily && !a.minimal){
-    if(a.ob){ ctx.fillStyle=a.ob.dir>0?C('--bull-soft'):C('--bear-soft'); ctx.fillRect(pL,y(a.ob.hi),W-pL-pR,y(a.ob.lo)-y(a.ob.hi)); }
-    ctx.fillStyle=C('--line'); ctx.globalAlpha=.45; ctx.fillRect(xi(0),y(a.orH),xi(15)-xi(0),y(a.orL)-y(a.orH)); ctx.globalAlpha=1;
-    const ref = chartCache.ref||{};
-    const levels = [['R2',a.R2,'--bull'],['R1',a.R1,'--bull'],['S1',a.S1,'--amber'],['S2',a.S2,'--amber'],['PC',a.price-a.chg,'--muted']];
-    if(ref.prev_high) levels.push(['PDH',+ref.prev_high,'--bull'],['PDL',+ref.prev_low,'--bear']);
-    levels.forEach(([nm,p,c])=>{ if(p<lo||p>hi) return; const yy=y(p);
-      if(nm.startsWith('PD')){                               // previous-day high/low: solid line, soft band, filled tag (as on the Watch cards)
-        const col=C(c); ctx.strokeStyle=col; ctx.globalAlpha=.2; ctx.lineWidth=8; ctx.beginPath(); ctx.moveTo(pL,yy); ctx.lineTo(W-pR,yy); ctx.stroke(); ctx.globalAlpha=1;
-        ctx.lineWidth=1.6; ctx.beginPath(); ctx.moveTo(pL,yy); ctx.lineTo(W-pR,yy); ctx.stroke(); ctx.lineWidth=1;
-        const t=`${nm} ${fmt(p)}`, tw=ctx.measureText(t).width+8; ctx.fillStyle=col; ctx.beginPath(); ctx.roundRect(W-pR+2, yy-7, tw, 14, 3); ctx.fill();
-        ctx.fillStyle=nm==='PDH'?'#07140c':'#1a0707'; ctx.fillText(t, W-pR+6, yy+3); return; }
-      ctx.strokeStyle=C(c); ctx.setLineDash([3,3]); ctx.beginPath(); ctx.moveTo(pL,yy); ctx.lineTo(W-pR,yy); ctx.stroke(); ctx.setLineDash([]); ctx.fillStyle=C(c); ctx.fillText(`${nm} ${fmt(p)}`,W-pR+4,yy+3); });
-    ctx.strokeStyle=C('--vwap'); ctx.lineWidth=1.2; ctx.setLineDash([2,2]); ctx.beginPath();
-    vwapSeries(mins).forEach((p,k)=>{ const yy=y(p.v); k?ctx.lineTo(xi(p.i),yy):ctx.moveTo(xi(p.i),yy); }); ctx.stroke(); ctx.setLineDash([]); ctx.lineWidth=1;
+  const {BARS, B5, st} = CC;
+  if(!BARS.length){ ctx.fillStyle = C('--muted'); ctx.fillText('no data for ' + a.symbol + ' on ' + ser.day, pL + 4, pT + 14); if(readout) readout.textContent = ''; return; }
+  const perDay = Math.ceil(375 / tfm), i0 = BARS.findIndex(b => b.day === ser.days[0]);
+  const vkey = [a.symbol, tfm, S.cdays, S.cfull, ser.day, cv.width].join('|');
+  let v = S.cview && S.cview.key === vkey ? S.cview : null;
+  if(!v){ v = Object.assign(SX.fitView(BARS.length, i0, perDay, S.cdays, tfm, S.cfull), {key: vkey, n: BARS.length}); S.cview = v; }
+  else if(BARS.length !== v.n){ if(v.b >= v.n - 1){ const dd = BARS.length - v.n; v.a += dd; v.b += dd; } v.n = BARS.length; }
+  const slot = (W - pL - pR) / (v.b - v.a), X = i => pL + (i - v.a) * slot, bw = Math.max(2, Math.min(big ? 22 : 16, slot * 0.68));
+  const vis = BARS.filter(b => b.i >= v.a - 1 && b.i <= v.b + 1);
+  if(!vis.length){ ctx.fillStyle = C('--muted'); ctx.fillText('nothing here · drag back or press fit', pL + 4, pT + 14); return; }
+  const ref = chartCache.ref || {}, todayShown = vis.some(b => b.day === ser.day), tb0 = BARS.find(b => b.day === ser.day), tx0 = tb0 ? Math.max(pL, X(tb0.i) - slot * 0.16) : pL;
+  const barAt = m => { const s = Math.floor(m / tfm); let out = null; for(const b of BARS){ if(b.day === ser.day && b.slot <= s) out = b; } return out; };
+  const num = x => x != null && !isNaN(+x) ? +x : null;
+  const lvl = [];
+  if(todayShown && S.ov.pd && ref.prev_high) lvl.push(num(ref.prev_high), num(ref.prev_low));
+  if(a.pattern) lvl.push(num(a.pattern.stop), num(a.pattern.target), num(a.pattern.neckline));
+  if(a.trade) lvl.push(num(a.trade.entry), num(a.trade.stop), num(a.trade.target), num(a.trade.target2));
+  if(a.levels_extra) a.levels_extra.forEach(([n, p]) => lvl.push(num(p)));
+  const lv = lvl.filter(x => x != null);
+  let lo = Math.min(...vis.map(b => b.l), ...lv), hi = Math.max(...vis.map(b => b.h), ...lv); const pad = (hi - lo) * .06 || 1; lo -= pad; hi += pad;
+  const Y = p => pT + (1 - (p - lo) / (hi - lo)) * Hp, cbg = getComputedStyle(cv).backgroundColor;
+  // grid and price axis
+  const step = SX.niceStep((hi - lo) / 6); ctx.strokeStyle = C('--line'); ctx.globalAlpha = .55; ctx.fillStyle = C('--muted');
+  for(let p = Math.ceil(lo / step) * step; p < hi; p += step){ ctx.beginPath(); ctx.moveTo(pL, Y(p)); ctx.lineTo(W - pR, Y(p)); ctx.stroke(); ctx.fillText(fmt(p), W - pR + 5, Y(p) + 4); }
+  ctx.globalAlpha = 1;
+  // sessions
+  let pd = null; vis.forEach(b => { if(b.day === pd) return;
+    if(pd && S.ov.ses){ const x = X(b.i) - slot * 0.16; ctx.strokeStyle = C('--line'); ctx.setLineDash([3, 3]); ctx.beginPath(); ctx.moveTo(x, pT - 2); ctx.lineTo(x, yo0 + Ho); ctx.stroke(); ctx.setLineDash([]); }
+    if(S.cdays > 1 || b.day !== ser.day){ const dp = dayParts(b.day); ctx.fillStyle = C('--muted'); ctx.fillText(`${dp.dow} ${dp.dm}`, Math.max(pL + 2, X(b.i)), pT - 6); }
+    pd = b.day; });
+  const tag = (t, yy, col, fill) => { const tw = ctx.measureText(t).width + 8; if(fill){ ctx.fillStyle = col; ctx.beginPath(); ctx.roundRect(W - pR + 2, yy - 7, tw, 14, 3); ctx.fill(); ctx.fillStyle = C('--bg'); } else { ctx.fillStyle = cbg; ctx.fillRect(W - pR + 2, yy - 7, tw, 14); ctx.fillStyle = col; } ctx.fillText(t, W - pR + 6, yy + 4); };
+  const hline = (p, col, dash, w, x0) => { if(p == null || isNaN(p) || p < lo || p > hi) return false; ctx.strokeStyle = col; ctx.lineWidth = w || 1; ctx.setLineDash(dash || []); ctx.beginPath(); ctx.moveTo(x0 != null ? x0 : pL, Y(p)); ctx.lineTo(W - pR, Y(p)); ctx.stroke(); ctx.setLineDash([]); ctx.lineWidth = 1; return true; };
+  // overlays: opening range, order block, PDH/PDL, pivots, VWAP
+  if(S.ov.or) ser.days.forEach(d => { const bb = BARS.filter(b => b.day === d), src = ser.ms.filter(c => c.day === d && c.m < 15); if(!bb.length || !src.length) return; const oh = Math.max(...src.map(c => c.h)), ol = Math.min(...src.map(c => c.l)), x0 = X(bb[0].i) - slot * .16, x1 = X(bb[bb.length - 1].i) + slot * .84; ctx.fillStyle = C('--line'); ctx.globalAlpha = .4; ctx.fillRect(Math.max(pL, x0), Y(oh), Math.min(W - pR, x1) - Math.max(pL, x0), Y(ol) - Y(oh)); ctx.globalAlpha = 1; });
+  if(S.ov.ob && a.ob && todayShown){ ctx.fillStyle = a.ob.dir > 0 ? C('--bull-soft') : C('--bear-soft'); ctx.fillRect(tx0, Y(a.ob.hi), W - pR - tx0, Y(a.ob.lo) - Y(a.ob.hi)); }
+  const piv = a.R1 != null ? {R1: a.R1, R2: a.R2, S1: a.S1, S2: a.S2} : (ref.prev_high && ref.prev_low && ref.prev_close ? (() => { const P = (+ref.prev_high + +ref.prev_low + +ref.prev_close) / 3, rg = ref.prev_high - ref.prev_low; return {R1: 2 * P - ref.prev_low, S1: 2 * P - ref.prev_high, R2: P + rg, S2: P - rg}; })() : null);
+  if(todayShown && ref.prev_high){
+    if(S.ov.pd){ if(hline(+ref.prev_high, C('--bull'), [], 1.2, tx0)) tag('PDH ' + fmt(ref.prev_high), Y(+ref.prev_high), C('--bull'), true); if(hline(+ref.prev_low, C('--bear'), [], 1.2, tx0)) tag('PDL ' + fmt(ref.prev_low), Y(+ref.prev_low), C('--bear'), true); }
+    const pv = piv ? [['R2', piv.R2, '--bull'], ['R1', piv.R1, '--bull'], ['PC', ref.prev_close, '--muted'], ['S1', piv.S1, '--amber'], ['S2', piv.S2, '--amber']] : [['PC', ref.prev_close, '--muted']];
+    pv.forEach(([n, p, c]) => { if(p == null || p < lo || p > hi) return; if(S.ov.piv) hline(+p, C(c), [3, 4], 1, tx0); tag(n + ' ' + fmt(p), Y(+p), C(c), false); });
   }
-  // ---- trade levels (Trades tab): entry, stop, T1, T2 from the trigger minute on
-  if(a.trade && !daily){
-    const t = a.trade, xt = xi(hhmmToMin(String(t.ts).slice(11,16)));
-    const zone = (p1,p2,col) => { ctx.fillStyle=C(col); ctx.globalAlpha=.35; ctx.fillRect(xt, Math.min(y(p1),y(p2)), W-pR-xt, Math.abs(y(p1)-y(p2))); ctx.globalAlpha=1; };
+  if(S.ov.vwap){ ctx.strokeStyle = C('--vwap'); ctx.lineWidth = 1.3; ctx.beginPath(); let on = false, dd = null;
+    ser.ms.forEach((c, k) => { const i = CC.idx[c.day + '|' + Math.floor(c.m / tfm)]; if(i == null) return; const x = X(i) + ((c.m % tfm) + .5) / tfm * slot; if(c.day !== dd){ on = false; dd = c.day; } if(x < pL || x > W - pR){ on = false; return; } const y = Y(CC.VW[k]); on ? ctx.lineTo(x, y) : ctx.moveTo(x, y); on = true; });
+    ctx.stroke(); ctx.lineWidth = 1; }
+  // candles and volume
+  const vmax = Math.max(...vis.map(b => b.v || 0), 1);
+  vis.forEach(b => { const up = b.c >= b.o, col = up ? C('--bull') : C('--bear'), xc = X(b.i) + slot / 2; ctx.strokeStyle = ctx.fillStyle = col; ctx.globalAlpha = b.stub ? .5 : 1;
+    ctx.beginPath(); ctx.moveTo(xc, Y(b.h)); ctx.lineTo(xc, Y(b.l)); ctx.stroke();
+    const yb = Y(Math.max(b.o, b.c)), hb = Math.max(1.2, Math.abs(Y(b.o) - Y(b.c)));
+    if(bw >= 5 && up){ ctx.fillStyle = cbg; ctx.fillRect(xc - bw / 2, yb, bw, hb); ctx.strokeRect(xc - bw / 2, yb, bw, hb); } else ctx.fillRect(xc - bw / 2, yb, bw, hb);
+    ctx.fillStyle = col; ctx.globalAlpha = .55; ctx.fillRect(xc - bw / 2, yv0 + Hv - (b.v || 0) / vmax * Hv, bw, (b.v || 0) / vmax * Hv); ctx.globalAlpha = 1; });
+  // market structure: BOS / CHoCH lines and pills, the two live swing levels, swing labels
+  if(S.ov.bos){
+    st.ev.forEach(e => { const ei = SX.mapIndex(BARS, B5, e.i, true, tfm), ef = SX.mapIndex(BARS, B5, e.from, false, tfm); if(ei < 0 || ei < v.a - 1 || (ef >= 0 && ef > v.b + 1)) return;
+      const yy = Y(e.px); if(yy < pT || yy > pT + Hp) return; const x0 = Math.max(pL, ef < 0 ? pL : X(ef) + slot / 2), x1 = X(ei) + slot / 2, col = e.dir === 'up' ? C('--bull') : C('--bear'), ch = e.kind === 'CHoCH';
+      ctx.strokeStyle = ch ? C('--amber') : col; ctx.lineWidth = ch ? 1.8 : 1.2; ctx.setLineDash(ch ? [6, 3] : []); ctx.beginPath(); ctx.moveTo(x0, yy); ctx.lineTo(x1, yy); ctx.stroke(); ctx.setLineDash([]); ctx.lineWidth = 1;
+      const t = e.kind, tw = ctx.measureText(t).width + 8, ty = e.dir === 'up' ? yy - 10 : yy + 10; ctx.fillStyle = ch ? C('--amber') : col; ctx.beginPath(); ctx.roundRect(x1 - tw / 2, ty - 7, tw, 14, 3); ctx.fill(); ctx.fillStyle = C('--bg'); ctx.fillText(t, x1 - tw / 2 + 4, ty + 4); });
+    [['SWING H', st.upSwing, st.upLevel], ['SWING L', st.dnSwing, st.dnLevel]].forEach(([n, s, p]) => { if(p == null || p < lo || p > hi) return; const si = s ? SX.mapIndex(BARS, B5, s.i, false, tfm) : -1; hline(p, C('--accent'), [2, 3], 1, si >= 0 ? Math.max(pL, X(si) + slot / 2) : pL); tag(n + ' ' + fmt(p), Y(p), C('--accent'), false); });
+  }
+  if(S.ov.sw){ ctx.fillStyle = C('--muted'); st.sw.forEach(s => { const si = SX.mapIndex(BARS, B5, s.i, false, tfm); if(si < v.a || si > v.b) return; const x = X(si) + slot / 2, w = ctx.measureText(s.tag).width; ctx.fillText(s.tag, x - w / 2, s.t === 'H' ? Y(s.px) - 6 : Y(s.px) + 13); }); }
+  // markers: alerts (or the Alarms timeline), trade levels, the pattern
+  const tri = (x, yy, longish, hw, ht, col) => { ctx.fillStyle = col; ctx.beginPath(); if(longish){ ctx.moveTo(x, yy + 4); ctx.lineTo(x - hw, yy + 4 + ht); ctx.lineTo(x + hw, yy + 4 + ht); } else { ctx.moveTo(x, yy - 4); ctx.lineTo(x - hw, yy - 4 - ht); ctx.lineTo(x + hw, yy - 4 - ht); } ctx.closePath(); ctx.fill(); };
+  if(S.ov.al && !a.markers && S.alerts){
+    S.alerts.filter(al => al.symbol === a.symbol && al.ts.slice(0, 10) === ser.day && al.ts.slice(11, 16) <= ser.at).forEach(al => { const b = barAt(hhmmToMin(al.ts.slice(11, 16))); if(!b || b.i < v.a || b.i > v.b) return;
+      const kind = WK.alertKind(al.scan), longish = al.side === 'long'; tri(X(b.i) + slot / 2, longish ? Y(b.l) : Y(b.h), longish, kind === 'fade' ? 5 : 4, kind === 'fade' ? 9 : 7, kind === 'brk' ? C('--muted') : longish ? C('--bull') : C('--bear')); });
+  }
+  if(S.ov.al && a.markers){
+    a.markers.filter(mk => mk.at && mk.at <= ser.at).forEach(mk => { const b = barAt(hhmmToMin(mk.at)); if(!b || b.i < v.a || b.i > v.b) return; const x = X(b.i) + slot / 2;
+      if(mk.kind === 'desk'){ ctx.fillStyle = C('--accent'); ctx.beginPath(); ctx.arc(x, Y(b.h) - 14, 3.5, 0, Math.PI * 2); ctx.fill(); return; }
+      if(mk.kind === 'exit'){ ctx.strokeStyle = C('--fg'); ctx.lineWidth = 1.5; ctx.strokeRect(x - 4, Y(mk.px != null ? mk.px : b.c) - 4, 8, 8); ctx.lineWidth = 1; return; }
+      const longish = mk.side === 'long'; tri(x, longish ? Y(b.l) : Y(b.h), longish, mk.kind === 'alarm' ? 5 : 4, mk.kind === 'alarm' ? 9 : 7, mk.kind === 'break' ? C('--muted') : longish ? C('--bull') : C('--bear')); });
+  }
+  if(a.trade){ const t = a.trade, b = barAt(hhmmToMin(String(t.ts).slice(11, 16))), xt = b ? Math.max(pL, X(b.i)) : tx0;
+    const zone = (p1, p2, col) => { if(p1 == null || p2 == null) return; ctx.fillStyle = C(col); ctx.globalAlpha = .35; ctx.fillRect(xt, Math.min(Y(p1), Y(p2)), W - pR - xt, Math.abs(Y(p1) - Y(p2))); ctx.globalAlpha = 1; };
     zone(t.entry, t.target, '--bull-soft'); zone(t.entry, t.stop, '--bear-soft');
-    [['ENTRY',t.entry,'--fg'],['STOP',t.stop,'--bear'],['T1',t.target,'--bull'],['T2',t.target2,'--bull']].forEach(([nm,p,c]) => { if(p == null) return;
-      ctx.strokeStyle=C(c); ctx.setLineDash(nm==='ENTRY'?[]:[4,3]); ctx.beginPath(); ctx.moveTo(xt,y(p)); ctx.lineTo(W-pR,y(p)); ctx.stroke(); ctx.setLineDash([]); ctx.fillStyle=C(c); ctx.fillText(`${nm} ${fmt(p)}`, W-pR+4, y(p)+3); });
-    ctx.strokeStyle=C('--accent'); ctx.setLineDash([2,2]); ctx.beginPath(); ctx.moveTo(xt,pT); ctx.lineTo(xt,pT+Hp); ctx.stroke(); ctx.setLineDash([]);
-    ctx.fillStyle=C('--accent'); ctx.fillText(`${t.side==='long'?'BUY':'SELL'} ${String(t.ts).slice(11,16)}`, xt+4, pT+10);
-  }
-  // ---- extra levels (Alarms panel): the row's STOP and TGT, dashed; far pivots as edge tags
-  if(a.levels_extra && !daily){
-    a.levels_extra.forEach(([nm,p]) => { if(p == null || p<lo || p>hi) return; const c = nm === 'STOP' ? '--bear' : '--bull';
-      ctx.strokeStyle=C(c); ctx.lineWidth=1.3; ctx.setLineDash([6,3]); ctx.beginPath(); ctx.moveTo(pL,y(p)); ctx.lineTo(W-pR,y(p)); ctx.stroke(); ctx.setLineDash([]); ctx.lineWidth=big?1.4:1;
-      const t = `${nm} ${fmt(p)}`; ctx.fillStyle=C(c); ctx.fillText(t, W-pR-ctx.measureText(t).width-4, y(p)-3); });   // inside the plot: TGT often equals PC
-    const lastC = bars[bars.length-1].c;
-    farLv.forEach(([nm,p],k) => { ctx.fillStyle=C('--muted'); ctx.fillText(`${p>lastC?'▲':'▼'} ${nm} ${fmt(p)}`, pL+4+k*(big?130:100), p>lastC ? pT+10 : pT+Hp-4); });
-  }
-  // ---- candles + volume
-  const vmax = Math.max(...bars.map(b=>b.v||0), 1);
-  bars.forEach(b=>{ const up=b.c>=b.o, col = up?C('--bull'):C('--bear'); const x0 = bx(b);
-    ctx.strokeStyle=ctx.fillStyle=col; if(b.stub){ ctx.globalAlpha=.5; }
-    ctx.beginPath(); ctx.moveTo(x0+bw/2,y(b.h)); ctx.lineTo(x0+bw/2,y(b.l)); ctx.stroke();
-    ctx.fillRect(x0,y(Math.max(b.o,b.c)),bw,Math.max(1,Math.abs(y(b.o)-y(b.c))));
-    ctx.globalAlpha=.7; ctx.fillRect(x0, yv0+Hv-(b.v||0)/vmax*Hv, bw, (b.v||0)/vmax*Hv); ctx.globalAlpha=1; });
-  // ---- OI pane
-  const ois = bars.map(b=>b.oi).filter(v=>v);
-  if(ois.length){
-    const olo=Math.min(...ois), ohi=Math.max(...ois), opd=(ohi-olo)*.1||1; const yo = v => yo0 + (1-(v-(olo-opd))/((ohi+opd)-(olo-opd)))*Ho;
-    const base = ois[0]; ctx.strokeStyle=C('--line'); ctx.setLineDash([2,2]); ctx.beginPath(); ctx.moveTo(pL,yo(base)); ctx.lineTo(W-pR,yo(base)); ctx.stroke(); ctx.setLineDash([]);
-    ctx.strokeStyle=C('--accent'); ctx.lineWidth=1.4; ctx.beginPath(); let started=false;
-    bars.forEach(b=>{ if(!b.oi) return; const xx=bx(b)+bw/2, yy=yo(b.oi); started?ctx.lineTo(xx,yy):ctx.moveTo(xx,yy); started=true; }); ctx.stroke(); ctx.lineWidth=1;
-    const last = ois[ois.length-1], chg=(last/base-1)*100; ctx.fillStyle=chg>=0?C('--bull'):C('--bear'); ctx.fillText(Math.abs(chg) < 500 ? `OI ${sg(chg,1)}%` : `OI ${K(last)}`, W-pR+4, yo(last)+3);
-  }
-  ctx.fillStyle=C('--muted'); ctx.fillText('VOL', pL+2, yv0+9); ctx.fillText('OI', pL+2, yo0+9);
-  // ---- markers: alerts for this symbol up to the as-of minute
-  if(!daily && S.alerts && !a.markers){
-    const at = S.at||'15:30', onDay = S.day || todayIST();   // LIVE keeps the last session's alerts in the list: never on today's chart
-    S.alerts.filter(al => al.symbol===a.symbol && al.ts.slice(0,10) === onDay && al.ts.slice(11,16) <= at).forEach(al => {
-      const i = hhmmToMin(al.ts.slice(11,16)); const m = (chartCache.data||[]).find(c=>minIdx(c)===i); if(!m) return;
-      const xx = xi(i)+ (W-pL-pR)/375*0.5; const longish = al.side==='long', kind = ScanWatch.alertKind(al.scan);
-      const hw = kind==='fade' ? 5 : 4, ht = kind==='fade' ? 9 : 7;   // PD break note: grey; PD fade: a larger red/green one
-      ctx.fillStyle = kind==='brk' ? C('--muted') : longish ? C('--bull') : C('--bear'); ctx.beginPath();
-      if(longish){ const yy=y(m.l)+4; ctx.moveTo(xx,yy); ctx.lineTo(xx-hw,yy+ht); ctx.lineTo(xx+hw,yy+ht); }
-      else { const yy=y(m.h)-4; ctx.moveTo(xx,yy); ctx.lineTo(xx-hw,yy-ht); ctx.lineTo(xx+hw,yy-ht); }
-      ctx.closePath(); ctx.fill();
-    });
-  }
-  // ---- timeline markers (Alarms panel): break grey, alarm red/green by side, desk blue dot, exit hollow square
-  if(!daily && a.markers){
-    const at = S.at||'15:30', cand = chartCache.data || [], step = (W-pL-pR)/375;
-    a.markers.filter(mk => mk.at && mk.at <= at).forEach(mk => {
-      const i = Math.min(374, hhmmToMin(mk.at)); const m = [...cand].reverse().find(c => minIdx(c) <= i && minIdx(c) <= hhmmToMin(at)); if(!m) return;
-      const xx = xi(i) + step*0.5;
-      if(mk.kind === 'desk'){ ctx.fillStyle=C('--accent'); ctx.beginPath(); ctx.arc(xx, y(m.h)-14, 3.5, 0, Math.PI*2); ctx.fill(); return; }
-      if(mk.kind === 'exit'){ const py = y(mk.px != null ? mk.px : m.c); ctx.strokeStyle=C('--fg'); ctx.lineWidth=1.5; ctx.strokeRect(xx-4, py-4, 8, 8); ctx.lineWidth=big?1.4:1; return; }
-      const longish = mk.side === 'long', hw = mk.kind === 'alarm' ? 5 : 4, ht = mk.kind === 'alarm' ? 9 : 7;
-      ctx.fillStyle = mk.kind === 'break' ? C('--muted') : longish ? C('--bull') : C('--bear'); ctx.beginPath();
-      if(longish){ const yy=y(m.l)+4; ctx.moveTo(xx,yy); ctx.lineTo(xx-hw,yy+ht); ctx.lineTo(xx+hw,yy+ht); }
-      else { const yy=y(m.h)-4; ctx.moveTo(xx,yy); ctx.lineTo(xx-hw,yy-ht); ctx.lineTo(xx+hw,yy-ht); }
-      ctx.closePath(); ctx.fill();
-    });
-  }
-  // ---- pattern overlay (Patterns tab)
-  if(a.pattern && !daily){
-    const pat = a.pattern, mi = ts => hhmmToMin(String(ts).slice(11,16)), long = pat.side==='long', half = (W-pL-pR)/375*2.5;
-    const x0n = xi(mi(pat.points[0].ts));
-    ctx.strokeStyle=C('--accent'); ctx.setLineDash([5,3]); ctx.lineWidth=1.4; ctx.beginPath(); ctx.moveTo(x0n,y(pat.neckline)); ctx.lineTo(W-pR,y(pat.neckline)); ctx.stroke(); ctx.setLineDash([]); ctx.lineWidth=1;
-    ctx.fillStyle=C('--accent'); ctx.fillText('NECK '+fmt(pat.neckline), W-pR+4, y(pat.neckline)+3);
-    [['STOP',pat.stop,'--bear'],['TGT',pat.target,'--bull']].forEach(([nm,p,c])=>{ ctx.strokeStyle=C(c); ctx.setLineDash([2,3]); ctx.beginPath(); ctx.moveTo(x0n,y(p)); ctx.lineTo(W-pR,y(p)); ctx.stroke(); ctx.setLineDash([]); ctx.fillStyle=C(c); ctx.fillText(nm+' '+fmt(p), W-pR+4, y(p)+3); });
-    pat.points.forEach((q,k)=>{ const xx = xi(mi(q.ts))+half; ctx.strokeStyle=C('--amber'); ctx.lineWidth=1.5; ctx.beginPath(); ctx.arc(xx, y(q.price), 7, 0, Math.PI*2); ctx.stroke(); ctx.lineWidth=1; ctx.fillStyle=C('--amber'); ctx.fillText(`${['1st','2nd','3rd'][k]||(k+1)+'th'} ${long?'low':'high'} ${String(q.ts).slice(11,16)}`, xx-16, long? y(q.price)+19 : y(q.price)-12); });
-    if(pat.triggered_at){ const tm = mi(pat.triggered_at)-5, xa = xi(tm), xb = xi(tm+5);
-      ctx.strokeStyle=C('--fg'); ctx.strokeRect(xa-1, pT, xb-xa+2, Hp); ctx.fillStyle=C('--fg'); ctx.fillText(pat.state==='failed'?'TRIGGER → FAILED':'TRIGGER '+String(pat.triggered_at).slice(11,16), xa-28, pT+10);
-      const ref = pat.entry!=null?pat.entry:pat.neckline; const zone=(p1,p2,col)=>{ ctx.fillStyle=C(col); ctx.globalAlpha=.35; ctx.fillRect(xb, Math.min(y(p1),y(p2)), W-pR-xb, Math.abs(y(p1)-y(p2))); ctx.globalAlpha=1; };
-      zone(ref, pat.target, '--bull-soft'); zone(ref, pat.stop, '--bear-soft'); }
-    else { ctx.fillStyle=C('--muted'); ctx.fillText(`waiting for a 5m close ${long?'above':'below'} the neckline`, x0n+4, pT+10); }
-  }
-  // ---- last price tag, as-of marker, axis
-  const lastB = bars[bars.length-1]; ctx.fillStyle=C('--fg'); ctx.fillRect(W-pR,y(lastB.c)-7,66,14); ctx.fillStyle=C('--bg'); ctx.fillText(fmt(lastB.c),W-pR+4,y(lastB.c)+3);
-  if(!daily && S.at){ const xa = xi(hhmmToMin(S.at)); ctx.strokeStyle=C('--muted'); ctx.setLineDash([1,2]); ctx.beginPath(); ctx.moveTo(xa,pT); ctx.lineTo(xa,yo0+Ho); ctx.stroke(); ctx.setLineDash([]); }
-  ctx.fillStyle=C('--muted');
-  if(daily){ const step=Math.max(1,Math.round(bars.length/6)); bars.forEach((b,k)=>{ if(k%step===0) ctx.fillText(b.day.slice(5), xi(k)-14, H-5); });
-    const sel = S.day || todayIST(); const si = bars.findIndex(b=>b.day===sel); if(si>=0){ ctx.strokeStyle=C('--accent'); ctx.beginPath(); ctx.moveTo(xi(si)+bw/2,pT); ctx.lineTo(xi(si)+bw/2,yo0+Ho); ctx.stroke(); }
-  } else [['09:15',0],['10:00',45],['11:00',105],['12:00',165],['13:00',225],['14:00',285],['15:00',345]].forEach(([l,i])=>ctx.fillText(l,xi(i)-12,H-5));
-  // ---- crosshair + readout
+    [['ENTRY', t.entry, '--fg'], ['STOP', t.stop, '--bear'], ['T1', t.target, '--bull'], ['T2', t.target2, '--bull']].forEach(([n, p, c]) => { if(p != null && hline(+p, C(c), n === 'ENTRY' ? [] : [4, 3], 1, xt)) tag(n + ' ' + fmt(p), Y(+p), C(c), false); });
+    if(b){ ctx.strokeStyle = C('--accent'); ctx.setLineDash([2, 2]); ctx.beginPath(); ctx.moveTo(xt, pT); ctx.lineTo(xt, pT + Hp); ctx.stroke(); ctx.setLineDash([]); ctx.fillStyle = C('--accent'); ctx.fillText(`${t.side === 'long' ? 'BUY' : 'SELL'} ${String(t.ts).slice(11, 16)}`, xt + 4, pT + 10); } }
+  if(a.levels_extra) a.levels_extra.forEach(([n, p]) => { if(p == null) return; const c = n === 'STOP' ? '--bear' : '--bull'; if(hline(+p, C(c), [6, 3], 1.3, tx0)){ const t = n + ' ' + fmt(p); ctx.fillStyle = C(c); ctx.fillText(t, W - pR - ctx.measureText(t).width - 4, Y(+p) - 3); } });
+  if(a.pattern){ const pat = a.pattern, long = pat.side === 'long', mi = ts => hhmmToMin(String(ts).slice(11, 16)), pb = barAt(mi(pat.points[0].ts)), x0n = pb ? Math.max(pL, X(pb.i)) : tx0;
+    if(hline(pat.neckline, C('--accent'), [5, 3], 1.4, x0n)) tag('NECK ' + fmt(pat.neckline), Y(pat.neckline), C('--accent'), false);
+    [['STOP', pat.stop, '--bear'], ['TGT', pat.target, '--bull']].forEach(([n, p, c]) => { if(hline(p, C(c), [2, 3], 1, x0n)) tag(n + ' ' + fmt(p), Y(p), C(c), false); });
+    pat.points.forEach((q, k) => { const b = barAt(mi(q.ts)); if(!b || b.i < v.a || b.i > v.b) return; const x = X(b.i) + slot / 2; ctx.strokeStyle = C('--amber'); ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(x, Y(q.price), 7, 0, Math.PI * 2); ctx.stroke(); ctx.lineWidth = 1; ctx.fillStyle = C('--amber'); ctx.fillText(`${['1st', '2nd', '3rd'][k] || (k + 1) + 'th'} ${long ? 'low' : 'high'} ${String(q.ts).slice(11, 16)}`, x - 16, long ? Y(q.price) + 19 : Y(q.price) - 12); });
+    if(pat.triggered_at){ const tm = mi(pat.triggered_at) - 5, b1 = barAt(tm), b2 = barAt(tm + 4);
+      if(b1 && b2 && b2.i >= v.a - 1){ const xa = Math.max(pL, X(b1.i)), xb = Math.min(W - pR, X(b2.i) + slot); ctx.strokeStyle = C('--fg'); ctx.strokeRect(xa - 1, pT, xb - xa + 2, Hp); ctx.fillStyle = C('--fg'); ctx.fillText(pat.state === 'failed' ? 'TRIGGER → FAILED' : 'TRIGGER ' + String(pat.triggered_at).slice(11, 16), Math.max(pL, xa - 28), pT + 10);
+        const refp = pat.entry != null ? pat.entry : pat.neckline, zone = (p1, p2, col) => { ctx.fillStyle = C(col); ctx.globalAlpha = .35; ctx.fillRect(xb, Math.min(Y(p1), Y(p2)), W - pR - xb, Math.abs(Y(p1) - Y(p2))); ctx.globalAlpha = 1; }; zone(refp, pat.target, '--bull-soft'); zone(refp, pat.stop, '--bear-soft'); } }
+    else { ctx.fillStyle = C('--muted'); ctx.fillText(`waiting for a 5m close ${long ? 'above' : 'below'} the neckline`, x0n + 4, pT + 10); } }
+  // OI pane
+  const ois = vis.map(b => b.oi).filter(x => x);
+  if(ois.length){ const olo = Math.min(...ois), ohi = Math.max(...ois), op = (ohi - olo) * .1 || 1, YO = x => yo0 + (1 - (x - (olo - op)) / ((ohi + op) - (olo - op))) * Ho, base = todayShown && ref.prev_oi ? +ref.prev_oi : ois[0];
+    if(base >= olo - op && base <= ohi + op){ ctx.strokeStyle = C('--line'); ctx.setLineDash([2, 2]); ctx.beginPath(); ctx.moveTo(pL, YO(base)); ctx.lineTo(W - pR, YO(base)); ctx.stroke(); ctx.setLineDash([]); }
+    ctx.strokeStyle = C('--accent'); ctx.lineWidth = 1.3; ctx.beginPath(); let on = false; vis.forEach(b => { if(!b.oi) return; const x = X(b.i) + slot / 2, y = YO(b.oi); on ? ctx.lineTo(x, y) : ctx.moveTo(x, y); on = true; }); ctx.stroke(); ctx.lineWidth = 1;
+    const L = ois[ois.length - 1], chg = (L / base - 1) * 100; ctx.fillStyle = chg >= 0 ? C('--bull') : C('--bear'); ctx.fillText(Math.abs(chg) < 500 ? `OI ${sg(chg, 1)}%` : `OI ${K(L)}`, W - pR + 5, YO(L) + 4); }
+  ctx.fillStyle = C('--muted'); ctx.fillText('VOL', pL + 3, yv0 + 9); ctx.fillText('OI', pL + 3, yo0 + 9);
+  // time axis, last price, as-of edge, hint
+  const every = SX.axisEvery(tfm, slot); vis.forEach(b => { if(b.m % every === 0 && X(b.i) >= pL && X(b.i) < W - pR - 20) ctx.fillText(minToHHMM(b.m), X(b.i) - 12, H - 4); });
+  const lastB = BARS[BARS.length - 1];
+  if(lastB.day === ser.day && lastB.i >= v.a - 1 && lastB.i <= v.b + 1){ ctx.fillStyle = C('--fg'); ctx.fillRect(W - pR, Y(lastB.c) - 8, pR - 2, 16); ctx.fillStyle = C('--bg'); ctx.fillText(fmt(lastB.c), W - pR + 5, Y(lastB.c) + 4);
+    if(S.at && !S.following){ const xa = X(lastB.i) + slot; if(xa < W - pR){ ctx.strokeStyle = C('--muted'); ctx.setLineDash([1, 2]); ctx.beginPath(); ctx.moveTo(xa, pT); ctx.lineTo(xa, yo0 + Ho); ctx.stroke(); ctx.setLineDash([]); } } }
+  if(!S.lbA){ ctx.fillStyle = C('--muted'); ctx.globalAlpha = .7; ctx.fillText('click to enlarge', W - pR - (big ? 110 : 96), pT + Hp - 5); ctx.globalAlpha = 1; }
+  // crosshair and readout
   if(hoverIdx != null){
-    let b, label;
-    if(daily){ const k = Math.max(0, Math.min(bars.length-1, Math.round((hoverIdx-pL)/(W-pL-pR)*n))); b = bars[k]; label = b.day; }
-    else { const i = Math.max(0, Math.min(374, Math.round((hoverIdx-pL)/(W-pL-pR)*n))); b = [...bars].reverse().find(x=>x.i0<=i); label = minToHHMM(b?b.i0:i); }
-    if(b){
-      const xx = daily ? xi(b.k)+bw/2 : xi(b.i0)+bw/2; ctx.strokeStyle=C('--fg'); ctx.globalAlpha=.35; ctx.beginPath(); ctx.moveTo(xx,pT); ctx.lineTo(xx,yo0+Ho); ctx.stroke(); ctx.globalAlpha=1;
-      let extra = '';
-      if(!daily){ const vw = vwapSeries(mins).filter(p=>p.i<=b.i0+tfm-1).pop(); if(vw) extra += `  VWAP ${fmt(vw.v)}`;
-        const hit = (S.alerts||[]).find(al=>al.symbol===a.symbol && al.ts.slice(0,10) === (S.day || todayIST()) && Math.floor(hhmmToMin(al.ts.slice(11,16))/tfm)===Math.floor(b.i0/tfm)); if(hit) extra += `  ▲ ${hit.scan}`; }
-      if(readout) readout.textContent = `${label}  O ${fmt(b.o)}  H ${fmt(b.h)}  L ${fmt(b.l)}  C ${fmt(b.c)}  V ${b.stub&&!b.v?'—':K(b.v)}${extra}  OI ${K(b.oi)}`;
-    }
-  } else if(readout) readout.textContent = daily ? `${bars.length} daily bars` : (chartCache.delta===false ? 'backfilled day · no tick delta' : '');
+    const i = Math.max(0, Math.min(BARS.length - 1, Math.round(v.a + (hoverIdx - pL) / slot - 0.5))), b = BARS[i];
+    if(b){ const x = X(b.i) + slot / 2; ctx.strokeStyle = C('--fg'); ctx.globalAlpha = .35; ctx.beginPath(); ctx.moveTo(x, pT); ctx.lineTo(x, yo0 + Ho); ctx.stroke(); ctx.globalAlpha = 1;
+      let extra = ''; const vk = CC.lidx[b.day + '|' + b.slot]; if(vk != null) extra += `  VWAP ${fmt(CC.VW[vk])}`;
+      const ev = st.ev.find(e => SX.mapIndex(BARS, B5, e.i, true, tfm) === i); if(ev) extra += `  · ${ev.kind} ${ev.dir}`;
+      const hit = (S.alerts || []).find(al => al.symbol === a.symbol && al.ts.slice(0, 10) === b.day && Math.floor(hhmmToMin(al.ts.slice(11, 16)) / tfm) === b.slot); if(hit) extra += `  ▲ ${hit.scan}`;
+      if(readout) readout.textContent = `${b.day !== ser.day ? b.day.slice(5) + ' ' : ''}${minToHHMM(b.m)}  O ${fmt(b.o)}  H ${fmt(b.h)}  L ${fmt(b.l)}  C ${fmt(b.c)}  V ${b.stub && !b.v ? '—' : K(b.v)}${extra}  OI ${K(b.oi)}`; }
+  } else if(readout) readout.textContent = `${curTf()} · ${S.cdays} session${S.cdays > 1 ? 's' : ''}${tfm === 1 && S.cdays === 1 && !S.cfull ? ' · last 2 h, drag to pan' : ''} · structure on 5m bars, swing ${S.swing}${chartCache.delta === false ? ' · backfilled day, no tick delta' : ''}`;
 }
-
+function drawChartDaily(a, cv){
+  const ctx = cv.getContext('2d'), C = k => getComputedStyle(document.documentElement).getPropertyValue(k).trim();
+  const big = cv.width > 900, W = cv.width, H = cv.height, pL = 8, pR = big ? 90 : 70, pT = 10, pB = big ? 22 : 18, gap = 6, Hv = big ? 110 : 64, Ho = big ? 110 : 64, Hp = H - pT - pB - Hv - Ho - 2 * gap, yv0 = pT + Hp + gap, yo0 = yv0 + Hv + gap;
+  ctx.clearRect(0, 0, W, H); ctx.font = (big ? '13px' : '10px') + ' JetBrains Mono, monospace'; ctx.lineWidth = big ? 1.4 : 1;
+  const readout = panelEl().querySelector('.readout'), bars = dailyCache.bars || [];
+  if(!bars.length){ ctx.fillStyle = C('--muted'); ctx.fillText('no daily bars', pL + 4, pT + 14); if(readout) readout.textContent = ''; return; }
+  const n = bars.length, xi = i => pL + i / n * (W - pL - pR), bw = Math.max(1, (W - pL - pR) / n * 0.7);
+  let lo = Math.min(...bars.map(b => b.l)), hi = Math.max(...bars.map(b => b.h)); const pd = (hi - lo) * .05 || 1; lo -= pd; hi += pd;
+  const y = p => pT + (1 - (p - lo) / (hi - lo)) * Hp, vmax = Math.max(...bars.map(b => b.v || 0), 1);
+  bars.forEach((b, k) => { const up = b.c >= b.o, col = up ? C('--bull') : C('--bear'), x0 = xi(k); ctx.strokeStyle = ctx.fillStyle = col;
+    ctx.beginPath(); ctx.moveTo(x0 + bw / 2, y(b.h)); ctx.lineTo(x0 + bw / 2, y(b.l)); ctx.stroke(); ctx.fillRect(x0, y(Math.max(b.o, b.c)), bw, Math.max(1, Math.abs(y(b.o) - y(b.c))));
+    ctx.globalAlpha = .7; ctx.fillRect(x0, yv0 + Hv - (b.v || 0) / vmax * Hv, bw, (b.v || 0) / vmax * Hv); ctx.globalAlpha = 1; });
+  const ois = bars.map(b => b.oi).filter(v => v);
+  if(ois.length){ const olo = Math.min(...ois), ohi = Math.max(...ois), opd = (ohi - olo) * .1 || 1, yo = v => yo0 + (1 - (v - (olo - opd)) / ((ohi + opd) - (olo - opd))) * Ho;
+    ctx.strokeStyle = C('--accent'); ctx.lineWidth = 1.4; ctx.beginPath(); let started = false; bars.forEach((b, k) => { if(!b.oi) return; const xx = xi(k) + bw / 2, yy = yo(b.oi); started ? ctx.lineTo(xx, yy) : ctx.moveTo(xx, yy); started = true; }); ctx.stroke(); ctx.lineWidth = 1;
+    const last = ois[ois.length - 1], chg = (last / ois[0] - 1) * 100; ctx.fillStyle = chg >= 0 ? C('--bull') : C('--bear'); ctx.fillText(Math.abs(chg) < 500 ? `OI ${sg(chg, 1)}%` : `OI ${K(last)}`, W - pR + 4, yo(last) + 3); }
+  ctx.fillStyle = C('--muted'); ctx.fillText('VOL', pL + 2, yv0 + 9); ctx.fillText('OI', pL + 2, yo0 + 9);
+  const lastB = bars[bars.length - 1]; ctx.fillStyle = C('--fg'); ctx.fillRect(W - pR, y(lastB.c) - 7, 66, 14); ctx.fillStyle = C('--bg'); ctx.fillText(fmt(lastB.c), W - pR + 4, y(lastB.c) + 3);
+  ctx.fillStyle = C('--muted'); const step = Math.max(1, Math.round(n / 6)); bars.forEach((b, k) => { if(k % step === 0) ctx.fillText(b.day.slice(5), xi(k) - 14, H - 5); });
+  const sel = S.day || todayIST(), si = bars.findIndex(b => b.day === sel); if(si >= 0){ ctx.strokeStyle = C('--accent'); ctx.beginPath(); ctx.moveTo(xi(si) + bw / 2, pT); ctx.lineTo(xi(si) + bw / 2, yo0 + Ho); ctx.stroke(); }
+  if(hoverIdx != null){ const k = Math.max(0, Math.min(n - 1, Math.round((hoverIdx - pL) / (W - pL - pR) * n))), b = bars[k];
+    if(b){ const xx = xi(k) + bw / 2; ctx.strokeStyle = C('--fg'); ctx.globalAlpha = .35; ctx.beginPath(); ctx.moveTo(xx, pT); ctx.lineTo(xx, yo0 + Ho); ctx.stroke(); ctx.globalAlpha = 1;
+      if(readout) readout.textContent = `${b.day}  O ${fmt(b.o)}  H ${fmt(b.h)}  L ${fmt(b.l)}  C ${fmt(b.c)}  V ${K(b.v)}  OI ${K(b.oi)}`; } }
+  else if(readout) readout.textContent = `${n} daily bars`;
+}
 function renderAll(){
   if(!S.snap) return;
   $('clock').textContent = S.at || S.snap.ts.slice(11,16);
   renderCards(); renderAlerts(); renderFoot();
   if(!S.selected && S.snap.bulls[0]) S.selected = S.snap.bulls[0].symbol;
   if(S.view === 'patterns') loadPatterns(); else if(S.view === 'desk') loadDesk(); else if(S.view === 'watch'){ loadWatch(); loadPatterns(); loadDesk(); } else if(S.view === 'trades'){ loadTrades(); loadPatterns(); } else if(S.view === 'alarms') loadAlarms(); else renderDetail();
+  if(S.lbA) renderStockPanel();
 }
 function outcomeLabel(o){
   if(o === null) return '<span class="mut">—</span>';
@@ -1636,23 +1714,114 @@ function drawAlarmPanel(r, w){
   $('aToTrades').onclick = () => { const ref = r.ref; closeAlarmPanel(); setView('trades'); loadTrades().then(() => { const t = (S.trows || []).find(x => x.ref === ref); if(t && S.view === 'trades') openTradeDrawer(t.id); }); };
 }
 
-// ---------- chart pop-out ----------
-S.lbA = null;
-function openChartBig(a){
-  S.lbA = a; const lb = $('lightbox'); lb.hidden = false;
-  const r = rowFor(a.symbol); const pat = a.pattern;
-  $('lbSym').textContent = a.symbol;
-  $('lbSub').textContent = [S.sectorsOf[a.symbol] || '', r ? `₹${fmt(r.price)} · ${sg(r.pct)}% · rank #${r.rank}` : '', pat ? `${PK.kindLabel(pat.kind)} · ${pat.state}` : '', `as of ${S.at || (S.snap ? S.snap.ts.slice(11,16) : '')}`].filter(Boolean).join(' · ');
-  $('lightboxBody').querySelector('.tfrow').innerHTML = TFS.filter(t => !pat || t !== '1D').map(t=>`<button class="tf ${curTf()===t?'on':''}" data-tf="${t}">${t}</button>`).join('') + '<span class="readout mono"></span>';
-  hoverIdx = null; wireChart(a);
+// ---------- the stock panel: a click on any chart opens it full-screen with every detail ----------
+S.lbA = null; S.sp = null; S.hist = {};
+function openStockPanel(a){
+  if(!a || !a.symbol) return;
+  S.lbA = {...a}; hoverIdx = null; S.cview = null; chartCache.calc = null;
+  const lb = $('lightbox'); lb.hidden = false; $('lightboxBody').scrollTop = 0;
+  renderStockPanel();
 }
 function closeChartBig(){
-  if(!S.lbA) return; S.lbA = null; $('lightbox').hidden = true; hoverIdx = null;
+  if(!S.lbA) return; S.lbA = null; S.sp = null; $('lightbox').hidden = true; hoverIdx = null; S.cview = null; chartCache.calc = null;
   if(S.view === 'patterns') renderPatternDetail(); else if(S.view === 'watch'){ if(S.wsel) renderWatchDrawer(); } else if(S.view === 'trades'){ if(S.tsel != null) renderTradeDrawer({full: true}); } else if(S.view === 'alarms'){ if(S.asel) renderAlarmPanel(); } else renderDetail();
 }
 $('lbClose').onclick = closeChartBig;
 $('lightbox').addEventListener('click', e => { if(e.target === $('lightbox')) closeChartBig(); });
 document.addEventListener('keydown', e => { if(e.key === 'Escape') closeChartBig(); });
+// A Trades row or a Patterns row as an Alarms-shaped row, so the panel's ticket and markers read one shape.
+function tradeAsRow(t){ const st = tradeSetup(t); return {ref: t.ref, setup: st.label, ts: t.ts, side: t.side, price: t.entry, stop: t.stop, target: t.target, rr: t.rr, shares: t.size && t.size.shares, risk_inr: t.size && t.size.risk_inr, gate: t.gate, gate_reason: t.gate_reason, odds: t.odds, past: t.odds && t.odds.past && t.odds.past.last, outcome: t.outcome, desk: null, source: 'trade'}; }
+function patternAsRow(p){ const ref = p.entry != null ? p.entry : p.neckline; return {ref: `pattern:${p.symbol}|${p.kind}|${String(p.triggered_at || p.formed_at).slice(11, 16)}`, setup: PK.kindLabel(p.kind), ts: p.triggered_at || p.formed_at, side: p.side, price: ref, stop: p.stop, target: p.facts && p.facts.target1 != null ? p.facts.target1 : p.target, rr: p.rr, shares: p.trade && p.trade.shares, risk_inr: p.trade && p.trade.risk_inr, gate: p.trade && p.trade.gate, gate_reason: p.trade && p.trade.gate_reason, odds: p.odds, past: p.odds && p.odds.past && p.odds.past.last, outcome: p.outcome, desk: null, source: 'pattern', state: p.state}; }
+// Today's events for a symbol when the Alarms board has no timeline for it: alerts, pattern triggers, desk calls.
+function storyFallback(sym, day, at){
+  const out = [];
+  (S.alerts || []).filter(x => x.symbol === sym && x.ts.slice(0, 10) === day && x.ts.slice(11, 16) <= at).forEach(x => { const k = WK.alertKind(x.scan);
+    out.push({at: x.ts.slice(11, 16), kind: k === 'brk' ? 'break' : 'alarm', side: x.side, text: k === 'brk' ? `${x.scan} · ${x.side === 'short' ? 'above PDH' : 'below PDL'} at ${fmt(x.price)}` : `${x.scan} · ${x.side === 'long' ? 'BUY' : 'SELL'} at ${fmt(x.price)}`});
+    const o = x.outcome; if(o && o.settled_at && String(o.settled_at).slice(11, 16) <= at && o.hit && o.hit !== 'none') out.push({at: String(o.settled_at).slice(11, 16), kind: 'exit', px: o.exit_px, text: `${o.hit} at ${fmt(o.exit_px)} · ${x.scan}`}); });
+  (S.prows || []).filter(p => p.symbol === sym && p.triggered_at && String(p.triggered_at).slice(0, 10) === day && String(p.triggered_at).slice(11, 16) <= at).forEach(p => out.push({at: String(p.triggered_at).slice(11, 16), kind: 'alarm', side: p.side, text: `${PK.kindLabel(p.kind)} · ${p.side === 'long' ? 'BUY' : 'SELL'} at ${fmt(p.entry != null ? p.entry : p.neckline)}`}));
+  ((S.desk && S.desk.verdicts) || []).filter(v => v.symbol === sym && v.at && String(v.at).slice(11, 16) <= at).forEach(v => { const o = v.output || v; out.push({at: String(v.at).slice(11, 16), kind: 'desk', text: `desk ${String(o.call || '').toUpperCase()}${o.confidence != null ? ' ' + o.confidence : ''}`}); });
+  return out.sort((x, y) => x.at < y.at ? -1 : x.at > y.at ? 1 : 0);
+}
+async function renderStockPanel(){
+  const a = S.lbA; if(!a) return;
+  const sym = a.symbol, day = S.day || todayIST(), at = S.at || '15:30', live = S.following && !S.day, key = `${sym}|${day}|${at}|${live ? 'live' : ''}`;
+  if(!S.sp || S.sp.key !== key){
+    const box = $('lightboxBody'); if(!S.sp || S.sp.sym !== sym){ box.className = 'box sp'; box.innerHTML = `<div class="ahd2"><div class="sym">${esc(sym)}</div><button class="close" id="lbClose">Esc ✕</button></div><div class="mut">loading…</div>`; $('lbClose').onclick = closeChartBig; }
+    const want = key;
+    const [w, al, hist] = await Promise.all([
+      api(live ? `/api/watch?symbols=${encodeURIComponent(sym)}` : `/api/watch?symbols=${encodeURIComponent(sym)}&day=${day}&at=${at}`).then(r => (r.rows || {})[sym] || null).catch(() => null),
+      (S.alarms && S.alarms.day === day && (live || S.alarms.at === at) ? Promise.resolve(S.alarms) : api(`/api/alarms?day=${day}${live ? '' : '&at=' + at}`)).catch(() => null),
+      (S.hist[sym] && S.hist[sym].t > Date.now() - 60000) ? Promise.resolve(S.hist[sym].rows) : api(`/api/alerts?symbol=${encodeURIComponent(sym)}&days=20`).then(r => { S.hist[sym] = {t: Date.now(), rows: r.alerts || []}; return r.alerts || []; }).catch(() => []),
+    ]);
+    if(!S.lbA || S.lbA.symbol !== sym || `${S.day || todayIST()}|${S.at || '15:30'}` !== `${day}|${at}`) return;
+    S.sp = {key: want, sym, w, rows: ((al && al.rows) || []).filter(r => r.symbol === sym && AK.fmtTime(r.ts) <= at).sort((x, y) => x.ts < y.ts ? -1 : 1), hist: hist.filter(h => h.ts.slice(0, 10) < day)};
+  }
+  drawStockPanel(a, S.sp);
+}
+function drawStockPanel(a, sp){
+  const d = $('lightboxBody'), sym = a.symbol, day = S.day || todayIST(), at = S.at || '15:30', w = sp.w, rows = sp.rows;
+  const px = w ? w.price : (a.price != null ? a.price : null), pct = w ? w.pct : (a.pct != null ? a.pct : null);
+  // the row behind the ticket: the one this panel was opened from, else the latest alarm (not a break note) today
+  let row = null;
+  if(a.trade) row = rows.find(r => r.ref === a.trade.ref) || tradeAsRow(a.trade);
+  else if(a.pattern) row = rows.find(r => r.ref.startsWith(`pattern:${sym}|${a.pattern.kind}|`)) || patternAsRow(a.pattern);
+  else row = rows.slice().reverse().find(r => !aBreak(r)) || rows[rows.length - 1] || null;
+  const latest = rows[rows.length - 1] || row;
+  const long = row ? row.side === 'long' : (w ? w.pct >= 0 : true), fired = latest ? AK.fmtTime(latest.ts) : '';
+  const pill = latest ? `<span class="apill ${latest.side === 'long' ? 'l' : 's'}">${latest.side === 'long' ? 'BUY' : 'SELL'}</span><span class="apill k">${esc(latest.setup)}</span>` : '<span class="apill k">no alarm today</span>';
+  const sector = (w && w.sector) || S.sectorsOf[sym] || '';
+  const vw = w && w.vwap ? `<div class="u ${px >= w.vwap ? 'up' : 'dn'}">${px >= w.vwap ? 'above' : 'below'} by ${fmt(Math.abs(px / w.vwap - 1) * 100)} %</div>` : '<div class="u">—</div>';
+  const tiles = w ? `<div class="atile"><div class="k">VWAP</div><div class="v" style="color:var(--vwap)">${fmt(w.vwap)}</div>${vw}</div>
+     <div class="atile"><div class="k">OI vs yesterday</div><div class="v">${aPct(w.oi_pct)}</div><div class="u"><span class="chip ${esc(w.oi_cls || 'nt')}">${esc(w.oi_label || '—')}</span></div></div>
+     <div class="atile"><div class="k">RVOL</div><div class="v">${w.rvol != null ? fmt(w.rvol, 1) + '×' : '—'}</div><div class="u">vs 20-day average</div></div>
+     <div class="atile"><div class="k">Day range</div><div id="spRange">${aRangeHtml(alarmRange(sym, px))}</div></div>`
+   : `<div class="atile" style="grid-column:1/3"><div class="u">no market data for ${esc(sym)} at ${esc(at)}</div></div>`;
+  const hist = sp.hist.map(h => `<tr><td>${esc(h.ts.slice(5, 10))}</td><td>${esc(h.ts.slice(11, 16))}</td><td>${esc(h.scan)}</td><td class="${h.side === 'long' ? 'up' : 'dn'}">${h.side === 'long' ? 'BUY' : 'SELL'} ${fmt(h.price)}</td><td>${h.stop == null ? '<span class="mut">note</span>' : outcomeLabel(h.outcome)}</td></tr>`).join('');
+  d.className = 'box sp'; d.dataset.sym = sym;
+  d.innerHTML = `<div class="ahd2"><div><div class="sym">${esc(sym)}${pill}</div>
+     <div class="when" id="spWhen">${fired ? `fired ${fired} · ` : ''}now ${esc(at)}${sector ? ' · ' + esc(sector) : ''}</div></div>
+     <div class="px"><b>${fmt(px)}</b>${pct != null ? `<span class="${pct >= 0 ? 'up' : 'dn'}">${aPct(pct, 2)}</span>` : ''}</div><button class="close" id="lbClose" title="Close (Esc)">Esc ✕</button></div>
+   <div class="atiles five">${tiles}<div class="atile"><div class="k">Structure · 5m swings</div><div id="spStruct"><div class="v mut">—</div></div></div></div>
+   <div class="amain"><div><div class="tfrow">${TFS.filter(t => !a.pattern || t !== '1D').map(t => `<button class="tf ${curTf() === t ? 'on' : ''}" data-tf="${t}">${t}</button>`).join('')}<span class="readout mono"></span></div>
+     <canvas class="chart" width="1240" height="640"></canvas></div>
+     <div class="aladder" id="spLadder"></div></div>
+   ${row ? (row.source === 'pattern' && !row.ts ? '' : alarmTicket(row, px)) : ''}
+   <div class="cols2"><div><h3>Story · today</h3><ul class="atl" id="spStory"><li><span class="tm"></span><span class="mut">nothing yet</span></li></ul></div>
+   <div><h3>This stock before today · last 20 sessions</h3>${hist ? `<table class="hist">${hist}</table>` : '<div class="mut">no stored alerts</div>'}</div></div>
+   <div class="wbtn"><button id="spScanner">Open in Scanner at ${esc(fired || at)}</button>${row && row.ref && !String(row.ref).startsWith('pattern:') && row.source !== 'pattern' ? '<button id="spTrades">Open in Trades</button>' : ''}<button id="spWatch">Add to Watch</button></div>`;
+  $('lbClose').onclick = closeChartBig;
+  const a2 = {...(w || {}), symbol: sym, minimal: !w};
+  if(a.pattern) a2.pattern = a.pattern; if(a.trade) a2.trade = a.trade; if(a.ob) a2.ob = a.ob;
+  if(row && rows.length){ a2.markers = alarmMarkers(row); }
+  if(row && row.stop != null) a2.levels_extra = [['STOP', row.stop], ['TGT', row.target]];
+  S.lbA = Object.assign(S.lbA || {}, {symbol: sym, _row: row, _w: w, _rows: rows});
+  wireChart(a2).then(() => { const el = $('spRange'); if(el && S.lbA && S.lbA.symbol === sym) el.innerHTML = aRangeHtml(alarmRange(sym, px)); fillStructureUI(); });
+  $('spScanner').onclick = () => { S.selected = sym; closeChartBig(); setView('scanner'); if(!S.following) enterReplay(S.day || todayIST(), fired || at); else renderAll(); };
+  const tb = $('spTrades'); if(tb) tb.onclick = () => { const ref = row.ref; closeChartBig(); setView('trades'); loadTrades().then(() => { const t = (S.trows || []).find(x => x.ref === ref); if(t && S.view === 'trades') openTradeDrawer(t.id); }); };
+  $('spWatch').onclick = () => { addWatch(sym); $('spWatch').textContent = 'On the Watch board'; };
+}
+// Structure tile, ladder (with the two swing levels) and the story, from the chart's own calculation. Safe to call any time.
+function fillStructureUI(){
+  if(!S.lbA || !$('spLadder')) return;
+  const sym = S.lbA.symbol, w = S.lbA._w, row = S.lbA._row, rows = S.lbA._rows || [], day = S.day || todayIST(), at = S.at || '15:30';
+  const sn = structureNow(), st = sn && sn.st, B5 = sn && sn.B5, px = w ? w.price : (S.lbA.price != null ? S.lbA.price : null);
+  const lastEv = st && st.ev.length ? st.ev[st.ev.length - 1] : null;
+  const tile = $('spStruct'); if(tile) tile.innerHTML = st && st.trend ? `<div class="v" style="color:var(${st.trend === 'up' ? '--bull' : '--bear'})">${st.trend === 'up' ? 'BULLISH' : 'BEARISH'}</div><div class="u">${lastEv ? `${lastEv.kind} ${lastEv.dir === 'up' ? '↑' : '↓'} ${minToHHMM(B5[lastEv.i].m + 5)} at ${fmt(lastEv.px)}` : 'no break yet'}</div>` : `<div class="v mut">—</div><div class="u">waiting for swings</div>`;
+  const lv = w ? [['PDH', w.prev_high], ['R2', w.R2], ['R1', w.R1], ['PIVOT', w.P], ['PC', w.prev_close], ['S1', w.S1], ['S2', w.S2], ['PDL', w.prev_low], ['VWAP', w.vwap]] : (chartCache.ref && chartCache.ref.prev_high ? [['PDH', chartCache.ref.prev_high], ['PC', chartCache.ref.prev_close], ['PDL', chartCache.ref.prev_low]] : []);
+  if(st && st.upLevel != null) lv.push(['SWING H', st.upLevel]); if(st && st.dnLevel != null) lv.push(['SWING L', st.dnLevel]);
+  const lad = px != null ? AK.ladder(lv.filter(x => x[1] != null), px) : lv.filter(x => x[1] != null).map(([name, value]) => ({name, value}));
+  const LC = Object.assign({'SWING H': '--accent', 'SWING L': '--accent'}, LADC);
+  $('spLadder').innerHTML = `<div class="k">Levels</div>${lad.map(l => l.now ? `<div class="now"><span>NOW</span><span>${fmt(l.value)}</span></div>` : `<div class="lr"><small style="color:var(${LC[l.name] || '--muted'})">${l.name}</small><span>${fmt(l.value)}</span></div>`).join('') || '<span class="mut">—</span>'}
+    <div class="snow"><div class="k">Structure now</div><div><span class="mut">trend</span><b class="${st && st.trend === 'up' ? 'up' : st && st.trend === 'down' ? 'dn' : 'mut'}">${st && st.trend ? st.trend : '—'}</b></div>
+    <div><span class="mut">close above</span><b>${fmt(st && st.upLevel)}</b></div><div><span class="mut">= ${st && st.trend === 'down' ? 'CHoCH up' : 'BOS up'}</span></div>
+    <div><span class="mut">close below</span><b>${fmt(st && st.dnLevel)}</b></div><div><span class="mut">= ${st && st.trend === 'up' ? 'CHoCH down' : 'BOS down'}</span></div></div>`;
+  const words = SX.positionWords(px, w && w.vwap, w && w.prev_high, w && w.prev_low, st && st.trend);
+  const when = $('spWhen'); if(when){ const fired = rows.length ? AK.fmtTime(rows[rows.length - 1].ts) : ''; const sector = (w && w.sector) || S.sectorsOf[sym] || ''; when.textContent = `${fired ? `fired ${fired} · ` : ''}now ${at}${words.length ? ' · ' + words.join(' · ') : ''}${sector ? ' · ' + sector : ''}`; }
+  let tl = rows.length && rows[0].timeline ? AK.timelineRows(rows[0].timeline, at).map(e => ({...e, side: e.kind === 'alarm' || e.kind === 'break' ? alarmMarkers({...rows[0], timeline: [e]})[0].side : undefined})) : storyFallback(sym, day, at);
+  if(S.ov.bos && st && B5) tl = tl.concat(st.ev.filter(e => B5[e.i].day === day).map(e => ({at: minToHHMM(B5[e.i].m + 5), kind: e.kind === 'BOS' ? 'bos' : 'choch', text: `${e.kind} ${e.dir} · 5m close through ${fmt(e.px)} (swing of ${minToHHMM(B5[e.from].m)})`}))).sort((x, y) => x.at < y.at ? -1 : x.at > y.at ? 1 : 0);
+  const mine = row ? (e => aMine(row, e)) : (() => false);
+  $('spStory').innerHTML = tl.map(e => `<li class="${esc(e.kind)}${e.kind === 'alarm' ? (e.side === 'long' ? ' l' : ' s') : ''}${mine(e) ? ' me' : ''}"><span class="tm">${esc(e.at)}</span><span>${esc(e.text)}</span></li>`).join('') || '<li><span class="tm"></span><span class="mut">nothing yet</span></li>';
+}
 
 // ---------- live feed ----------
 function onLiveSnapshot(snap){
