@@ -16,7 +16,7 @@ sessions) and a click on it opens one full-screen stock panel with all the detai
 - `engine/` untouched. `api/alerts.py` gains one function; `ALERT_SCHEMA` unchanged (replay rows are not touched).
 - Bump `?v=` for `structure.js` (new) and any helper changed; `index.html` itself is not cache-busted.
 - As-of: everything cut at `S.at`; previous sessions always complete.
-- Tests: `node --test tests/web/` and `.venv/bin/python -m pytest tests -q` green before the merge.
+- Tests: `node --test tests/web/*.mjs` and `.venv/bin/python -m pytest tests -q` green before the merge.
 
 ## Review focus
 

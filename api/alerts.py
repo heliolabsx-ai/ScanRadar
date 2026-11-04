@@ -7,6 +7,7 @@ from core.analytics import analyse
 from core.asof import view_at
 from core.rules import resample, trade_levels, continuous, join_sessions, story, validate_scan
 from core.backtest import fires, outcome, prev_bars
+from core.calendar import is_trading_day
 
 from replay import IST, SETTLED, day_is_settled  # noqa: F401  (re-exported for tests)
 
@@ -207,30 +208,27 @@ def alerts_for_day(con, day: dt.date) -> list[dict]:
              "outcome": r["payload"].get("outcome"), "story": r["payload"].get("story")} for r in rows]
 
 
-def symbol_history(con, symbol: str, days: int, now: dt.datetime | None = None) -> list[dict]:
-    """One symbol's alerts over its last `days` stored sessions (strictly before today), live and replay
-    merged, newest first, in the `alerts_for_day` row shape. Reads 2×days calendar days back so holidays
-    and weekends still leave `days` sessions, then keeps the first `days` distinct days."""
+def symbol_history(con, symbol: str, days: int, before: dt.date | None = None, now: dt.datetime | None = None) -> list[dict]:
+    """One symbol's alerts over the last `days` trading sessions strictly before `before` (default today),
+    live and replay merged, newest first, in the `alerts_for_day` row shape. Sessions are counted with the
+    trading calendar (weekends and NSE_HOLIDAYS skipped), so a quiet stock still gets a 20-session window."""
     now = now or dt.datetime.now(IST)
-    today = now.astimezone(IST).date()
-    since = dt.datetime.combine(today - dt.timedelta(days=max(1, days) * 2), dt.time(0, 0), IST)
+    end = before or now.astimezone(IST).date()
+    d, left = end, max(1, days)
+    while left > 0:
+        d -= dt.timedelta(days=1)
+        if is_trading_day(d):
+            left -= 1
+    since = dt.datetime.combine(d, dt.time(0, 0), IST)
     with con.cursor() as cur:
         cur.execute("SELECT id, ts, scan, symbol, price, payload, source FROM alerts WHERE symbol=%s AND ts>=%s AND ts<%s ORDER BY ts DESC",
-                    (symbol, since, dt.datetime.combine(today, dt.time(0, 0), IST)))
+                    (symbol, since, dt.datetime.combine(end, dt.time(0, 0), IST)))
         rows = [{"id": i, "ts": ts.astimezone(IST), "scan": sc, "symbol": sym, "price": pr, "payload": p or {}, "source": src}
                 for i, ts, sc, sym, pr, p, src in cur.fetchall()]
-    out, seen = [], []
-    for r in merge_live_replay(rows):
-        d = r["ts"].date()
-        if d not in seen:
-            if len(seen) >= days:
-                break
-            seen.append(d)
-        out.append({"id": r["id"], "ts": r["ts"].isoformat(), "scan": r["scan"], "symbol": r["symbol"], "price": r["price"],
-                    "tf": r["payload"].get("tf"), "source": r["source"], "side": r["payload"].get("side"),
-                    "stop": r["payload"].get("stop"), "target": r["payload"].get("target"),
-                    "outcome": r["payload"].get("outcome"), "story": r["payload"].get("story")})
-    return out
+    return [{"id": r["id"], "ts": r["ts"].isoformat(), "scan": r["scan"], "symbol": r["symbol"], "price": r["price"],
+             "tf": r["payload"].get("tf"), "source": r["source"], "side": r["payload"].get("side"),
+             "stop": r["payload"].get("stop"), "target": r["payload"].get("target"),
+             "outcome": r["payload"].get("outcome"), "story": r["payload"].get("story")} for r in merge_live_replay(rows)]
 
 
 def recent_alerts(con, limit: int) -> list[dict]:

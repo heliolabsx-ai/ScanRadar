@@ -141,20 +141,23 @@ class _Con:
     def cursor(self): return self.cur
 
 
-def test_symbol_history_reads_back_two_calendar_days_per_session_and_cuts_to_the_last_days():
+def test_symbol_history_counts_trading_sessions_back_from_before_and_merges_replay_twins():
     import alerts as al
     ist = dt.timezone(dt.timedelta(hours=5, minutes=30))
-    now = dt.datetime(2026, 11, 4, 22, 0, tzinfo=ist)
+    now = dt.datetime(2026, 11, 4, 22, 0, tzinfo=ist)                      # a Wednesday
     recs = [(9, dt.datetime(2026, 11, 3, 10, 4, tzinfo=ist), "VWAP reclaim long", "JSWENERGY", 503.35, {"side": "long", "outcome": {"hit": "target"}}, "live"),
             (8, dt.datetime(2026, 11, 3, 10, 4, 30, tzinfo=ist), "VWAP reclaim long", "JSWENERGY", 503.3, {"side": "long"}, "replay"),
-            (7, dt.datetime(2026, 11, 2, 15, 15, tzinfo=ist), "PDH break", "JSWENERGY", 511.0, {"side": "short", "story": {"line": 510.85}}, "live"),
-            (6, dt.datetime(2026, 10, 30, 9, 20, tzinfo=ist), "PDL break", "JSWENERGY", 497.0, {"side": "long"}, "replay")]
+            (7, dt.datetime(2026, 11, 2, 15, 15, tzinfo=ist), "PDH break", "JSWENERGY", 511.0, {"side": "short", "story": {"line": 510.85}}, "live")]
     con = _Con(recs)
     rows = al.symbol_history(con, "JSWENERGY", 2, now=now)
     sql, params = con.cur.calls[-1]
     assert "symbol=%s" in sql and params[0] == "JSWENERGY"
-    assert params[1] == dt.datetime(2026, 10, 31, 0, 0, tzinfo=ist)          # 2 × days calendar days back
+    assert params[1] == dt.datetime(2026, 11, 2, 0, 0, tzinfo=ist)           # two sessions back: Tue 3 Nov, Mon 2 Nov
     assert params[2] == dt.datetime(2026, 11, 4, 0, 0, tzinfo=ist)           # strictly before today
-    assert [r["id"] for r in rows] == [9, 7]                                 # replay twin merged, third day cut
+    assert [r["id"] for r in rows] == [9, 7]                                 # the replay twin merged away
     assert rows[0]["outcome"] == {"hit": "target"} and rows[1]["story"] == {"line": 510.85} and rows[0]["ts"].startswith("2026-11-03T10:04")
-    assert al.symbol_history(_Con([]), "X", 20, now=now) == []
+    con2 = _Con([])
+    assert al.symbol_history(con2, "X", 5, before=dt.date(2026, 11, 2), now=now) == []
+    _, params = con2.cur.calls[-1]
+    assert params[1] == dt.datetime(2026, 10, 26, 0, 0, tzinfo=ist)          # five sessions before Mon 2 Nov skip the weekend
+    assert params[2] == dt.datetime(2026, 11, 2, 0, 0, tzinfo=ist)
