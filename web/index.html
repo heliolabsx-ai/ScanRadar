@@ -571,7 +571,13 @@ S.swing = (() => { try{ return [2,3,5].includes(+localStorage.getItem('chart.swi
 S.cdays = 1; S.cfull = false; S.cview = null;
 chartCache.prev = {}; chartCache.prevList = []; chartCache.calc = null;
 const saveOv = () => { try{ localStorage.setItem('chart.ov', JSON.stringify(S.ov)); localStorage.setItem('chart.swing', String(S.swing)); }catch(e){} };
-const chartPR = cv => cv.width > 900 ? 84 : 72;
+const chartPR = cv => (cv._W || cv.width) > 700 ? 80 : 62;
+// Size a chart canvas to its real width and the screen's pixel density; drawing happens in CSS pixels (cv._W × cv._H).
+function sizeChart(cv){ const r = cv.getBoundingClientRect(); const cssW = Math.max(240, Math.round(r.width || (cv.parentElement && cv.parentElement.clientWidth) || 620)); const dpr = Math.min(3, window.devicePixelRatio || 1);
+  const cssH = S.lbA ? Math.max(420, Math.round(window.innerHeight * 0.64)) : Math.round(cssW * (cssW < 500 ? 0.72 : 0.6));
+  if(cv._W !== cssW || cv._H !== cssH || cv._dpr !== dpr){ cv.width = Math.round(cssW * dpr); cv.height = Math.round(cssH * dpr); cv.style.width = '100%'; cv.style.height = cssH + 'px'; cv._W = cssW; cv._H = cssH; cv._dpr = dpr; }
+  return cv; }
+window.addEventListener('resize', () => { if(S.lastA && panelEl().querySelector('canvas.chart')) drawChart(S.lastA); });
 // The n stored sessions strictly before `day`, oldest first (S.days is newest first).
 function prevSessions(day, n){ return (S.days || []).filter(d => d < day).slice().sort().slice(-n); }
 async function loadPrev(sym, day, n){
@@ -615,18 +621,18 @@ function wireChart(a){
   d.querySelectorAll('.tf').forEach(b => b.onclick = () => { S.tf = b.dataset.tf; try{ localStorage.setItem('tf', S.tf); }catch(e){} d.querySelectorAll('.tf').forEach(x => x.classList.toggle('on', x.dataset.tf === S.tf)); hoverIdx = null; S.cview = null; chartCache.calc = null; if(row) renderChartCtl(row.querySelector('.ctl'), a); loadAndDraw(a); });
   const cv = d.querySelector('canvas.chart'); if(!cv) return Promise.resolve();
   let drag = null;
-  const px = e => { const r = cv.getBoundingClientRect(); return (e.clientX - r.left) / r.width * cv.width; };
+  const px = e => { const r = cv.getBoundingClientRect(); return e.clientX - r.left; };
   cv.onpointerdown = e => { drag = {x: px(e), cx: e.clientX, cy: e.clientY, moved: false, v: S.cview ? {a: S.cview.a, b: S.cview.b} : null}; };
   cv.onpointermove = e => {
     const x = px(e);
     if(drag && S.cview && curTf() !== '1D'){ if(Math.abs(e.clientX - drag.cx) + Math.abs(e.clientY - drag.cy) > 5) drag.moved = true;
-      if(drag.moved && drag.v){ const slot = (cv.width - 8 - chartPR(cv)) / (drag.v.b - drag.v.a), dx = (x - drag.x) / slot; S.cview.a = drag.v.a - dx; S.cview.b = drag.v.b - dx; clampView(); } }
+      if(drag.moved && drag.v){ const slot = ((cv._W || cv.width) - 8 - chartPR(cv)) / (drag.v.b - drag.v.a), dx = (x - drag.x) / slot; S.cview.a = drag.v.a - dx; S.cview.b = drag.v.b - dx; clampView(); } }
     hoverIdx = x; drawChart(a);
   };
   cv.onpointerup = () => { cv.dataset.moved = drag && drag.moved ? '1' : ''; drag = null; };
   cv.onpointerleave = () => { hoverIdx = null; drag = null; drawChart(a); };
   cv.onclick = () => { const moved = cv.dataset.moved === '1'; cv.dataset.moved = ''; if(!moved && !S.lbA) openStockPanel(a); };
-  cv.onwheel = e => { if(curTf() === '1D' || !S.cview) return; e.preventDefault(); const v = S.cview, f = (px(e) - 8) / (cv.width - 8 - chartPR(cv)), k = v.a + f * (v.b - v.a), z = e.deltaY > 0 ? 1.15 : 0.87;
+  cv.onwheel = e => { if(curTf() === '1D' || !S.cview) return; e.preventDefault(); const v = S.cview, f = (px(e) - 8) / ((cv._W || cv.width) - 8 - chartPR(cv)), k = v.a + f * (v.b - v.a), z = e.deltaY > 0 ? 1.15 : 0.87;
     const a2 = k - (k - v.a) * z, b2 = k + (v.b - k) * z; if(b2 - a2 < 12 || b2 - a2 > 3000) return; v.a = a2; v.b = b2; clampView(); drawChart(a); };
   return loadAndDraw(a);
 }
@@ -652,8 +658,10 @@ function drawChart(a){
   const cv = panelEl().querySelector('canvas.chart'); if(!cv) return;
   if(curTf() === '1D') return drawChartDaily(a, cv);
   const ctx = cv.getContext('2d'), C = k => getComputedStyle(document.documentElement).getPropertyValue(k).trim();
-  const big = cv.width > 900, W = cv.width, H = cv.height, pL = 8, pR = chartPR(cv), pT = 18, pB = big ? 20 : 16, gap = 6, Hv = big ? 80 : 50, Ho = big ? 70 : 44, Hp = H - pT - pB - Hv - Ho - 2 * gap, yv0 = pT + Hp + gap, yo0 = yv0 + Hv + gap;
-  ctx.clearRect(0, 0, W, H); ctx.font = (big ? '12px' : '10.5px') + ' JetBrains Mono, monospace'; ctx.lineWidth = 1;
+  S.lastA = a; sizeChart(cv); const dpr = cv._dpr || 1; ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  const W = cv._W || cv.width, H = cv._H || cv.height, big = W > 700, compact = !S.lbA, pL = 8, pR = chartPR(cv), pT = 18, pB = big ? 18 : 15, gap = 6;
+  const Hv = Math.round((H - pT - pB) * (compact ? 0.12 : 0.10)), Ho = compact ? 0 : Math.round((H - pT - pB) * 0.08), Hp = H - pT - pB - Hv - Ho - gap - (Ho ? gap : 0), yv0 = pT + Hp + gap, yo0 = yv0 + Hv + gap, yBot = Ho ? yo0 + Ho : yv0 + Hv;
+  ctx.clearRect(0, 0, W, H); ctx.font = (big ? '12px' : '11px') + ' JetBrains Mono, monospace'; ctx.lineWidth = 1;
   const readout = panelEl().querySelector('.readout'), tfm = TFMIN[curTf()] || 5, ser = chartSeries();
   const ckey = [a.symbol, tfm, S.cdays, ser.at, ser.atMin, S.swing, ser.day, ser.ms.length, ser.msStruct.length].join('|');
   let CC = chartCache.calc;
@@ -671,7 +679,7 @@ function drawChart(a){
   let v = S.cview && S.cview.key === vkey ? S.cview : null;
   if(!v){ v = Object.assign(SX.fitView(BARS.length, i0, perDay, ser.days.length, tfm, S.cfull), {key: vkey, n: BARS.length}); S.cview = v; }
   else if(BARS.length !== v.n){ if(v.b >= v.n - 1){ const dd = BARS.length - v.n; v.a += dd; v.b += dd; } v.n = BARS.length; clampView(); }
-  const slot = (W - pL - pR) / (v.b - v.a), X = i => pL + (i - v.a) * slot, bw = Math.max(2, Math.min(big ? 22 : 16, slot * 0.68));
+  const slot = (W - pL - pR) / (v.b - v.a), X = i => pL + (i - v.a) * slot, bw = Math.max(2, Math.min(big ? 24 : 16, slot * 0.78)), stubX = W - pR - (W - pL - pR) * 0.2;
   const vis = BARS.filter(b => b.i >= v.a - 1 && b.i <= v.b + 1);
   if(!vis.length){ ctx.fillStyle = C('--muted'); ctx.fillText('nothing here · drag back or press fit', pL + 4, pT + 14); return; }
   const ref = chartCache.ref || {}, todayShown = vis.some(b => b.day === ser.day), tb0 = BARS.find(b => b.day === ser.day), tx0 = tb0 ? Math.max(pL, X(tb0.i) - slot * 0.16) : pL;
@@ -685,24 +693,24 @@ function drawChart(a){
   let lo = Math.min(...vis.map(b => b.l), ...lv), hi = Math.max(...vis.map(b => b.h), ...lv); const pad = (hi - lo) * .06 || 1; lo -= pad; hi += pad;
   const Y = p => pT + (1 - (p - lo) / (hi - lo)) * Hp, cbg = getComputedStyle(cv).backgroundColor;
   // grid and price axis
-  const step = SX.niceStep((hi - lo) / 6); ctx.strokeStyle = C('--line'); ctx.globalAlpha = .55; ctx.fillStyle = C('--muted');
-  for(let p = Math.ceil(lo / step) * step; p < hi; p += step){ ctx.beginPath(); ctx.moveTo(pL, Y(p)); ctx.lineTo(W - pR, Y(p)); ctx.stroke(); ctx.fillText(fmt(p), W - pR + 5, Y(p) + 4); }
+  const tags = [], tag = (t, yy, col, fill, prio) => { tags.push({t, yy, col, fill, prio: prio == null ? 1 : prio}); };
+  const step = SX.niceStep((hi - lo) / (compact ? 4 : 6)); ctx.strokeStyle = C('--line'); ctx.globalAlpha = .5;
+  for(let p = Math.ceil(lo / step) * step; p < hi; p += step){ ctx.beginPath(); ctx.moveTo(pL, Y(p)); ctx.lineTo(W - pR, Y(p)); ctx.stroke(); tag(fmt(p), Y(p), C('--muted'), false, 0); }
   ctx.globalAlpha = 1;
   // sessions
   let pd = null; vis.forEach(b => { if(b.day === pd) return;
-    if(pd && S.ov.ses){ const x = X(b.i) - slot * 0.16; ctx.strokeStyle = C('--line'); ctx.setLineDash([3, 3]); ctx.beginPath(); ctx.moveTo(x, pT - 2); ctx.lineTo(x, yo0 + Ho); ctx.stroke(); ctx.setLineDash([]); }
+    if(pd && S.ov.ses){ const x = X(b.i) - slot * 0.16; ctx.strokeStyle = C('--line'); ctx.setLineDash([3, 3]); ctx.beginPath(); ctx.moveTo(x, pT - 2); ctx.lineTo(x, yBot); ctx.stroke(); ctx.setLineDash([]); }
     if(S.cdays > 1 || b.day !== ser.day){ const dp = dayParts(b.day); ctx.fillStyle = C('--muted'); ctx.fillText(`${dp.dow} ${dp.dm}`, Math.max(pL + 2, X(b.i)), pT - 6); }
     pd = b.day; });
-  const tag = (t, yy, col, fill) => { const tw = ctx.measureText(t).width + 8; if(fill){ ctx.fillStyle = col; ctx.beginPath(); ctx.roundRect(W - pR + 2, yy - 7, tw, 14, 3); ctx.fill(); ctx.fillStyle = C('--bg'); } else { ctx.fillStyle = cbg; ctx.fillRect(W - pR + 2, yy - 7, tw, 14); ctx.fillStyle = col; } ctx.fillText(t, W - pR + 6, yy + 4); };
   const hline = (p, col, dash, w, x0) => { if(p == null || isNaN(p) || p < lo || p > hi || (x0 != null && x0 >= W - pR)) return false; ctx.strokeStyle = col; ctx.lineWidth = w || 1; ctx.setLineDash(dash || []); ctx.beginPath(); ctx.moveTo(x0 != null ? x0 : pL, Y(p)); ctx.lineTo(W - pR, Y(p)); ctx.stroke(); ctx.setLineDash([]); ctx.lineWidth = 1; return true; };
   // overlays: opening range, order block, PDH/PDL, pivots, VWAP
   if(S.ov.or) ser.days.forEach(d => { const bb = BARS.filter(b => b.day === d), src = ser.ms.filter(c => c.day === d && c.m < 15); if(!bb.length || !src.length) return; const oh = Math.max(...src.map(c => c.h)), ol = Math.min(...src.map(c => c.l)), x0 = X(bb[0].i) - slot * .16, x1 = X(bb[bb.length - 1].i) + slot * .84; ctx.fillStyle = C('--line'); ctx.globalAlpha = .4; ctx.fillRect(Math.max(pL, x0), Y(oh), Math.min(W - pR, x1) - Math.max(pL, x0), Y(ol) - Y(oh)); ctx.globalAlpha = 1; });
   if(S.ov.ob && a.ob && todayShown){ ctx.fillStyle = a.ob.dir > 0 ? C('--bull-soft') : C('--bear-soft'); ctx.fillRect(tx0, Y(a.ob.hi), W - pR - tx0, Y(a.ob.lo) - Y(a.ob.hi)); }
   const piv = a.R1 != null ? {R1: a.R1, R2: a.R2, S1: a.S1, S2: a.S2} : (ref.prev_high && ref.prev_low && ref.prev_close ? (() => { const P = (+ref.prev_high + +ref.prev_low + +ref.prev_close) / 3, rg = ref.prev_high - ref.prev_low; return {R1: 2 * P - ref.prev_low, S1: 2 * P - ref.prev_high, R2: P + rg, S2: P - rg}; })() : null);
   if(todayShown && ref.prev_high){
-    if(S.ov.pd){ if(hline(+ref.prev_high, C('--bull'), [], 1.2, tx0)) tag('PDH ' + fmt(ref.prev_high), Y(+ref.prev_high), C('--bull'), true); if(hline(+ref.prev_low, C('--bear'), [], 1.2, tx0)) tag('PDL ' + fmt(ref.prev_low), Y(+ref.prev_low), C('--bear'), true); }
-    const pv = piv ? [['R2', piv.R2, '--bull'], ['R1', piv.R1, '--bull'], ['PC', ref.prev_close, '--muted'], ['S1', piv.S1, '--amber'], ['S2', piv.S2, '--amber']] : [['PC', ref.prev_close, '--muted']];
-    pv.forEach(([n, p, c]) => { if(p == null || p < lo || p > hi) return; if(S.ov.piv) hline(+p, C(c), [3, 4], 1, tx0); tag(n + ' ' + fmt(p), Y(+p), C(c), false); });
+    if(S.ov.pd){ if(hline(+ref.prev_high, C('--bull'), [], 1, tx0)) tag('PDH ' + fmt(ref.prev_high), Y(+ref.prev_high), C('--bull'), true); if(hline(+ref.prev_low, C('--bear'), [], 1, tx0)) tag('PDL ' + fmt(ref.prev_low), Y(+ref.prev_low), C('--bear'), true); }
+    const pv = compact ? [] : piv ? [['R2', piv.R2, '--bull'], ['R1', piv.R1, '--bull'], ['PC', ref.prev_close, '--muted'], ['S1', piv.S1, '--amber'], ['S2', piv.S2, '--amber']] : [['PC', ref.prev_close, '--muted']];
+    pv.forEach(([n, p, c]) => { if(p == null || p < lo || p > hi) return; if(S.ov.piv) hline(+p, C(c), [3, 4], 1, Math.max(tx0, stubX)); tag(n + ' ' + fmt(p), Y(+p), C(c), false); });
   }
   if(S.ov.vwap){ ctx.strokeStyle = C('--vwap'); ctx.lineWidth = 1.3; ctx.beginPath(); let on = false, dd = null;
     ser.ms.forEach((c, k) => { const i = CC.idx[c.day + '|' + Math.floor(c.m / tfm)]; if(i == null) return; const x = X(i) + ((c.m % tfm) + .5) / tfm * slot; if(c.day !== dd){ on = false; dd = c.day; } if(x < pL || x > W - pR){ on = false; return; } const y = Y(CC.VW[k]); on ? ctx.lineTo(x, y) : ctx.moveTo(x, y); on = true; });
@@ -712,15 +720,17 @@ function drawChart(a){
   vis.forEach(b => { const up = b.c >= b.o, col = up ? C('--bull') : C('--bear'), xc = X(b.i) + slot / 2; ctx.strokeStyle = ctx.fillStyle = col; ctx.globalAlpha = b.stub ? .5 : 1;
     ctx.beginPath(); ctx.moveTo(xc, Y(b.h)); ctx.lineTo(xc, Y(b.l)); ctx.stroke();
     const yb = Y(Math.max(b.o, b.c)), hb = Math.max(1.2, Math.abs(Y(b.o) - Y(b.c)));
-    if(bw >= 5 && up){ ctx.fillStyle = cbg; ctx.fillRect(xc - bw / 2, yb, bw, hb); ctx.strokeRect(xc - bw / 2, yb, bw, hb); } else ctx.fillRect(xc - bw / 2, yb, bw, hb);
-    ctx.fillStyle = col; ctx.globalAlpha = .55; ctx.fillRect(xc - bw / 2, yv0 + Hv - (b.v || 0) / vmax * Hv, bw, (b.v || 0) / vmax * Hv); ctx.globalAlpha = 1; });
+    if(bw >= 3 && up){ ctx.fillStyle = cbg; ctx.fillRect(xc - bw / 2, yb, bw, hb); ctx.strokeRect(xc - bw / 2 + .5, yb + .5, bw - 1, Math.max(0, hb - 1)); } else ctx.fillRect(xc - bw / 2, yb, bw, hb);
+    ctx.fillStyle = col; ctx.globalAlpha = .45; ctx.fillRect(xc - bw / 2, yv0 + Hv - (b.v || 0) / vmax * Hv, bw, (b.v || 0) / vmax * Hv); ctx.globalAlpha = 1; });
   // market structure: BOS / CHoCH lines and pills, the two live swing levels, swing labels
   if(S.ov.bos){
-    st.ev.forEach(e => { const ei = SX.mapIndex(BARS, B5, e.i, true, tfm), ef = SX.mapIndex(BARS, B5, e.from, false, tfm); if(ei < 0 || ei < v.a - 1 || ei > v.b + 1 || (ef >= 0 && ef > v.b + 1)) return;
-      const yy = Y(e.px); if(yy < pT || yy > pT + Hp) return; const x0 = Math.max(pL, ef < 0 ? pL : X(ef) + slot / 2), x1 = X(ei) + slot / 2, col = e.dir === 'up' ? C('--bull') : C('--bear'), ch = e.kind === 'CHoCH';
-      ctx.strokeStyle = ch ? C('--amber') : col; ctx.lineWidth = ch ? 1.8 : 1.2; ctx.setLineDash(ch ? [6, 3] : []); ctx.beginPath(); ctx.moveTo(x0, yy); ctx.lineTo(x1, yy); ctx.stroke(); ctx.setLineDash([]); ctx.lineWidth = 1;
+    const recent = st.ev.length - (compact ? 2 : 3);
+    st.ev.forEach((e, k) => { const ei = SX.mapIndex(BARS, B5, e.i, true, tfm), ef = SX.mapIndex(BARS, B5, e.from, false, tfm); if(ei < 0 || ei < v.a - 1 || ei > v.b + 1 || (ef >= 0 && ef > v.b + 1)) return;
+      const yy = Y(e.px); if(yy < pT || yy > pT + Hp) return; const x0 = Math.max(pL, ef < 0 ? pL : X(ef) + slot / 2), x1 = X(ei) + slot / 2, col = e.dir === 'up' ? C('--bull') : C('--bear'), ch = e.kind === 'CHoCH', old = k < recent;
+      ctx.globalAlpha = old ? .3 : 1; ctx.strokeStyle = ch ? C('--amber') : col; ctx.lineWidth = ch ? 1.6 : 1.1; ctx.setLineDash(ch ? [6, 3] : []); ctx.beginPath(); ctx.moveTo(x0, yy); ctx.lineTo(x1, yy); ctx.stroke(); ctx.setLineDash([]); ctx.lineWidth = 1;
+      if(old){ ctx.globalAlpha = 1; return; }
       const t = e.kind, tw = ctx.measureText(t).width + 8, ty = e.dir === 'up' ? yy - 10 : yy + 10; ctx.fillStyle = ch ? C('--amber') : col; ctx.beginPath(); ctx.roundRect(x1 - tw / 2, ty - 7, tw, 14, 3); ctx.fill(); ctx.fillStyle = C('--bg'); ctx.fillText(t, x1 - tw / 2 + 4, ty + 4); });
-    [['SWING H', st.upSwing, st.upLevel], ['SWING L', st.dnSwing, st.dnLevel]].forEach(([n, s, p]) => { if(p == null || p < lo || p > hi) return; const si = s ? SX.mapIndex(BARS, B5, s.i, false, tfm) : -1; hline(p, C('--accent'), [2, 3], 1, si >= 0 ? Math.max(pL, X(si) + slot / 2) : pL); tag(n + ' ' + fmt(p), Y(p), C('--accent'), false); });
+    [['SH', st.upLevel], ['SL', st.dnLevel]].forEach(([n, p]) => { if(p == null || p < lo || p > hi) return; hline(p, C('--accent'), [2, 3], 1, stubX); tag(n + ' ' + fmt(p), Y(p), C('--accent'), false); });
   }
   if(S.ov.sw){ ctx.fillStyle = C('--muted'); st.sw.forEach(s => { const si = SX.mapIndex(BARS, B5, s.i, false, tfm); if(si < v.a || si > v.b) return; const x = X(si) + slot / 2, w = ctx.measureText(s.tag).width; ctx.fillText(s.tag, x - w / 2, s.t === 'H' ? Y(s.px) - 6 : Y(s.px) + 13); }); }
   // markers: alerts (or the Alarms timeline), trade levels, the pattern
@@ -750,22 +760,28 @@ function drawChart(a){
         const refp = pat.entry != null ? pat.entry : pat.neckline, zone = (p1, p2, col) => { if(xb >= W - pR) return; ctx.fillStyle = C(col); ctx.globalAlpha = .35; ctx.fillRect(xb, Math.min(Y(p1), Y(p2)), W - pR - xb, Math.abs(Y(p1) - Y(p2))); ctx.globalAlpha = 1; }; zone(refp, pat.target, '--bull-soft'); zone(refp, pat.stop, '--bear-soft'); } }
     else { ctx.fillStyle = C('--muted'); ctx.fillText(`waiting for a 5m close ${long ? 'above' : 'below'} the neckline`, x0n + 4, pT + 10); } }
   // OI pane
-  const ois = vis.map(b => b.oi).filter(x => x);
+  const ois = Ho ? vis.map(b => b.oi).filter(x => x) : [];
   if(ois.length){ const olo = Math.min(...ois), ohi = Math.max(...ois), op = (ohi - olo) * .1 || 1, YO = x => yo0 + (1 - (x - (olo - op)) / ((ohi + op) - (olo - op))) * Ho, base = todayShown && ref.prev_oi ? +ref.prev_oi : ois[0];
     if(base >= olo - op && base <= ohi + op){ ctx.strokeStyle = C('--line'); ctx.setLineDash([2, 2]); ctx.beginPath(); ctx.moveTo(pL, YO(base)); ctx.lineTo(W - pR, YO(base)); ctx.stroke(); ctx.setLineDash([]); }
     ctx.strokeStyle = C('--accent'); ctx.lineWidth = 1.3; ctx.beginPath(); let on = false; vis.forEach(b => { if(!b.oi) return; const x = X(b.i) + slot / 2, y = YO(b.oi); on ? ctx.lineTo(x, y) : ctx.moveTo(x, y); on = true; }); ctx.stroke(); ctx.lineWidth = 1;
     const L = ois[ois.length - 1], chg = (L / base - 1) * 100; ctx.fillStyle = chg >= 0 ? C('--bull') : C('--bear'); ctx.fillText(Math.abs(chg) < 500 ? `OI ${sg(chg, 1)}%` : `OI ${K(L)}`, W - pR + 5, YO(L) + 4); }
-  ctx.fillStyle = C('--muted'); ctx.fillText('VOL', pL + 3, yv0 + 9); ctx.fillText('OI', pL + 3, yo0 + 9);
+  ctx.fillStyle = C('--muted'); ctx.fillText('VOL', pL + 3, yv0 + 9); if(Ho) ctx.fillText('OI', pL + 3, yo0 + 9);
   // time axis, last price, as-of edge, hint
   const every = SX.axisEvery(tfm, slot); let lastLx = -1e9; vis.forEach(b => { const x = X(b.i); if(b.m % every === 0 && x >= pL && x < W - pR - 20 && x - lastLx >= 44){ ctx.fillText(minToHHMM(b.m), x - 12, H - 4); lastLx = x; } });
   const lastB = BARS[BARS.length - 1];
-  if(lastB.day === ser.day && lastB.i >= v.a - 1 && lastB.i <= v.b + 1){ ctx.fillStyle = C('--fg'); ctx.fillRect(W - pR, Y(lastB.c) - 8, pR - 2, 16); ctx.fillStyle = C('--bg'); ctx.fillText(fmt(lastB.c), W - pR + 5, Y(lastB.c) + 4);
-    if(S.at && !S.following){ const xa = X(lastB.i) + slot; if(xa < W - pR){ ctx.strokeStyle = C('--muted'); ctx.setLineDash([1, 2]); ctx.beginPath(); ctx.moveTo(xa, pT); ctx.lineTo(xa, yo0 + Ho); ctx.stroke(); ctx.setLineDash([]); } } }
-  if(!S.lbA){ ctx.fillStyle = C('--muted'); ctx.globalAlpha = .7; ctx.fillText('click to enlarge', W - pR - (big ? 110 : 96), pT + Hp - 5); ctx.globalAlpha = 1; }
+  if(lastB.day === ser.day && lastB.i >= v.a - 1 && lastB.i <= v.b + 1){ tag(fmt(lastB.c), Y(lastB.c), C('--fg'), true, 3);
+    if(S.at && !S.following){ const xa = X(lastB.i) + slot; if(xa < W - pR){ ctx.strokeStyle = C('--muted'); ctx.setLineDash([1, 2]); ctx.beginPath(); ctx.moveTo(xa, pT); ctx.lineTo(xa, yBot); ctx.stroke(); ctx.setLineDash([]); } } }
+  // the price axis: level tags never overlap (13 px apart), grid prices yield to them, the live price stays exactly at its level
+  { const lv = tags.filter(t => t.prio > 0), grid = tags.filter(t => t.prio === 0 && !lv.some(l => Math.abs(l.yy - t.yy) < 12)); const all = lv.concat(grid).sort((x, y) => x.yy - y.yy); all.forEach(t => t.y = t.yy);
+    for(let i = 1; i < all.length; i++) if(all[i].y - all[i - 1].y < 13) all[i].y = all[i - 1].y + 13;
+    for(let i = all.length - 2; i >= 0; i--) if(all[i + 1].y - all[i].y < 13) all[i].y = all[i + 1].y - 13;
+    const fx = all.find(t => t.prio === 3); const d = fx ? fx.y - fx.yy : 0;
+    all.forEach(t => { const y = t.y - d, tw = ctx.measureText(t.t).width + 8; if(y < pT - 2 || y > pT + Hp + 8) return; if(t.fill){ ctx.fillStyle = t.col; ctx.beginPath(); ctx.roundRect(W - pR + 2, y - 7, t.prio === 3 ? pR - 4 : tw, 14, 3); ctx.fill(); ctx.fillStyle = C('--bg'); } else { ctx.fillStyle = cbg; ctx.fillRect(W - pR + 2, y - 7, tw, 14); ctx.fillStyle = t.col; } ctx.fillText(t.t, W - pR + 6, y + 4); }); }
+  if(compact){ ctx.fillStyle = C('--muted'); ctx.globalAlpha = .55; ctx.fillText('click to enlarge', W - pR - 100, pT + 10); ctx.globalAlpha = 1; }
   // crosshair and readout
   if(hoverIdx != null){
     const i = Math.max(0, Math.min(BARS.length - 1, Math.round(v.a + (hoverIdx - pL) / slot - 0.5))), b = BARS[i];
-    if(b){ const x = X(b.i) + slot / 2; ctx.strokeStyle = C('--fg'); ctx.globalAlpha = .35; ctx.beginPath(); ctx.moveTo(x, pT); ctx.lineTo(x, yo0 + Ho); ctx.stroke(); ctx.globalAlpha = 1;
+    if(b){ const x = X(b.i) + slot / 2; ctx.strokeStyle = C('--fg'); ctx.globalAlpha = .35; ctx.beginPath(); ctx.moveTo(x, pT); ctx.lineTo(x, yBot); ctx.stroke(); ctx.globalAlpha = 1;
       let extra = ''; const vk = CC.lidx[b.day + '|' + b.slot]; if(vk != null) extra += `  VWAP ${fmt(CC.VW[vk])}`;
       const ev = st.ev.find(e => SX.mapIndex(BARS, B5, e.i, true, tfm) === i); if(ev) extra += `  · ${ev.kind} ${ev.dir}`;
       const hit = (S.alerts || []).find(al => al.symbol === a.symbol && al.ts.slice(0, 10) === b.day && al.ts.slice(11, 16) <= ser.at && Math.floor(hhmmToMin(al.ts.slice(11, 16)) / tfm) === b.slot); if(hit) extra += `  ▲ ${hit.scan}`;
@@ -774,7 +790,8 @@ function drawChart(a){
 }
 function drawChartDaily(a, cv){
   const ctx = cv.getContext('2d'), C = k => getComputedStyle(document.documentElement).getPropertyValue(k).trim();
-  const big = cv.width > 900, W = cv.width, H = cv.height, pL = 8, pR = big ? 90 : 70, pT = 10, pB = big ? 22 : 18, gap = 6, Hv = big ? 110 : 64, Ho = big ? 110 : 64, Hp = H - pT - pB - Hv - Ho - 2 * gap, yv0 = pT + Hp + gap, yo0 = yv0 + Hv + gap;
+  S.lastA = a; sizeChart(cv); const dpr = cv._dpr || 1; ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  const W = cv._W || cv.width, H = cv._H || cv.height, big = W > 700, pL = 8, pR = big ? 90 : 70, pT = 10, pB = big ? 22 : 18, gap = 6, Hv = big ? 110 : 64, Ho = big ? 110 : 64, Hp = H - pT - pB - Hv - Ho - 2 * gap, yv0 = pT + Hp + gap, yo0 = yv0 + Hv + gap;
   ctx.clearRect(0, 0, W, H); ctx.font = (big ? '13px' : '10px') + ' JetBrains Mono, monospace'; ctx.lineWidth = big ? 1.4 : 1;
   const readout = panelEl().querySelector('.readout'), bars = dailyCache.bars || [];
   if(!bars.length){ ctx.fillStyle = C('--muted'); ctx.fillText('no daily bars', pL + 4, pT + 14); if(readout) readout.textContent = ''; return; }
