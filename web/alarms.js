@@ -93,5 +93,13 @@
       .sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : 0));
   }
 
-  root.ScanAlarms = { group, unread, ladder, chartLevels, positionWords, deliveryMark, pastDots, timelineRows, fmtTime };
+  // Dashboard view filter on board rows, as on the Trades tab: sector, price band and R:R apply; RVOL / OI / VWAP /
+  // picks do not. A row without an R:R (a break note) is not hidden by the R:R floor: it has no trade to measure.
+  function filterRows(rows, filter, sectorsOf) {
+    const F = root.ScanFilter; if (!F || !filter) return rows || [];
+    const f = { ...filter, rvol: null, oi: 'any', vwap: 'any', picks: false };
+    return (rows || []).filter(r => F.pass({ symbol: r.symbol, sector: (sectorsOf || {})[r.symbol], price: r.price, rr: r.rr == null ? Infinity : r.rr, rvol: null, oi_label: null, above_vwap: null, picked: false }, f));
+  }
+
+  root.ScanAlarms = { group, unread, ladder, chartLevels, positionWords, deliveryMark, pastDots, timelineRows, fmtTime, filterRows };
 })(typeof window !== 'undefined' ? window : globalThis);

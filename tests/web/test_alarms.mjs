@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 const here = path.dirname(fileURLToPath(import.meta.url));
+(0, eval)(readFileSync(path.join(here, '../../web/filter.js'), 'utf8'));
 (0, eval)(readFileSync(path.join(here, '../../web/alarms.js'), 'utf8'));
 const A = globalThis.ScanAlarms;
 
@@ -92,4 +93,23 @@ test('timelineRows: cut at the as-of minute and sorted', () => {
 
 test('fmtTime: HH:MM from an IST iso string', () => {
   assert.equal(A.fmtTime('2026-11-02T15:15:00+05:30'), '15:15');
+});
+
+test('filterRows: sector, price band and R:R apply; RVOL / OI / VWAP / picks do not; a break note survives the R:R floor', () => {
+  const rows = [
+    { ref: 'a', symbol: 'NATIONALUM', price: 328.25, rr: 1.2 },
+    { ref: 'b', symbol: 'TRENT', price: 3082, rr: 0.8 },
+    { ref: 'c', symbol: 'LT', price: 4123.8, rr: 2.1 },
+    { ref: 'd', symbol: 'NESTLEIND', price: 1284.5, rr: null },            // a break note: no levels
+  ];
+  const sectors = { NATIONALUM: 'METALS', TRENT: 'RETAIL', LT: 'INFRA', NESTLEIND: 'FMCG' };
+  const F = globalThis.ScanFilter;
+  const f = { ...F.defaults(), pmin: 2000 };
+  assert.deepEqual(A.filterRows(rows, f, sectors).map(r => r.ref), ['b', 'c']);
+  assert.deepEqual(A.filterRows(rows, { ...F.defaults(), pmax: 2000 }, sectors).map(r => r.ref), ['a', 'd']);
+  assert.deepEqual(A.filterRows(rows, { ...F.defaults(), sectors: ['FMCG', 'INFRA'] }, sectors).map(r => r.ref), ['c', 'd']);
+  assert.deepEqual(A.filterRows(rows, { ...F.defaults(), rr: 1 }, sectors).map(r => r.ref), ['a', 'c', 'd']);
+  assert.deepEqual(A.filterRows(rows, { ...F.defaults(), rvol: 3, oi: 'buildup', vwap: 'aligned', picks: true }, sectors).length, 4);
+  assert.deepEqual(A.filterRows(rows, F.defaults(), {}).length, 4);
+  assert.deepEqual(A.filterRows(null, f, sectors), []);
 });

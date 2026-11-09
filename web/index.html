@@ -10,7 +10,7 @@
 <script src="desk.js?v=ec9593b"></script>
 <script src="watch.js?v=052fe9a"></script>
 <script src="trades.js?v=5e3d8fa"></script>
-<script src="alarms.js?v=3fbe8e1"></script>
+<script src="alarms.js?v=5d012e6"></script>
 <script src="structure.js?v=9337f0c"></script>
 <style>
 /* Layout: control strip → sector/breadth rail → bull/bear card grid → detail panel with canvas chart. Terminal-style data UI. */
@@ -447,6 +447,7 @@ function renderFiltered(){                       // the strip applies to every t
   else if(S.view === 'desk' && typeof renderDesk === 'function') renderDesk();
   else if(S.view === 'watch' && typeof renderWatch === 'function') renderWatch();
   else if(S.view === 'trades' && typeof renderTrades === 'function') renderTrades();
+  else if(S.view === 'alarms' && typeof renderAlarms === 'function') renderAlarms();
 }
 function populateSectors(){
   const secs = [...new Set(Object.values(S.sectorsOf))].sort();
@@ -1627,10 +1628,11 @@ function renderAlarms(){
   $('abar').innerHTML = res ? alarmHeader(res) : '';
   const scroll = {}; document.querySelectorAll('#agrid .acol').forEach(x => scroll[x.dataset.col] = x.querySelector('.alist').scrollTop);
   if(!res){ $('agrid').innerHTML = ''; $('afold').textContent = ''; $('aempty').textContent = S.aerr ? `could not load the board: ${S.aerr}` : 'loading…'; return; }
-  const cols = res.columns || [], g = AK.group(res.rows || [], cols.map(c => c.key));
+  const all = res.rows || [], vis = AK.filterRows(all, S.filter, S.sectorsOf).filter(r => inScreen(r.symbol)), hidden = all.length - vis.length;
+  const cols = res.columns || [], g = AK.group(vis, cols.map(c => c.key)); screenLabel();
   $('agrid').innerHTML = cols.map(c => alarmCol(c, g[c.key])).join('');
   document.querySelectorAll('#agrid .acol').forEach(x => { if(scroll[x.dataset.col]) x.querySelector('.alist').scrollTop = scroll[x.dataset.col]; });
-  $('afold').textContent = `${Number(f.alerts || 0).toLocaleString('en-IN')} alerts from ${f.scans || 0} other scans · ${Number(f.patterns || 0).toLocaleString('en-IN')} pattern triggers below trade grade are not on the board`;
+  $('afold').textContent = `${hidden ? `${hidden.toLocaleString('en-IN')} of ${all.length.toLocaleString('en-IN')} rows hidden by the view filter · ` : ''}${Number(f.alerts || 0).toLocaleString('en-IN')} alerts from ${f.scans || 0} other scans · ${Number(f.patterns || 0).toLocaleString('en-IN')} pattern triggers below trade grade are not on the board`;
   $('aempty').textContent = S.aerr ? `could not load the board: ${S.aerr}` : res.pending ? 'preparing this day (replay alerts, outcomes, trade rows)… refreshing' : '';
   if(S.asel) renderAlarmPanel();
 }
