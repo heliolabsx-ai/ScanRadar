@@ -8,7 +8,7 @@ import os, json, logging, datetime as dt
 log = logging.getLogger("alarms")
 IST = dt.timezone(dt.timedelta(hours=5, minutes=30))
 
-DEFAULT_SCANS = ["PDH break", "PDL break", "PDH fade", "PDL fade", "B0101"]
+DEFAULT_SCANS = ["PDH break", "PDL break", "PDH fade", "PDL fade", "PDL 10:05 short", "B0101"]
 BOARD_SCANS = [s.strip() for s in os.environ.get("ALARMS_SCANS", ",".join(DEFAULT_SCANS)).split(",") if s.strip()]
 RECORD_DAYS = 20
 MIN_RECORD_N = 20                                   # under this many fires / decided rows a record is not shown

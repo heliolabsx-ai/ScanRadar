@@ -1,0 +1,20 @@
+{
+  "name": "PDL 10:05 short",
+  "side": "short",
+  "timeframe": "5m",
+  "match": "all",
+  "hours": {"from": "10:05", "to": "10:10"},
+  "rules": [
+    {"lhs": {"off": 1, "field": "close"}, "op": "<",  "rhs": {"series": "prev_day_low"}},
+    {"lhs": {"off": 2, "field": "close"}, "op": "<",  "rhs": {"series": "prev_day_low"}},
+    {"lhs": {"off": 5, "field": "close"}, "op": ">=", "rhs": {"series": "prev_day_low"}},
+    {"lhs": {"off": 5, "field": "close"}, "op": "<",  "rhs": {"off": 5, "field": "vwap"}}
+  ],
+  "alert": {"telegram": true, "cooldown_min": 400},
+  "desk": true,
+  "trade": {
+    "stop": {"pct": 1.5},
+    "target": {"pct": 3.0}
+  },
+  "note": "Saurabh's 15-minute rule with a 5-minute hold (built 23 Nov 2026), written on 5m bars at the 10:05 fire minute: bar 5 (09:40-09:45, the 2nd 15-minute candle's close) is at or above yesterday's low and below VWAP, bar 2 (09:55-10:00, the 3rd 15-minute candle's close) is below yesterday's low, bar 1 (10:00-10:05) closes below it too. Short at 10:05, stop 1.5 % above the entry, target 3 % below (1:2, reached about one time in fourteen): in practice the trade is held to the flat-by time. One per stock per day. Study on 65 stored sessions (18 Aug-20 Nov 2026, 220 stocks, exit 15:15, 0.10 % costs): 214 trades, 3.3 a day on average but up to 37 on a falling day, 67 % finished lower, +0.42 % a trade; by month Aug -0.02, Sep +0.17, Oct +0.88, Nov +0.29: most of the profit came from October's falling days. Production replay on the VPS (23 Nov 2026, read-only, 1-minute bars): 216 fires on 47 sessions, every one at 10:05, 66 % finished lower, 10 % stopped, +0.41 % a trade after costs; Nov 0.00 on 13 trades. On paper test, not a proven edge."
+}
