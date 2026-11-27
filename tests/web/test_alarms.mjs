@@ -113,3 +113,24 @@ test('filterRows: sector, price band and R:R apply; RVOL / OI / VWAP / picks do 
   assert.deepEqual(A.filterRows(rows, F.defaults(), {}).length, 4);
   assert.deepEqual(A.filterRows(null, f, sectors), []);
 });
+
+test('group: rows of one minute that carry a rank are ordered by it, the strongest on top', () => {
+  const at = '2026-11-27T09:20:02+05:30';
+  const rows = [{ ref: 'a', col: 'io_long', ts: at, rank: 3 }, { ref: 'b', col: 'io_long', ts: '2026-11-27T09:20:40+05:30', rank: 1 },
+    { ref: 'c', col: 'io_long', ts: at, rank: 2 }, { ref: 'x', col: 'pdh_fade', ts: at }, { ref: 'y', col: 'pdh_fade', ts: '2026-11-27T09:20:40+05:30' }];
+  const g = A.group(rows, ['io_long', 'pdh_fade']);
+  assert.deepEqual(g.io_long.map(r => r.ref), ['b', 'c', 'a']);
+  assert.deepEqual(g.pdh_fade.map(r => r.ref), ['y', 'x']);              // rows without a rank keep newest first
+});
+
+test('pickChips: rank, star, distance from VWAP and the side of the market', () => {
+  assert.deepEqual(A.pickChips({ col: 'io_long', side: 'long', rank: 2, of: 16, star: true, strength: 0.314, market: 'against' }),
+    [{ text: '★ 2nd strongest of 16 · 0.31 % above VWAP', cls: 'star' }, { text: 'against the market', cls: 'against' }]);
+  assert.deepEqual(A.pickChips({ col: 'io_short', side: 'short', rank: 9, of: 21, star: false, strength: 0.08, market: 'with' }),
+    [{ text: '9th strongest of 21 · 0.08 % below VWAP', cls: 'mut' }, { text: 'with the market', cls: 'with' }]);
+  assert.deepEqual(A.pickChips({ col: 'io_long', side: 'long', rank: 1, of: 1, star: true, strength: null, market: 'mixed' }),
+    [{ text: '★ 1st strongest of 1', cls: 'star' }, { text: 'market mixed', cls: 'mixed' }]);
+  assert.deepEqual(A.pickChips({ col: 'pdh_fade', side: 'short', rank: null, market: null }), []);
+  assert.deepEqual(A.pickChips(null), []);
+  assert.deepEqual([1, 2, 3, 4, 11, 12, 13, 21, 22, 23, 101].map(A.ordinal), ['1st', '2nd', '3rd', '4th', '11th', '12th', '13th', '21st', '22nd', '23rd', '101st']);
+});

@@ -172,3 +172,52 @@ def test_index_fresh_age_rule():
     assert not alarms.index_fresh((now - dt.timedelta(seconds=181)).isoformat(), now)
     assert not alarms.index_fresh(None, now) and not alarms.index_fresh("garbage", now)
     assert alarms.index_fresh("2026-11-03T09:59:00", now)          # a naive ts reads as IST
+
+
+# ---------- the Inside open columns: stars, strength and the market badge ----------
+IO_BOARD = BOARD + ["Inside open long", "Inside open short"]
+IO_SIDES = {**SIDES, "Inside open long": "long", "Inside open short": "short"}
+
+
+def _dg(rank, of, star, strength, market="short", breadth=39.4):
+    return {"group": "Inside open", "strength": strength, "rank": rank, "of": of, "star": star, "breadth": breadth, "market": market}
+
+
+def test_inside_open_columns_have_their_own_names_and_come_last():
+    cols = alarms.columns(IO_BOARD, IO_SIDES)
+    assert [c["key"] for c in cols][-3:] == ["scan:B0101", "io_long", "io_short"]
+    by = {c["key"]: c for c in cols}
+    assert (by["io_long"]["name"], by["io_long"]["sub"], by["io_long"]["side"], by["io_long"]["scan"]) == \
+        ("Inside open · long", "above VWAP · target PDH", "long", "Inside open long")
+    assert (by["io_short"]["name"], by["io_short"]["sub"], by["io_short"]["side"]) == ("Inside open · short", "below VWAP · target PDL", "short")
+    assert "Inside open long" in alarms.DEFAULT_SCANS and "Inside open short" in alarms.DEFAULT_SCANS
+
+
+def test_digest_rows_carry_star_rank_strength_and_their_side_of_the_market():
+    alerts = [alert(1, "Inside open long", "AAA", "09:20", side="long", stop=98.0, target=103.0, digest=_dg(2, 16, True, 0.31)),
+              alert(2, "Inside open long", "BBB", "09:20", side="long", stop=98.0, target=103.0, digest=_dg(9, 16, False, 0.08)),
+              alert(3, "Inside open short", "CCC", "09:20", side="short", stop=102.0, target=97.0, digest=_dg(1, 21, True, 0.55)),
+              alert(4, "PDH fade", "DDD", "10:05", stop=102.0, target=97.0)]
+    b = run(alerts=alerts, board_scans=IO_BOARD, scan_sides=IO_SIDES)
+    rows = {r["symbol"]: r for r in b["rows"]}
+    assert (rows["AAA"]["col"], rows["AAA"]["star"], rows["AAA"]["rank"], rows["AAA"]["of"], rows["AAA"]["strength"], rows["AAA"]["market"]) == \
+        ("io_long", True, 2, 16, 0.31, "against")
+    assert (rows["BBB"]["star"], rows["BBB"]["rank"]) == (False, 9)
+    assert (rows["CCC"]["col"], rows["CCC"]["star"], rows["CCC"]["market"]) == ("io_short", True, "with")
+    assert (rows["DDD"]["star"], rows["DDD"]["rank"], rows["DDD"]["market"]) == (False, None, None)        # an ordinary row
+    cols = {c["key"]: c for c in b["columns"]}
+    assert cols["io_long"]["badge"] == {"cls": "against", "text": "against the market", "breadth": 39.4}
+    assert cols["io_short"]["badge"] == {"cls": "with", "text": "with the market", "breadth": 39.4}
+    assert cols["pdh_fade"]["badge"] is None and cols["pat"]["badge"] is None
+
+
+def test_market_badge_reads_mixed_and_is_absent_before_the_fire():
+    alerts = [alert(1, "Inside open long", "AAA", "09:20", side="long", stop=98.0, target=103.0, digest=_dg(1, 1, True, 0.31, market="mixed", breadth=48.0))]
+    b = run(alerts=alerts, board_scans=IO_BOARD, scan_sides=IO_SIDES)
+    assert {c["key"]: c for c in b["columns"]}["io_long"]["badge"] == {"cls": "mixed", "text": "market mixed", "breadth": 48.0}
+    assert b["rows"][0]["market"] == "mixed"
+    early = run(alerts=alerts, board_scans=IO_BOARD, scan_sides=IO_SIDES, at=T("09:19"))
+    assert early["rows"] == [] and all(c["badge"] is None for c in early["columns"])
+    no_read = run(alerts=[alert(1, "Inside open long", "AAA", "09:20", side="long", digest=_dg(1, 1, True, 0.3, market=None, breadth=None))],
+                  board_scans=IO_BOARD, scan_sides=IO_SIDES)
+    assert no_read["rows"][0]["market"] is None and {c["key"]: c for c in no_read["columns"]}["io_long"]["badge"] is None

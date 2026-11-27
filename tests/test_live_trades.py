@@ -133,12 +133,15 @@ def test_process_minute_backfills_missing_odds_keys(monkeypatch):
     monkeypatch.setattr(lt.trades, "insert_row", insert)
     monkeypatch.setattr(lt.trades, "odds_by_ref", lambda con, day: {k: dict(v) for k, v in stored.items()})
     monkeypatch.setattr(lt.trades, "settle_open", lambda con, day, at, flat_by, final: 0)
+    seen = []
+    monkeypatch.setattr(lt.followups, "run", lambda con, R_, day, at, flat_by, scans: seen.append((day, at, flat_by, scans)) or 0)
     alert = lambda i, hhmm, src="live": {"id": i, "ts": f"2026-10-28T{hhmm}:05+05:30", "source": src}
     monkeypatch.setattr(lt.trades, "_alert_rows", lambda con, day: [alert(1, "10:01"), alert(2, "10:19"), alert(3, "10:20"), alert(4, "10:05"),
                                                                        alert(5, "10:21"), alert(6, "10:10", "replay")])
     R = StoreR()
     R.kv["trades:2026-10-28:alert:4"] = ("", 86400)                                # tombstoned last minute
-    assert lt.process_minute(FakeCon(), R, day, at, dict(DEFAULTS)) == {"rows": 1, "settled": 0}
+    assert lt.process_minute(FakeCon(), R, day, at, dict(DEFAULTS)) == {"rows": 1, "settled": 0, "followups": 0}
+    assert seen == [(day, at, DEFAULTS["flat_by"], {})]                            # the follow-ups run after the settlement, with the day's flat-by
     assert json.loads(R.kv["trades:2026-10-28:alert:2"][0]) == new                 # the new row
     assert json.loads(R.kv["trades:2026-10-28:alert:1"][0]) == {"odds": None, "size": {"shares": 4}, "gate": "PASS", "gate_reason": ""}   # an older row whose key was missing
     assert R.kv["trades:2026-10-28:alert:3"] == ("", 86400)                        # rejected by candidates(): tombstone
@@ -149,6 +152,11 @@ def test_process_minute_backfills_missing_odds_keys(monkeypatch):
     del stored["alert:2"]
     R2 = StoreR(fail_set=True)
     assert lt.process_minute(FakeCon(), R2, day, at, dict(DEFAULTS))["rows"] == 1  # a failed key write never stops the minute
+    def boom(*a):
+        raise RuntimeError("follow-ups down")
+    monkeypatch.setattr(lt.followups, "run", boom)
+    del stored["alert:2"]
+    assert lt.process_minute(FakeCon(), StoreR(), day, at, dict(DEFAULTS)) == {"rows": 1, "settled": 0, "followups": 0}   # nor does a failing follow-up
 
 
 def test_flush_deferred_passes_silent_through():

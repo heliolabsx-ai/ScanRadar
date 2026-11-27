@@ -5,12 +5,12 @@
 <link rel="icon" type="image/svg+xml" href="favicon.svg?v=2">
 <meta name="theme-color" content="#111513">
 <script src="filter.js?v=412e789"></script>
-<script src="notify.js?v=df9a38f"></script>
+<script src="notify.js?v=02b253a"></script>
 <script src="patterns.js?v=v6"></script>
 <script src="desk.js?v=ec9593b"></script>
 <script src="watch.js?v=052fe9a"></script>
 <script src="trades.js?v=5e3d8fa"></script>
-<script src="alarms.js?v=5d012e6"></script>
+<script src="alarms.js?v=c87ca5c"></script>
 <script src="structure.js?v=9337f0c"></script>
 <style>
 /* Layout: control strip → sector/breadth rail → bull/bear card grid → detail panel with canvas chart. Terminal-style data UI. */
@@ -243,6 +243,12 @@ canvas.chart{cursor:zoom-in}.lightbox canvas.chart{cursor:crosshair}
 .acol .ahd b{font-size:13px}.acol .ahd small{color:var(--muted);font-size:10.5px;margin-left:6px}
 .acol .ahd .n{font:700 13px var(--mono);color:var(--c);display:inline-flex;align-items:center;gap:6px}
 .acol .ahd .rec{font:500 10.5px var(--mono);color:var(--muted);margin-top:2px}
+.astar{color:var(--amber);margin-right:4px}
+.amk{font:600 9.5px var(--mono);padding:1px 7px;border-radius:999px;margin-left:6px;background:var(--line);color:var(--muted);white-space:nowrap;vertical-align:1px}
+.amk.with,.achip.with{background:var(--bull-soft);color:var(--bull)}.amk.against,.achip.against,.achip.star{background:color-mix(in srgb,var(--amber) 18%,transparent);color:var(--amber)}
+.achips{display:flex;flex-wrap:wrap;gap:6px;margin-top:7px}
+.achip{font:600 10.5px var(--mono);padding:2px 9px;border-radius:999px;background:var(--line);color:var(--muted)}
+.wbtn button.pri{background:var(--amber);border-color:var(--amber);color:#1b1f1c;font-weight:600}
 .abadge{display:inline-block;min-width:16px;padding:0 5px;border-radius:8px;background:var(--bear);color:#fff;font:700 9.5px/15px var(--mono);text-align:center;margin-left:5px;vertical-align:1px}
 .tab .abadge{margin-left:6px}
 .alist{flex:1;overflow:auto;padding:5px;display:flex;flex-direction:column;gap:4px}
@@ -1575,7 +1581,7 @@ const alarmSel = () => S.asel && S.alarms ? (S.alarms.rows || []).find(r => r.re
 const aLive = () => S.following && !S.day;
 const aPct = (v, d=1) => v == null || isNaN(v) ? '—' : (v >= 0 ? '+' : '−') + fmt(Math.abs(v), d) + ' %';
 const aBreak = r => String(r.col || '').endsWith('_brk');
-const aColor = c => c.key.endsWith('_brk') ? 'var(--amber)' : c.key === 'pat' ? 'var(--vwap)' : c.key.endsWith('_fade') ? (c.side === 'long' ? 'var(--bull)' : 'var(--bear)') : 'var(--accent)';
+const aColor = c => c.key.endsWith('_brk') ? 'var(--amber)' : c.key === 'pat' ? 'var(--vwap)' : (c.key.endsWith('_fade') || c.key.startsWith('io_')) ? (c.side === 'long' ? 'var(--bull)' : 'var(--bear)') : 'var(--accent)';
 async function loadAlarms(){
   const live = aLive(), day = S.day || todayIST(), at = S.at || '15:30';
   const current = () => aLive() === live && (S.day || todayIST()) === day && (live || (S.at || '15:30') === at);
@@ -1615,12 +1621,12 @@ function alarmRow(c, r){
   const long = r.side === 'long', brk = aBreak(r), dm = AK.deliveryMark(r), seen = (S.afresh || {})[c.key];
   const fresh = seen != null && String(r.ts) > seen;
   return `<div class="arow${S.asel === r.ref ? ' sel' : ''}${fresh ? ' fresh' : ''}" data-ref="${esc(r.ref)}">
-    <span class="s">${esc(r.symbol)} <span class="side ${long ? 'L' : 'S'}">${long ? 'L' : 'S'}</span>${r.desk ? `<span class="adesk ${esc(r.desk.call)}" title="desk verdict at ${esc(r.desk.at)}">desk ${esc(r.desk.call)}</span>` : ''}${c.key === 'pat' ? `<span class="lab">${esc(r.setup)}</span>` : ''}</span><span class="t">${AK.fmtTime(r.ts)}</span>
+    <span class="s">${r.star ? '<span class="astar" title="one of the strongest on this side at the alarm">★</span>' : ''}${esc(r.symbol)} <span class="side ${long ? 'L' : 'S'}">${long ? 'L' : 'S'}</span>${r.desk ? `<span class="adesk ${esc(r.desk.call)}" title="desk verdict at ${esc(r.desk.at)}">desk ${esc(r.desk.call)}</span>` : ''}${c.key === 'pat' ? `<span class="lab">${esc(r.setup)}</span>` : ''}</span><span class="t">${AK.fmtTime(r.ts)}</span>
     <span class="d"><span>${brk ? fmt(r.price) : `${fmt(r.price)} · stop ${fmt(r.stop)} · tgt ${fmt(r.target)}`}</span>${r.odds ? `<span title="replays: T1 first / stop first">${esc(TK.oddsPair(r.odds))}</span>` : ''}${aDots(r.past)}<span class="dm d-${dm.cls}">${esc(dm.text)}</span>${!brk && r.outcome ? `<span>${outcomeLabel(r.outcome)}</span>` : ''}</span></div>`;
 }
 function alarmCol(c, rows){
   const n = (S.acounts || {})[c.key] || 0, rec = c.record || {};
-  return `<div class="acol" style="--c:${aColor(c)}" data-col="${esc(c.key)}"><div class="ahd"><div class="l1"><span><b>${esc(c.name)}</b><small>${esc(c.sub)}</small></span><span class="n">${rows.length}${n ? `<span class="abadge" title="new since you last looked">${n}</span>` : ''}</span></div>
+  return `<div class="acol" style="--c:${aColor(c)}" data-col="${esc(c.key)}"><div class="ahd"><div class="l1"><span><b>${esc(c.name)}</b>${c.badge ? `<span class="amk ${esc(c.badge.cls)}" title="${c.badge.breadth != null ? Math.round(c.badge.breadth) + ' % of the stocks were up when this list fired' : ''}">${esc(c.badge.text)}</span>` : ''}<small>${esc(c.sub)}</small></span><span class="n">${rows.length}${n ? `<span class="abadge" title="new since you last looked">${n}</span>` : ''}</span></div>
     <div class="rec" title="record over the last ${rec.days || 20} sessions">${esc(rec.text || 'no record yet')}</div></div>
     <div class="alist">${rows.map(r => alarmRow(c, r)).join('') || '<div class="none">nothing yet</div>'}</div></div>`;
 }
@@ -1710,7 +1716,7 @@ function drawAlarmPanel(r, w){
   const lad = w ? AK.ladder([['PDH', w.prev_high], ['R2', w.R2], ['R1', w.R1], ['PIVOT', w.P], ['PC', w.prev_close], ['S1', w.S1], ['S2', w.S2], ['PDL', w.prev_low], ['VWAP', w.vwap]].filter(x => x[1] != null), px) : [];
   const words = w ? AK.positionWords(px, w.vwap, w.prev_high, w.prev_low, lad) : [];
   const sector = (w && w.sector) || S.sectorsOf[r.symbol] || '';
-  const tl = AK.timelineRows(r.timeline, at);
+  const tl = AK.timelineRows(r.timeline, at), chips = AK.pickChips(r);
   const vw = w && w.vwap ? `<div class="u ${px >= w.vwap ? 'up' : 'dn'}">${px >= w.vwap ? 'above' : 'below'} by ${fmt(Math.abs(px / w.vwap - 1) * 100)} %</div>` : '<div class="u">—</div>';
   const tiles = w ? `<div class="atile"><div class="k">VWAP</div><div class="v" style="color:var(--vwap)">${fmt(w.vwap)}</div>${vw}</div>
      <div class="atile"><div class="k">OI vs yesterday</div><div class="v">${aPct(w.oi_pct)}</div><div class="u"><span class="chip ${esc(w.oi_cls)}">${esc(w.oi_label)}</span></div></div>
@@ -1719,7 +1725,8 @@ function drawAlarmPanel(r, w){
    : `<div class="atile" style="grid-column:1/-1"><div class="u">no market data for ${esc(r.symbol)} at ${esc(at)}</div></div>`;
   d.dataset.ref = r.ref;
   d.innerHTML = `<div class="ahd2"><div><div class="sym">${esc(r.symbol)}<span class="apill ${long ? 'l' : 's'}">${long ? 'BUY' : 'SELL'}</span><span class="apill k">${esc(r.setup)}</span></div>
-     <div class="when">fired ${fired} · now ${esc(at)}${words.length ? ' · ' + esc(words.join(' · ')) : ''}${sector ? ' · ' + esc(sector) : ''}</div></div>
+     <div class="when">fired ${fired} · now ${esc(at)}${words.length ? ' · ' + esc(words.join(' · ')) : ''}${sector ? ' · ' + esc(sector) : ''}</div>
+     ${chips.length ? `<div class="achips">${chips.map(x => `<span class="achip ${esc(x.cls)}">${esc(x.text)}</span>`).join('')}</div>` : ''}</div>
      <div class="px"><b>${fmt(px)}</b>${pct != null ? `<span class="${pct >= 0 ? 'up' : 'dn'}">${aPct(pct, 2)}</span>` : ''}</div></div>
    <div class="atiles">${tiles}</div>
    <div class="amain"><div><div class="tfrow">${TFS.map(t => `<button class="tf ${curTf() === t ? 'on' : ''}" data-tf="${t}">${t}</button>`).join('')}<span class="readout mono"></span></div>
@@ -1728,10 +1735,11 @@ function drawAlarmPanel(r, w){
    ${alarmTicket(r, px)}
    <h3>Story</h3>
    <ul class="atl">${tl.map(e => `<li class="${esc(e.kind)}${e.kind === 'alarm' ? (alarmMarkers({...r, timeline: [e]})[0].side === 'long' ? ' l' : ' s') : ''}${aMine(r, e) ? ' me' : ''}"><span class="tm">${esc(e.at)}</span><span>${esc(e.text)}</span></li>`).join('') || '<li><span class="tm"></span><span class="mut">nothing yet</span></li>'}</ul>
-   <div class="wbtn"><button id="aToScanner">Open in Scanner at ${fired}</button><button id="aToTrades" title="The Trades tab, with this row's drawer when it has a trade row">Open in Trades</button></div>`;
+   <div class="wbtn"><button id="aOpenChart" class="pri" title="The full chart with every level, structure and timeframe">Open chart ⤢</button><button id="aToScanner">Open in Scanner at ${fired}</button><button id="aToTrades" title="The Trades tab, with this row's drawer when it has a trade row">Open in Trades</button></div>`;
   const a = w ? {...w} : {symbol: r.symbol, minimal: true};
   a.ref = r.ref; a.markers = alarmMarkers(r); a.levels_extra = [['STOP', r.stop], ['TGT', r.target]];
   wireChart(a).then(() => { const el = $('arange'); if(el && S.asel === r.ref) el.innerHTML = aRangeHtml(alarmRange(r.symbol, px)); });
+  $('aOpenChart').onclick = () => openStockPanel(a);
   $('aToScanner').onclick = () => { S.selected = r.symbol; closeAlarmPanel(); setView('scanner'); enterReplay(S.day || todayIST(), fired); };
   $('aToTrades').onclick = () => { const ref = r.ref; closeAlarmPanel(); setView('trades'); loadTrades().then(() => { const t = (S.trows || []).find(x => x.ref === ref); if(t && S.view === 'trades') openTradeDrawer(t.id); }); };
 }

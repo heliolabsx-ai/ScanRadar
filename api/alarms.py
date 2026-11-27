@@ -8,7 +8,7 @@ import os, json, logging, datetime as dt
 log = logging.getLogger("alarms")
 IST = dt.timezone(dt.timedelta(hours=5, minutes=30))
 
-DEFAULT_SCANS = ["PDH break", "PDL break", "PDH fade", "PDL fade", "PDL 10:05 short", "B0101"]
+DEFAULT_SCANS = ["PDH break", "PDL break", "PDH fade", "PDL fade", "PDL 10:05 short", "B0101", "Inside open long", "Inside open short"]
 BOARD_SCANS = [s.strip() for s in os.environ.get("ALARMS_SCANS", ",".join(DEFAULT_SCANS)).split(",") if s.strip()]
 RECORD_DAYS = 20
 MIN_RECORD_N = 20                                   # under this many fires / decided rows a record is not shown
@@ -20,7 +20,11 @@ _FIXED = {
     "PDL break": ("pdl_brk", "PDL breakdown", "crossed below yesterday's low", "long"),
     "PDH fade": ("pdh_fade", "PDH fade", "short · first 5m close back below", "short"),
     "PDL fade": ("pdl_fade", "PDL fade", "long · first 5m close back above", "long"),
+    "Inside open long": ("io_long", "Inside open · long", "above VWAP · target PDH", "long"),
+    "Inside open short": ("io_short", "Inside open · short", "below VWAP · target PDL", "short"),
 }
+_PD_SCANS = ("PDH break", "PDL break", "PDH fade", "PDL fade")        # the alert rows the break record is counted from
+_MARKET_TEXT = {"with": "with the market", "against": "against the market", "mixed": "market mixed"}
 _BREAK_TEXT = {"pdh_brk": "above PDH", "pdl_brk": "below PDL"}
 _KIND_ORDER = {"break": 0, "alarm": 1, "desk": 2, "exit": 3}
 
@@ -146,7 +150,7 @@ def assemble(day: dt.date, at: dt.datetime, *, alerts, trade_rows, desk_calls, d
         target = tr["target"] if tr and tr.get("target") is not None else a.get("target")
         rows.append(_row(ref, col["key"], a["ts"], a["symbol"], a.get("side") or col["side"], a["scan"], "alert",
                          a.get("price"), stop, target, tr, a.get("story"), verdict_by_ref, deliveries, at,
-                         "replay" if a.get("source") == "replay" else "live"))
+                         "replay" if a.get("source") == "replay" else "live", digest=a.get("digest")))
     n_pat = 0
     for tr in trade_rows:
         if tr.get("source") != "pattern":
@@ -179,7 +183,12 @@ def assemble(day: dt.date, at: dt.datetime, *, alerts, trade_rows, desk_calls, d
     for r in rows:
         r["timeline"] = [dict(e) for e in events[r["symbol"]]]
 
-    out_cols = [{**c, "record": (records or {}).get(c["key"]) or {"text": "no record yet"}} for c in cols]
+    badges: dict[str, dict] = {}                     # a digest column says which way the market leaned when its rows fired
+    for r in rows:
+        if r["market"] and r["col"] not in badges:
+            badges[r["col"]] = {"cls": r["market"], "text": _MARKET_TEXT[r["market"]], "breadth": r.pop("_breadth", None)}
+        r.pop("_breadth", None)
+    out_cols = [{**c, "record": (records or {}).get(c["key"]) or {"text": "no record yet"}, "badge": badges.get(c["key"])} for c in cols]
     return {"day": day.isoformat(), "at": at.astimezone(IST).strftime("%H:%M"), "live": live,
             "telegram": "on" if telegram_on else "not set up", "index": index, "breadth": breadth,
             "columns": out_cols, "rows": rows,
@@ -188,7 +197,11 @@ def assemble(day: dt.date, at: dt.datetime, *, alerts, trade_rows, desk_calls, d
 
 
 def _row(ref, col, ts, symbol, side, setup, source, price, stop, target, tr, story, verdict_by_ref, deliveries, at,
-         origin="live") -> dict:
+         origin="live", digest=None) -> dict:
+    """`digest` is the alert's payload.digest (a digest scan's rank, star and the market's lean) or None."""
+    dg = digest or {}
+    lean = dg.get("market")
+    market = None if lean is None else "mixed" if lean == "mixed" else "with" if lean == side else "against"
     odds = (tr or {}).get("odds") or None
     size = (tr or {}).get("size") or {}
     v = verdict_by_ref.get(ref)
@@ -202,7 +215,9 @@ def _row(ref, col, ts, symbol, side, setup, source, price, stop, target, tr, sto
             "shares": size.get("shares"), "risk_inr": size.get("risk_inr"),
             "gate": (tr or {}).get("gate"), "gate_reason": (tr or {}).get("gate_reason"),
             "desk": {k: v[k] for k in ("call", "confidence", "at")} if v else None,
-            "outcome": _outcome(tr, at), "story": story, "delivery": d}
+            "outcome": _outcome(tr, at), "story": story, "delivery": d,
+            "star": bool(dg.get("star")), "rank": dg.get("rank"), "of": dg.get("of"), "strength": dg.get("strength"),
+            "market": market, "_breadth": dg.get("breadth")}
 
 
 def break_record(rows: list[dict], break_scan: str, fade_scan: str, days: int) -> dict | None:
@@ -272,7 +287,7 @@ def records(con) -> dict[str, dict]:
         out["pat"] = {**pooled, "days": RECORD_DAYS}
     since = now - dt.timedelta(days=int(RECORD_DAYS * 7 / 5) + 3)
     with con.cursor() as cur:
-        cur.execute("SELECT ts, scan, symbol, source FROM alerts WHERE ts >= %s AND scan = ANY(%s)", (since, list(_FIXED)))
+        cur.execute("SELECT ts, scan, symbol, source FROM alerts WHERE ts >= %s AND scan = ANY(%s)", (since, list(_PD_SCANS)))
         rows = [{"ts": ts.astimezone(IST), "scan": sc, "symbol": sym, "source": src} for ts, sc, sym, src in cur.fetchall()]
     rows = al.merge_live_replay(rows)
     for brk, fade in (("PDH break", "PDH fade"), ("PDL break", "PDL fade")):

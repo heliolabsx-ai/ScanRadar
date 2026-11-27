@@ -303,3 +303,5 @@ def test_process_minute_uses_the_scan_min_rr(monkeypatch):
     assert run({"name": "PDL fade", "side": "long", "min_rr": 0}) == (["alert:5"], [])
     reached, errors = run({"name": "PDL fade", "side": "long"})
     assert reached == [] and len(errors) == 1 and errors[0] == "skipped: R:R 1:0.3 below 1.5"
+    assert run({"name": "PDL fade", "side": "long", "min_rr": 0, "desk": False}) == ([], [])     # opted out: no verdict, no skip row
+    assert run({"name": "PDL fade", "side": "long", "min_rr": 0, "desk": "rows"}) == ([], [])    # trade rows only: the desk stays silent too

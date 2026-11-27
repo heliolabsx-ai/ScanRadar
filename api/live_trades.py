@@ -10,6 +10,7 @@ import live_desk
 import alerts as al
 import trades
 import deliveries
+import followups
 from core.calendar import is_trading_day
 from core.gate import ledger
 
@@ -115,10 +116,16 @@ def process_minute(con, R, day, at: dt.datetime, settings: dict) -> dict:
     _tombstones(R, day, alerts, {c["ref"] for c in cands} | set(have))
     flat_by = dt.time.fromisoformat(settings["flat_by"])
     settled = trades.settle_open(con, day, at, settings["flat_by"], final=at.time() >= flat_by)
-    log.info("trades %s: %d new rows, %d settled", at.strftime("%H:%M"), n, settled)
+    try:                                                      # digest alarms: near-target and exit notes for the starred rows, the day result
+        fu = followups.run(con, R, day, at, settings["flat_by"], scans)
+    except Exception:  # noqa: BLE001  a follow-up never holds up the minute
+        con.rollback()
+        log.exception("follow-ups failed")
+        fu = 0
+    log.info("trades %s: %d new rows, %d settled, %d follow-ups", at.strftime("%H:%M"), n, settled, fu)
     if n or settled:
         R.publish("trades:updated", json.dumps({"at": at.strftime("%H:%M"), "new": n}))
-    return {"rows": n, "settled": settled}
+    return {"rows": n, "settled": settled, "followups": fu}
 
 
 def flush_deferred(R, day, send, at: dt.datetime, record=None) -> int:

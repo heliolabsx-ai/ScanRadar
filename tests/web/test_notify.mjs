@@ -61,3 +61,12 @@ test('break alerts never notify', () => {
   const out = N.newAlerts(seen, [{ scan: 'PDH break', symbol: 'X', ts: '2026-10-30T15:05:00+05:30' }, { scan: 'PDH fade', symbol: 'X', ts: '2026-10-30T15:15:00+05:30' }]);
   assert.deepEqual(out.map(a => a.scan), ['PDH fade']);
 });
+
+test('a digest alarm rings only for its starred stocks; the rest are marked seen quietly', () => {
+  const seen = new Set();
+  const rows = [al('09:20', 'Inside open long', 'AAA', { digest: { star: true, rank: 1 } }), al('09:20', 'Inside open long', 'BBB', { digest: { star: false, rank: 7 } }),
+    al('09:20', 'Inside open short', 'CCC', { side: 'short', digest: { star: false, rank: 5 } }), al('09:20', 'B0101', 'DDD')];
+  assert.deepEqual(N.newAlerts(seen, rows).map(a => a.symbol), ['AAA', 'DDD']);
+  assert.equal(seen.size, 4);
+  assert.deepEqual(N.newAlerts(seen, rows), []);
+});

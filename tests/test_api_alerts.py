@@ -161,3 +161,36 @@ def test_symbol_history_counts_trading_sessions_back_from_before_and_merges_repl
     _, params = con2.cur.calls[-1]
     assert params[1] == dt.datetime(2026, 10, 26, 0, 0, tzinfo=ist)          # five sessions before Mon 2 Nov skip the weekend
     assert params[2] == dt.datetime(2026, 11, 2, 0, 0, tzinfo=ist)
+
+
+# ---------- digest scans on replay: the same ranks, stars and market lean the engine writes live ----------
+class _CaptureCur(RecordingCursor):
+    def __init__(self): super().__init__(); self.rows = []
+    def executemany(self, sql, rows): self.rows.extend(rows)
+
+
+class _CaptureCon(FakeCon):
+    def __init__(self): self.cur = _CaptureCur(); self.commits = 0
+
+
+def test_replay_rows_of_a_digest_scan_carry_rank_star_and_the_market_lean():
+    import json
+    from conftest import ROOT, shaped_day
+    shapes = {"AAA": ([0.05, 0.1] + [0.1] * 20, 2500.0), "BBB": ([0.4, 0.5] + [0.5] * 20, 3000.0), "CCC": ([0.2, 0.3] + [0.3] * 20, 2100.0),
+              "DDD": ([0.3, 0.4] + [0.4] * 20, 4000.0), "M&M": ([-0.2, -0.3] + [-0.3] * 20, 3400.0), "LOW": ([0.2, 0.3] + [0.3] * 20, 900.0)}
+    frames = {s: shaped_day(rel, base=base)[0] for s, (rel, base) in shapes.items()}
+    refs = {s: {"prev_close": base, "prev_high": base * 1.01, "prev_low": base * 0.99} for s, (_, base) in shapes.items()}
+    scans = [(json.loads((ROOT / "scans" / f"Inside_open_{side}.json").read_text()), f"hash-{side}") for side in ("long", "short")]
+    con = _CaptureCon()
+    ensure_replay_alerts(con, dt.date(2026, 10, 16), frames, refs, scans, now=T("09:15") + dt.timedelta(days=1))
+    rows = {(name, sym): (ts, price, json.loads(payload)) for ts, name, sym, price, payload in con.cur.rows}
+    longs = {sym: v for (name, sym), v in rows.items() if name == "Inside open long"}
+    assert set(longs) == {"AAA", "BBB", "CCC", "DDD"} and {sym for (name, sym) in rows if name == "Inside open short"} == {"M&M"}
+    assert all(ts.strftime("%H:%M") == "09:20" for ts, _, _ in rows.values())
+    d = {sym: pl["digest"] for sym, (_, _, pl) in longs.items()}
+    assert d["AAA"]["rank"] == 4 and not d["AAA"]["star"] and sum(x["star"] for x in d.values()) == 3
+    assert d["AAA"]["of"] == 4 and d["AAA"]["breadth"] == 80.0 and d["AAA"]["market"] == "long" and d["AAA"]["group"] == "Inside open"
+    short = rows[("Inside open short", "M&M")][2]
+    assert short["digest"]["star"] and short["digest"]["market"] == "long" and short["scan_hash"] == "hash-short"
+    pl = longs["BBB"][2]
+    assert pl["levels"] == "scan" and pl["stop"] < longs["BBB"][1] < pl["target"] == 3000.0 * 1.01 and pl["outcome"]["hit"] in ("target", "stop", "none")

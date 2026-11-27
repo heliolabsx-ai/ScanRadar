@@ -6,6 +6,7 @@ import pandas as pd
 from core.analytics import analyse
 from core.asof import view_at
 from core.rules import resample, trade_levels, continuous, join_sessions, story, validate_scan
+from core.rules import LEAN, digest, strength, market_vote, market, apply_digest
 from core.backtest import fires, outcome, prev_bars
 from core.calendar import is_trading_day
 
@@ -91,6 +92,29 @@ def _trade_payload(sym: str, df: pd.DataFrame, ref: dict, ts: pd.Timestamp, side
     return {"stop": stop, "target": target, "levels": "pivot", "outcome": outcome(df, ts, side, price, stop, target)}
 
 
+def _digest_replay(scan: dict, found: list[dict], frames: dict, refs: dict, prev: dict, leans: dict) -> None:
+    """payload["digest"] for a digest scan's replay fires, as the engine writes it live: per fire minute, the ranks within
+    the scan and the market's lean read on every symbol's bars at that minute (`leans` caches it per group and minute)."""
+    dg, tf = digest(scan), scan.get("timeframe", "5m")
+    by_ts: dict = {}
+    for f in found:
+        by_ts.setdefault(f["ts"], []).append(f)
+    for ts, group in by_ts.items():
+        key = (dg["group"], ts)
+        if key not in leans:
+            votes = []
+            for sym, df in frames.items():
+                ref = refs.get(sym)
+                if not ref or not ref.get("prev_close"):
+                    continue
+                v = view_at(df, ts)
+                if v.empty:
+                    continue
+                votes.append(market_vote(scan, join_sessions(prev_bars(scan, prev.get(sym)), resample(v, tf)), _ctx(ref)))
+            leans[key] = market(votes, float((dg.get("market") or {}).get("lean", LEAN)))
+        apply_digest(scan, group, leans[key])
+
+
 def replay_needed(con, day: dt.date, scans: list[tuple[dict, str]]) -> bool:
     """Cheap SQL-only check: is any scan missing replay rows for the day, or stored under an old hash?"""
     start, end = ist_day_bounds(day)
@@ -124,6 +148,7 @@ def ensure_replay_alerts(con, day: dt.date, frames: dict, refs: dict, scans: lis
         for name, h in cur.fetchall():
             have.setdefault(name, set()).add(h)
         current = {scan["name"] for scan, _ in scans}
+        leans: dict = {}                          # (digest group, fire minute) -> the market's lean, shared by the group's scans
         for gone in set(have) - current:          # scan file renamed/removed: its replay rows are orphans
             cur.execute("DELETE FROM alerts WHERE source='replay' AND scan=%s AND ts>=%s AND ts<%s", (gone, start, end))
         for scan, h in scans:
@@ -134,7 +159,8 @@ def ensure_replay_alerts(con, day: dt.date, frames: dict, refs: dict, scans: lis
             tf, side = scan.get("timeframe", "5m"), scan.get("side")
             cooldown = int(scan.get("alert", {}).get("cooldown_min", 30))
             prev = prev_session_frames(con, day) if continuous(scan) else {}
-            rows = []
+            dg = digest(scan)
+            found = []
             for sym, df in frames.items():
                 ref = refs.get(sym)
                 if not ref or not ref.get("prev_close"):
@@ -144,12 +170,21 @@ def ensure_replay_alerts(con, day: dt.date, frames: dict, refs: dict, scans: lis
                     payload = {"tf": tf, "scan_hash": h, "source": "replay", "side": side}
                     if side and scan.get("trade"):     # a scan without a trade block (break notes) carries side for the chip only
                         payload.update(_trade_payload(sym, df, ref, ts, side, price, scan, prev.get(sym)))
-                    if scan.get("story"):         # the bars the engine saw at this minute, forming bar last
+                    bars = None
+                    if scan.get("story") or dg:   # the bars the engine saw at this minute, forming bar last
                         bars = join_sessions(prev_bars(scan, prev.get(sym)), resample(view_at(df, ts), tf))
+                    if scan.get("story"):
                         st = story(scan, bars, _ctx(ref))
                         if st:
                             payload["story"] = st
-                    rows.append((ts.to_pydatetime(), name, sym, price, json.dumps(payload, default=float)))
+                    found.append({"ts": ts, "symbol": sym, "price": price, "payload": payload,
+                                  "strength": strength(scan, bars, _ctx(ref)) if dg else None})
+            if dg and found:
+                try:
+                    _digest_replay(scan, found, frames, refs, prev, leans)
+                except Exception:  # noqa: BLE001  the rows are stored all the same, unranked
+                    log.exception("digest ranking of %s on %s failed", name, day)
+            rows = [(f["ts"].to_pydatetime(), name, f["symbol"], f["price"], json.dumps(f["payload"], default=float)) for f in found]
             if rows:
                 cur.executemany("INSERT INTO alerts(ts,scan,symbol,price,payload,source) VALUES(%s,%s,%s,%s,%s,'replay')", rows)
     con.commit()
@@ -205,7 +240,8 @@ def alerts_for_day(con, day: dt.date) -> list[dict]:
     return [{"id": r["id"], "ts": r["ts"].isoformat(), "scan": r["scan"], "symbol": r["symbol"], "price": r["price"],
              "tf": r["payload"].get("tf"), "source": r["source"], "side": r["payload"].get("side"),
              "stop": r["payload"].get("stop"), "target": r["payload"].get("target"),
-             "outcome": r["payload"].get("outcome"), "story": r["payload"].get("story")} for r in rows]
+             "outcome": r["payload"].get("outcome"), "story": r["payload"].get("story"),
+             "digest": r["payload"].get("digest")} for r in rows]
 
 
 def symbol_history(con, symbol: str, days: int, before: dt.date | None = None, now: dt.datetime | None = None) -> list[dict]:
@@ -237,7 +273,7 @@ def recent_alerts(con, limit: int) -> list[dict]:
         cur.execute("SELECT id,ts,scan,symbol,price,payload,source FROM alerts ORDER BY ts DESC LIMIT %s", (limit * 2,))
         rows = [{"id": r[0], "ts": r[1].astimezone(IST), "scan": r[2], "symbol": r[3], "price": r[4],
                  "tf": (r[5] or {}).get("tf"), "source": r[6], "side": (r[5] or {}).get("side"),
-                 "outcome": (r[5] or {}).get("outcome")} for r in cur.fetchall()]
+                 "outcome": (r[5] or {}).get("outcome"), "digest": (r[5] or {}).get("digest")} for r in cur.fetchall()]
     return [dict(r, ts=r["ts"].isoformat()) for r in merge_live_replay(rows)][:limit]
 
 

@@ -5,12 +5,33 @@
   const fmtTime = hhmm;
   const tsOf = r => String((r && r.ts) || '');
 
-  // Rows per column, newest first; every column key present.
+  // Rows per column, newest first; every column key present. Rows of one minute that both carry a rank (a digest
+  // alarm: the whole list fires together) are ordered by it, the strongest on top.
   function group(rows, columns) {
     const out = {};
     columns.forEach(k => { out[k] = []; });
     (rows || []).forEach(r => { if (out[r.col]) out[r.col].push(r); });
-    columns.forEach(k => out[k].sort((a, b) => (tsOf(a) < tsOf(b) ? 1 : tsOf(a) > tsOf(b) ? -1 : 0)));
+    const cmp = (a, b) => {
+      if (a.rank != null && b.rank != null && hhmm(a.ts) === hhmm(b.ts)) return a.rank - b.rank;
+      return tsOf(a) < tsOf(b) ? 1 : tsOf(a) > tsOf(b) ? -1 : 0;
+    };
+    columns.forEach(k => out[k].sort(cmp));
+    return out;
+  }
+
+  const ordinal = n => n + (n % 100 >= 11 && n % 100 <= 13 ? 'th' : n % 10 === 1 ? 'st' : n % 10 === 2 ? 'nd' : n % 10 === 3 ? 'rd' : 'th');
+
+  // The chips of a digest row (the Inside open columns): its rank among the side's fires, with the star for the
+  // strongest, and whether its side was with the market at the alarm. [] for any other row.
+  function pickChips(row) {
+    const out = [];
+    if (!row) return out;
+    if (row.rank != null) {
+      const vwap = String(row.col || '').startsWith('io_') ? ' % ' + (row.side === 'short' ? 'below' : 'above') + ' VWAP' : ' % strength';
+      const dist = row.strength != null ? ' · ' + Number(row.strength).toFixed(2) + vwap : '';
+      out.push({ text: (row.star ? '★ ' : '') + ordinal(row.rank) + ' strongest of ' + row.of + dist, cls: row.star ? 'star' : 'mut' });
+    }
+    if (row.market) out.push({ text: row.market === 'with' ? 'with the market' : row.market === 'against' ? 'against the market' : 'market mixed', cls: row.market });
     return out;
   }
 
@@ -101,5 +122,5 @@
     return (rows || []).filter(r => F.pass({ symbol: r.symbol, sector: (sectorsOf || {})[r.symbol], price: r.price, rr: r.rr == null ? Infinity : r.rr, rvol: null, oi_label: null, above_vwap: null, picked: false }, f));
   }
 
-  root.ScanAlarms = { group, unread, ladder, chartLevels, positionWords, deliveryMark, pastDots, timelineRows, fmtTime, filterRows };
+  root.ScanAlarms = { group, unread, ladder, chartLevels, positionWords, deliveryMark, pastDots, timelineRows, fmtTime, filterRows, pickChips, ordinal };
 })(typeof window !== 'undefined' ? window : globalThis);

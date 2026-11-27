@@ -1,0 +1,130 @@
+{
+  "name": "Inside open long",
+  "side": "long",
+  "timeframe": "1m",
+  "match": "all",
+  "hours": {
+    "from": "09:20",
+    "to": "09:21"
+  },
+  "rules": [
+    {
+      "lhs": {
+        "off": 0,
+        "field": "close"
+      },
+      "op": ">",
+      "rhs": {
+        "number": 2000
+      }
+    },
+    {
+      "lhs": {
+        "series": "day_high"
+      },
+      "op": "<",
+      "rhs": {
+        "series": "prev_day_high"
+      }
+    },
+    {
+      "lhs": {
+        "series": "day_low"
+      },
+      "op": ">",
+      "rhs": {
+        "series": "prev_day_low"
+      }
+    },
+    {
+      "lhs": {
+        "off": 0,
+        "field": "close"
+      },
+      "op": ">",
+      "rhs": {
+        "off": 0,
+        "field": "vwap"
+      }
+    },
+    {
+      "lhs": {
+        "off": 4,
+        "field": "volume"
+      },
+      "op": ">=",
+      "rhs": {
+        "number": 0
+      }
+    }
+  ],
+  "alert": {
+    "telegram": "digest",
+    "cooldown_min": 400
+  },
+  "desk": "rows",
+  "min_rr": 0,
+  "trade": {
+    "stop": {
+      "series": "day_low"
+    },
+    "target": {
+      "series": "prev_day_high"
+    }
+  },
+  "digest": {
+    "group": "Inside open",
+    "title": "LONG · target PDH",
+    "stars": 3,
+    "strength": {
+      "lhs": {
+        "off": 0,
+        "field": "close"
+      },
+      "rhs": {
+        "off": 0,
+        "field": "vwap"
+      }
+    },
+    "market": {
+      "label": "of stocks above VWAP",
+      "lean": 55,
+      "universe": [
+        {
+          "lhs": {
+            "off": 0,
+            "field": "close"
+          },
+          "op": ">",
+          "rhs": {
+            "number": 2000
+          }
+        },
+        {
+          "lhs": {
+            "off": 4,
+            "field": "volume"
+          },
+          "op": ">=",
+          "rhs": {
+            "number": 0
+          }
+        }
+      ],
+      "up": [
+        {
+          "lhs": {
+            "off": 0,
+            "field": "close"
+          },
+          "op": ">",
+          "rhs": {
+            "off": 0,
+            "field": "vwap"
+          }
+        }
+      ]
+    }
+  },
+  "note": "Saurabh's inside-open rule (built 28 Nov 2026), long side: price above 2,000, the first five minutes (09:15-09:20) stayed inside yesterday's range (day high below PDH, day low above PDL), and at 09:20 the price is above VWAP (the 1-minute session VWAP, as the chart draws it). The last rule only asks that the first five minutes exist (four bars before the current one). One run a day, at 09:20, written on the state at that minute so the live engine and the replay read the same thing. Long, stop = the low of the first five minutes, first target = yesterday's high. Every fire of the two Inside open scans goes out as one quiet Telegram summary; the three strongest on each side (furthest from VWAP) are starred and only they get follow-ups. \"desk\": \"rows\" = a trade row (odds, size, outcome) for every fire, no desk verdict. Study on 70 stored sessions (18 Aug-27 Nov 2026, exit 15:15, 0.10 % costs): about 30 fires a morning for the two sides together, 36 % reached the target first, 51 % were stopped first, +0.02 % a trade before costs and -0.08 % after; no month positive. Starred and with the market: about 2 a day, break-even after costs. On paper test, not a proven edge."
+}

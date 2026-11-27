@@ -6,8 +6,9 @@
   const hhmm = ts => ts.slice(11, 16);
   const inr = n => '₹' + Number(n).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-  // The PDH/PDL break note is quiet: marked seen, never a notification (its fade is the alarm).
-  const quiet = a => /^PD[HL] break$/.test(a.scan || '');
+  // The PDH/PDL break note is quiet: marked seen, never a notification (its fade is the alarm). So is a digest
+  // alarm's unstarred stock (the Inside open list fires thirty at once: only the starred ones ring).
+  const quiet = a => /^PD[HL] break$/.test(a.scan || '') || !!(a.digest && !a.digest.star);
 
   // rows newest-first; marks everything seen; returns the unseen ones unless seeding
   function newAlerts(seen, rows, opts = {}) {

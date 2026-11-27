@@ -24,6 +24,11 @@ Optional "hours": {"from": "HH:MM", "to": "HH:MM"} — the scan only fires when 
 Optional "min_rr": x — the scan's own R:R floor (0 = no floor) instead of the system default (see min_rr).
 Optional "story": {"line": "prev_day_high" | "prev_day_low", "template": "..."} — the facts behind the alert's
   one-line story (first close through the line today, the run since; see story).
+Optional digest: "alert": {"telegram": "digest"} with "digest": {"group": "...", "title": "...", "stars": n,
+  "strength": {"lhs": SIDE, "rhs": SIDE}, "market": {"label": "...", "lean": 55, "universe": [RULE...], "up": [RULE...]}}
+  — every fire of the group in one minute goes out as ONE quiet message; each fire is ranked by its strength
+  (|lhs / rhs - 1|, strongest first, the top `stars` starred) and tagged with the market's lean at that minute
+  (see digest, strength, market_vote, market, apply_digest, digest_text).
 """
 import datetime as dt
 import html
@@ -128,6 +133,26 @@ def validate_scan(scan: dict) -> None:
         x = scan["min_rr"]
         if not (isinstance(x, (int, float)) and not isinstance(x, bool) and x >= 0):
             raise ValueError(f"scan {scan.get('name', '?')}: min_rr must be a non-negative number, got {x!r}")
+    alert = scan.get("alert")
+    if isinstance(alert, dict) and alert.get("telegram") == "digest":
+        name, d = scan.get("name", "?"), scan.get("digest")
+        if not isinstance(d, dict):
+            raise ValueError(f"scan {name}: alert.telegram \"digest\" needs a digest block")
+        if not isinstance(d.get("group"), str) or not d["group"].strip():
+            raise ValueError(f"scan {name}: digest.group must be a name")
+        stars = d.get("stars", 0)
+        if not (isinstance(stars, int) and not isinstance(stars, bool) and stars >= 0):
+            raise ValueError(f"scan {name}: digest.stars must be a whole number, 0 or more")
+        st = d.get("strength")
+        if st is not None and not (isinstance(st, dict) and isinstance(st.get("lhs"), dict) and isinstance(st.get("rhs"), dict)):
+            raise ValueError(f"scan {name}: digest.strength must be {{\"lhs\": SIDE, \"rhs\": SIDE}}")
+        m = d.get("market")
+        if m is not None:
+            if not (isinstance(m, dict) and isinstance(m.get("universe"), list) and isinstance(m.get("up"), list)):
+                raise ValueError(f"scan {name}: digest.market needs \"universe\" and \"up\" rule lists")
+            lean = m.get("lean", LEAN)
+            if not (isinstance(lean, (int, float)) and not isinstance(lean, bool) and 50 < lean <= 100):
+                raise ValueError(f"scan {name}: digest.market.lean must be above 50 and at most 100, got {lean!r}")
 
 
 def join_sessions(prev: pd.DataFrame | None, today: pd.DataFrame) -> pd.DataFrame:
@@ -227,6 +252,101 @@ def trade_levels(scan: dict, bars: pd.DataFrame, ctx: dict, entry: float) -> dic
         target = entry + 1.5 * risk if side == "long" else entry - 1.5 * risk
         basis = "scan+rr"
     return {"stop": stop, "target": target, "basis": basis}
+
+
+# ---------- digest scans: one summary message for a group, strength ranks, the market's lean ----------
+LEAN = 55.0              # share of the voters (percent) one side needs before the market "leans" its way
+DIGEST_NAMES = 40        # names listed after the starred rows of a side; the rest become an ellipsis
+
+
+def digest(scan: dict) -> dict | None:
+    """The scan's `digest` block when its alerts go out as one summary message (alert.telegram == "digest"), else None."""
+    alert = scan.get("alert") if isinstance(scan, dict) else None
+    if not isinstance(alert, dict) or alert.get("telegram") != "digest":
+        return None
+    d = scan.get("digest")
+    return d if isinstance(d, dict) else None
+
+
+def _holds(rule_list: list, bars: pd.DataFrame, ctx: dict) -> bool:
+    try:
+        return all(OPS[r["op"]](_resolve(r["lhs"], bars, ctx), _resolve(r["rhs"], bars, ctx)) for r in rule_list)
+    except (IndexError, KeyError, TypeError):
+        return False
+
+
+def strength(scan: dict, bars: pd.DataFrame, ctx: dict) -> float | None:
+    """How hard a fire pushed, for the ranking: |lhs / rhs - 1| in percent from digest.strength = {"lhs": SIDE, "rhs": SIDE},
+    read on the bars the scan saw at the fire minute. None when the scan has no such block or a side cannot be read."""
+    spec = (digest(scan) or {}).get("strength")
+    if not spec:
+        return None
+    try:
+        a, b = _resolve(spec["lhs"], bars, ctx), _resolve(spec["rhs"], bars, ctx)
+    except (IndexError, KeyError, TypeError, ValueError):
+        return None
+    if not b > 0 or a != a:
+        return None
+    return abs(a / b - 1) * 100
+
+
+def market_vote(scan: dict, bars: pd.DataFrame, ctx: dict) -> bool | None:
+    """One symbol's vote in the market's lean at this minute: None when it is outside digest.market.universe
+    (or the scan has no market block), else whether digest.market.up holds for it."""
+    m = (digest(scan) or {}).get("market")
+    if not m or not _holds(m.get("universe") or [], bars, ctx):
+        return None
+    return _holds(m.get("up") or [], bars, ctx)
+
+
+def market(votes, lean: float = LEAN) -> dict | None:
+    """The lean from the symbols' votes (True up, False down, None no vote): {"breadth": percent up (1 dp), "n": voters,
+    "side": "long" when breadth >= lean, "short" when breadth <= 100 - lean, else "mixed"}. None without a voter."""
+    cast = [v for v in votes if v is not None]
+    if not cast:
+        return None
+    breadth = sum(1 for v in cast if v) / len(cast) * 100
+    side = "long" if breadth >= lean - 1e-9 else "short" if breadth <= 100 - lean + 1e-9 else "mixed"
+    return {"breadth": round(breadth, 1), "n": len(cast), "side": side}
+
+
+def apply_digest(scan: dict, fires: list[dict], mk: dict | None) -> None:
+    """Rank the fires of ONE digest scan at one minute and write each fire's payload["digest"].
+    `fires`: dicts with "symbol", "strength" (strength() or None) and "payload" (mutated). Rank 1 is the strongest
+    (ties by symbol, an unreadable strength last); the first digest.stars of them are starred. `mk` is market() or None."""
+    d = digest(scan) or {}
+    stars = int(d.get("stars") or 0)
+    order = sorted(fires, key=lambda f: (f.get("strength") is None, -(f.get("strength") or 0.0), f["symbol"]))
+    for i, f in enumerate(order):
+        x = f.get("strength")
+        f["payload"]["digest"] = {"group": d.get("group"), "strength": None if x is None else round(float(x), 3), "rank": i + 1,
+                                  "of": len(order), "star": i < stars and x is not None,
+                                  "breadth": mk["breadth"] if mk else None, "market": mk["side"] if mk else None}
+
+
+def digest_text(group: str, now, mk: dict | None, label: str | None, sides: list[dict]) -> str:
+    """The one Telegram message (HTML) of a digest group for one minute. `sides`: [{"side", "title", "rows": [{"symbol",
+    "price", "stop", "target", "rank", "star"}]}], one per scan of the group that fired; the side the market leans to
+    comes first. Starred rows carry their levels, the rest are listed by name (strongest first, at most DIGEST_NAMES)."""
+    out = [f"<b>{html.escape(group)} · {now:%H:%M}</b>"]
+    if mk:
+        lean = {"long": "with the longs", "short": "with the shorts"}.get(mk.get("side"), "mixed")
+        out.append(f"market: {mk['breadth']:.0f} % {html.escape(label or 'of stocks up')} · {lean}")
+    for s in sorted(sides, key=lambda s: 0 if mk and s.get("side") == mk.get("side") else 1):
+        rows = sorted(s["rows"], key=lambda r: (r.get("rank") is None, r.get("rank") or 0, r["symbol"]))
+        if not rows:
+            continue
+        out.append(f"<b>{html.escape(s['title'])}</b> ({len(rows)})")
+        starred = [r for r in rows if r.get("star")]
+        rest = [html.escape(r["symbol"]) for r in rows if not r.get("star")]
+        for r in starred:
+            lv = f" · stop {r['stop']:,.2f} · tgt {r['target']:,.2f}" if r.get("stop") is not None and r.get("target") is not None else ""
+            out.append(f"★ {html.escape(r['symbol'])} {r['price']:,.2f}{lv}")
+        if rest:
+            names = ", ".join(rest[:DIGEST_NAMES]) + ("…" if len(rest) > DIGEST_NAMES else "")
+            out.append((f"+ {len(rest)} more: " if starred else "") + names)
+    out.append(f"{now:%H:%M}  ·  scanradar.tech")
+    return "\n".join(out)
 
 
 # ---------- the story behind a fire ----------

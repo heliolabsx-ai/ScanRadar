@@ -4,10 +4,11 @@ ScanRadar engine: every minute (on the ingest's 'candles:closed' signal)
   2. ranking scanner -> Redis 'scan:latest' (JSON) + Postgres snapshot
   3. rule scans from /app/scans/*.json -> alerts (Telegram + Postgres) with cooldown
 """
-import os, json, glob, time, logging, datetime as dt
+import os, json, glob, time, html, logging, datetime as dt
 import redis, psycopg, pandas as pd
 from analytics import analyse, score
 from rules import resample, resampler, evaluate, trade_levels, continuous, join_sessions, in_hours, hours_window, validate_scan, story, alert_text
+from rules import LEAN, digest, strength, market_vote, market, apply_digest, digest_text
 from notify import telegram
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
@@ -26,6 +27,38 @@ def record_delivery(ref: str, ok: bool, error: str | None, silent: bool, now: dt
                         (now.astimezone(IST).date(), ref, "telegram", now, ok, error, silent))
     except Exception as e:  # noqa: BLE001
         log.warning("delivery record for %s failed: %s", ref, e)
+
+
+def record_deliveries(refs: list[str], ok: bool, error: str | None, silent: bool, now: dt.datetime) -> None:
+    """One `deliveries` row per ref for ONE message that covered them all (a digest); a failure is logged, never raised."""
+    try:
+        with psycopg.connect(DB) as con, con.cursor() as cur:
+            cur.executemany("INSERT INTO deliveries(day, ref, channel, sent_at, ok, error, silent) VALUES (%s,%s,%s,%s,%s,%s,%s)",
+                            [(now.astimezone(IST).date(), ref, "telegram", now, ok, error, silent) for ref in refs])
+            con.commit()
+    except Exception as e:  # noqa: BLE001
+        log.warning("delivery records for %d alerts failed: %s", len(refs), e)
+
+
+def send_digest(group: str, items: list, now: dt.datetime) -> None:
+    """One quiet Telegram message for every fire of a digest group this minute (never deferred: it carries no odds line),
+    then one delivery row per alert. `items`: (scan, symbol, price, levels or None, alert id, payload digest or None)."""
+    try:
+        sides: dict = {}
+        mk = label = None
+        for sc, s, price, lv, _aid, meta in items:
+            d = digest(sc) or {}
+            side = sides.setdefault(sc["name"], {"side": sc.get("side"), "title": d.get("title") or sc["name"], "rows": []})
+            side["rows"].append({"symbol": s, "price": price, "stop": lv["stop"] if lv else None, "target": lv["target"] if lv else None,
+                                 "rank": (meta or {}).get("rank"), "star": bool((meta or {}).get("star"))})
+            if mk is None and meta and meta.get("market"):
+                mk, label = {"breadth": meta["breadth"], "side": meta["market"]}, (d.get("market") or {}).get("label")
+        text = digest_text(group, now, mk, label, list(sides.values()))
+    except Exception as e:  # noqa: BLE001  a summary still goes out, as a plain list of names
+        log.warning("digest text of %s failed: %s", group, e)
+        text = f"<b>{html.escape(group)} · {now:%H:%M}</b>\n" + ", ".join(html.escape(i[1]) for i in items)
+    ok, err = telegram(text, silent=True)
+    record_deliveries([f"alert:{i[4]}" for i in items], ok, err, True, now)
 
 
 def defer(ref: str, text: str, now: dt.datetime, silent: bool = False) -> None:
@@ -141,6 +174,9 @@ def run_once():
     with psycopg.connect(DB) as con, con.cursor() as cur:
         cur.executemany("INSERT INTO scan_snapshots(ts,symbol,score,rank,payload) VALUES(%s,%s,%s,%s,%s) ON CONFLICT DO NOTHING",
                         [(now, a["symbol"], a["score"], a["rank"], json.dumps({k: a[k] for k in ("pct", "oi_pct", "oi_label", "rvol", "rr", "picked")}, default=float)) for a in rows])
+        ctx_of = lambda ref: {"prev_day_close": ref.get("prev_close", 0), "prev_day_high": ref.get("prev_high", 0),
+                              "prev_day_low": ref.get("prev_low", 0)}
+        leans: dict = {}                        # digest group -> the market's lean this minute (None when it could not be read)
         for sc in scans:
             win = hours_window(sc)
             if not in_hours(sc, now, win):
@@ -148,11 +184,11 @@ def run_once():
             tf = sc.get("timeframe", "5m")
             cooldown = int(sc.get("alert", {}).get("cooldown_min", 30))
             prev = prev_session_bars(tf) if continuous(sc) else {}
+            dg = digest(sc)
+            hits = []                           # this scan's fires this minute: ranked together when it is a digest scan, then stored
             for s in frames:
                 bars = join_sessions(prev.get(s), bars_of(s, tf))
-                ref = refs.get(s, {})
-                ctx = {"prev_day_close": ref.get("prev_close", 0), "prev_day_high": ref.get("prev_high", 0),
-                       "prev_day_low": ref.get("prev_low", 0)}
+                ctx = ctx_of(refs.get(s, {}))
                 if evaluate(sc, bars, ctx):
                     key = f"cooldown:{sc['name']}:{s}"
                     if R.set(key, "1", ex=cooldown * 60, nx=True):
@@ -164,13 +200,27 @@ def run_once():
                         st = story(sc, bars, ctx) if sc.get("story") else None
                         if st:
                             payload["story"] = st
-                        cur.execute("INSERT INTO alerts(scan,symbol,price,payload) VALUES(%s,%s,%s,%s) RETURNING id",
-                                    (sc["name"], s, price, json.dumps(payload, default=float)))
-                        fired.append((sc, s, price, lv, st, cur.fetchone()[0]))
+                        hits.append({"symbol": s, "price": price, "lv": lv, "st": st, "payload": payload,
+                                     "strength": strength(sc, bars, ctx) if dg else None})
+            if dg and hits:
+                try:
+                    if dg["group"] not in leans:
+                        votes = [market_vote(sc, join_sessions(prev.get(s), bars_of(s, tf)), ctx_of(refs.get(s, {}))) for s in frames]
+                        leans[dg["group"]] = market(votes, float((dg.get("market") or {}).get("lean", LEAN)))
+                    apply_digest(sc, hits, leans[dg["group"]])
+                except Exception as e:  # noqa: BLE001  the alerts are stored and sent all the same, unranked
+                    log.warning("digest ranking of %s failed: %s", sc["name"], e)
+            for h in hits:
+                cur.execute("INSERT INTO alerts(scan,symbol,price,payload) VALUES(%s,%s,%s,%s) RETURNING id",
+                            (sc["name"], h["symbol"], h["price"], json.dumps(h["payload"], default=float)))
+                fired.append((sc, h["symbol"], h["price"], h["lv"], h["st"], cur.fetchone()[0], h["payload"].get("digest")))
         con.commit()
-    for sc, s, price, lv, st, aid in fired:
-        tg = sc.get("alert", {}).get("telegram", True)      # falsy: none; "silent": no buzz; else loud
-        if tg:
+    groups: dict = {}
+    for sc, s, price, lv, st, aid, meta in fired:
+        tg = sc.get("alert", {}).get("telegram", True)      # falsy: none; "silent": no buzz; "digest": one summary per group; else loud
+        if tg == "digest":
+            groups.setdefault((digest(sc) or {}).get("group") or sc["name"], []).append((sc, s, price, lv, aid, meta))
+        elif tg:
             try:
                 text = alert_text(sc, s, price, lv, st, now)
             except (KeyError, IndexError, TypeError, ValueError) as e:   # a bad story template keeps the plain text
@@ -181,6 +231,11 @@ def run_once():
             else:
                 ok, err = telegram(text, silent=(tg == "silent"))
                 record_delivery(f"alert:{aid}", ok, err, tg == "silent", now)
+    for group, items in groups.items():
+        try:
+            send_digest(group, items, now)
+        except Exception as e:  # noqa: BLE001  a summary that fails never stops the run
+            log.warning("digest of %s failed: %s", group, e)
     log.info("scan: %d symbols, %d bull / %d bear, %d alerts", n, len(bulls), len(bears), len(fired))
 
 

@@ -126,3 +126,15 @@ def test_forget_other_days_keeps_only_the_day(monkeypatch):
     trades.forget_other_days(d1)
     assert trades._HIST == {}
     assert trades.HIST_CACHE_MAX == 60
+
+
+def test_a_rows_only_scan_gets_trade_rows_and_an_opted_out_one_does_not():
+    ist = dt.timezone(dt.timedelta(hours=5, minutes=30))
+    at = dt.datetime(2026, 11, 27, 9, 20, tzinfo=ist)
+    alert = lambda i, sym: {"id": i, "ts": "2026-11-27T09:20:02+05:30", "scan": "Inside open long", "symbol": sym, "price": 100.0, "side": "long",
+                            "stop": 99.0, "target": 100.3, "source": "live"}                # R:R 0.3: under the default floor
+    scan = {"name": "Inside open long", "side": "long", "min_rr": 0, "desk": "rows"}
+    out = trades._alert_candidates([alert(1, "A"), alert(2, "B")], at, False, None, {"Inside open long": scan})
+    assert [(c["ref"], c["symbol"], c["label"]) for c in out] == [("alert:1", "A", "Inside open long"), ("alert:2", "B", "Inside open long")]
+    assert trades._alert_candidates([alert(1, "A")], at, False, None, {"Inside open long": dict(scan, desk=False)}) == []
+    assert trades._alert_candidates([alert(1, "A")], at, False, None, {"Inside open long": {"name": "Inside open long", "side": "long"}}) == []   # no min_rr: 1.5 applies

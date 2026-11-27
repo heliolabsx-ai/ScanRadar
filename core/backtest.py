@@ -86,22 +86,23 @@ def fires(scan: dict, df1m: pd.DataFrame, ctx: dict, cooldown_min: int, prev1m: 
             while done < len(full_win) and full_win[done] < win[i]:
                 done += 1
             cur_win, f_open, f_high, f_low, f_vol = win[i], None, None, None, 0.0
-        stub_open = o[i]
-        stub_oi = oi[i - 1] if i else oi[i]
-        fo = stub_open if f_open is None else f_open
-        fh = stub_open if f_high is None else max(f_high, stub_open)
-        fl = stub_open if f_low is None else min(f_low, stub_open)
-        tp = (fh + fl + stub_open) / 3
-        num = (full_cum_num[done - 1] if done else 0.0) + tp * f_vol
-        cv = (full_cum_vol[done - 1] if done else 0.0) + f_vol
-        forming = {"open": fo, "high": fh, "low": fl, "close": stub_open, "volume": f_vol, "oi": stub_oi,
-                   "vwap": num / (cv if cv > 0 else 1.0)}
-        end = P + done
-        lo = max(0, end - (k - 1))
-        bars = pd.DataFrame({f: list(full_rows[f][lo:end]) + [forming[f]] for f in FIELDS})
-        bars.attrs["session_start"] = max(0, P - lo)
-        if in_hours(scan, ts.iloc[i], hw) and (not out or ts.iloc[i] - out[-1] >= cd) and evaluate(scan, bars, ctx):
-            out.append(ts.iloc[i])
+        if in_hours(scan, ts.iloc[i], hw) and (not out or ts.iloc[i] - out[-1] >= cd):   # the bars are built only for a minute that may fire
+            stub_open = o[i]
+            stub_oi = oi[i - 1] if i else oi[i]
+            fo = stub_open if f_open is None else f_open
+            fh = stub_open if f_high is None else max(f_high, stub_open)
+            fl = stub_open if f_low is None else min(f_low, stub_open)
+            tp = (fh + fl + stub_open) / 3
+            num = (full_cum_num[done - 1] if done else 0.0) + tp * f_vol
+            cv = (full_cum_vol[done - 1] if done else 0.0) + f_vol
+            forming = {"open": fo, "high": fh, "low": fl, "close": stub_open, "volume": f_vol, "oi": stub_oi,
+                       "vwap": num / (cv if cv > 0 else 1.0)}
+            end = P + done
+            lo = max(0, end - (k - 1))
+            bars = pd.DataFrame({f: list(full_rows[f][lo:end]) + [forming[f]] for f in FIELDS})
+            bars.attrs["session_start"] = max(0, P - lo)
+            if evaluate(scan, bars, ctx):
+                out.append(ts.iloc[i])
         # fold this complete minute into the forming window for the next iteration
         f_open = o[i] if f_open is None else f_open
         f_high = h[i] if f_high is None else max(f_high, h[i])
