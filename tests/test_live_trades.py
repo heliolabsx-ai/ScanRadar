@@ -219,3 +219,53 @@ def test_desk_tick_records_each_ticket_as_telegram_desk(monkeypatch):
     ld.tick(lambda: Con(), now, lambda text: next(replies))
     day, at = dt.date(2026, 11, 3), now.replace(second=0)
     assert rec == [(day, "alert:1", "telegram-desk", True, None, False, now), (day, "pattern:A|x|1", "telegram-desk", True, None, False, now)]
+
+
+def test_digest_rows_are_built_after_the_waiting_messages_are_flushed(monkeypatch):
+    from core.sizing import DEFAULTS
+    day, at = dt.date(2026, 11, 27), dt.datetime(2026, 11, 27, 9, 20, tzinfo=IST)
+    digest_scan = {"name": "Inside open long", "side": "long", "alert": {"telegram": "digest"}, "digest": {"group": "Inside open"}}
+    cand = lambda ref, sym, kind: {"ref": ref, "symbol": sym, "kind_or_scan": kind}
+    cands = [cand("alert:1", "A", "Inside open long"), cand("alert:2", "B", "B0101"), cand("pattern:C|x|1", "C", "double_bottom"), cand("alert:3", "D", "Inside open long")]
+    order = []
+    monkeypatch.setattr(lt.live_desk, "setup_stats", lambda con, at: ({}, {}))
+    monkeypatch.setattr(lt.al, "scan_files", lambda: [(digest_scan, "h"), ({"name": "B0101", "side": "long"}, "h2")])
+    monkeypatch.setattr(lt.trades, "candidates", lambda con, day, at, **kw: list(cands))
+    monkeypatch.setattr(lt.trades, "rows_for_day", lambda con, day, upto=None: [])
+    monkeypatch.setattr(lt.trades, "load_history", lambda con, s, d: {})
+    monkeypatch.setattr(lt.trades, "build_row", lambda c, s, st, h, apply_rules: order.append(c["ref"]) or {"odds": None, "size": {}, "gate": None, "gate_reason": None})
+    monkeypatch.setattr(lt.trades, "insert_row", lambda cur, row: 1)
+    monkeypatch.setattr(lt.trades, "odds_by_ref", lambda con, day: {})
+    monkeypatch.setattr(lt.trades, "settle_open", lambda con, day, at, flat_by, final: 0)
+    monkeypatch.setattr(lt.trades, "_alert_rows", lambda con, day: [])
+    monkeypatch.setattr(lt.followups, "run", lambda *a: 0)
+    out = lt.process_minute(FakeCon(), StoreR(), day, at, dict(DEFAULTS), between=lambda: order.append("flush"))
+    assert order == ["alert:2", "pattern:C|x|1", "flush", "alert:1", "alert:3"] and out["rows"] == 4     # the alarms that wait for a row go first
+    order.clear(); cands[:] = [cand("alert:2", "B", "B0101")]
+    lt.process_minute(FakeCon(), StoreR(), day, at, dict(DEFAULTS), between=lambda: order.append("flush"))
+    assert order == ["alert:2"]                                                    # no digest row this minute: no early flush
+    order.clear(); cands[:] = [cand("alert:9", "A", "Inside open long")]
+    def boom():
+        raise RuntimeError("telegram down")
+    assert lt.process_minute(FakeCon(), StoreR(), day, at, dict(DEFAULTS), between=boom)["rows"] == 1 and order == ["alert:9"]   # a failing flush never stops the rows
+    order.clear()
+    monkeypatch.setattr(lt.trades, "odds_by_ref", lambda con, day: {"alert:9": {"odds": None, "size": {}, "gate": None, "gate_reason": None}})
+    lt.process_minute(FakeCon(), StoreR(), day, at, dict(DEFAULTS), between=lambda: order.append("flush"))
+    assert order == []                                                             # every digest row exists already: nothing to flush early, nothing built
+
+
+def test_tick_flushes_before_the_digest_rows_and_again_at_the_end(monkeypatch):
+    now = dt.datetime(2026, 11, 27, 9, 20, 20, tzinfo=IST)
+    class Con(FakeCon):
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+    calls = []
+    monkeypatch.setattr(lt.live_desk, "desk_redis", lambda: object())
+    monkeypatch.setattr(lt.trades, "get_settings", lambda con: {})
+    monkeypatch.setattr(lt, "flush_deferred", lambda R, day, send, at, record=None: calls.append("flush") or 2)
+    def minute(con, R, day, at, settings, between=None):
+        calls.append("rows"); between(); calls.append("digest rows")
+        return {"rows": 3, "settled": 0, "followups": 0}
+    monkeypatch.setattr(lt, "process_minute", minute)
+    assert lt.tick(lambda: Con(), now, lambda text: None) == {"rows": 3, "settled": 0, "followups": 0, "sent": 4}
+    assert calls == ["rows", "flush", "digest rows", "flush"]

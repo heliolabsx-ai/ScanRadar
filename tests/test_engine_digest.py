@@ -79,12 +79,13 @@ def engine(monkeypatch):
     return m
 
 
-def _frames(shapes: dict) -> tuple[dict, dict]:
-    """symbol -> (5m closes in %, base) as the engine sees it at 09:20: five closed minutes and the forming one."""
+def _frames(shapes: dict, rolled: bool = True) -> tuple[dict, dict]:
+    """symbol -> (5m closes in %, base) as the engine sees it at 09:20: five closed minutes and the forming one, or
+    (rolled=False) a stock that has not ticked since 09:20:00, whose last row is still the 09:19 candle."""
     frames, refs = {}, {}
     for sym, (rel, base) in shapes.items():
         df, _ = shaped_day(rel, base=base)
-        frames[sym] = view_at(df, df.ts.iloc[5])
+        frames[sym] = view_at(df, df.ts.iloc[5]) if rolled else df.iloc[:5].reset_index(drop=True)
         refs[sym] = {"prev_close": str(base), "prev_high": str(base * 1.01), "prev_low": str(base * 0.99)}
     return frames, refs
 
@@ -159,3 +160,14 @@ def test_no_summary_when_nothing_fires_and_a_failing_ranking_still_sends(engine,
     R, alerts, deliveries = _run(engine, monkeypatch)
     assert len([a for a in alerts if a[0].startswith("Inside")]) == 5 and all("digest" not in a[3] for a in alerts)
     assert len(engine._sent) == 1 and "<b>LONG · target PDH</b> (4)" in engine._sent[0][0] and "★" not in engine._sent[0][0]
+
+
+def test_stocks_that_have_not_ticked_in_the_new_minute_fire_on_the_same_side(engine, monkeypatch):
+    frames, refs = _frames(SHAPES, rolled=False)
+    R = FakeR(refs)
+    monkeypatch.setattr(engine, "R", R); monkeypatch.setattr(engine, "load_today", lambda: frames)
+    monkeypatch.setattr(engine, "load_scans", lambda: [json.loads((ROOT / "scans" / f"Inside_open_{s}.json").read_text()) for s in ("long", "short")])
+    engine.run_once()
+    fired = {(p[0], p[1]) for q, p in engine._db.sql if q.startswith("INSERT INTO alerts")}
+    assert fired == {("Inside open long", s) for s in ("AAA", "BBB", "CCC", "DDD")} | {("Inside open short", "M&M")}
+    assert len(engine._sent) == 1 and "with the longs" in engine._sent[0][0]

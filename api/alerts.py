@@ -14,6 +14,7 @@ from replay import IST, SETTLED, day_is_settled  # noqa: F401  (re-exported for 
 
 SCAN_DIR = os.environ.get("SCAN_DIR", "/app/scans")
 ALERT_SCHEMA = "2"      # bump when the code that builds replay rows changes: every stored row's scan hash then mismatches and recomputes
+DIGEST_SCHEMA = "d1"    # the same for digest scans only (payload.digest): rows written by a build without it, or with another value, recompute
 log = logging.getLogger("alerts")
 
 
@@ -35,7 +36,8 @@ def scan_files() -> list[tuple[dict, str]]:
         except (OSError, ValueError) as e:
             log.warning("bad scan %s: %s", p, e)
             continue
-        out.append((sc, hashlib.sha256(ALERT_SCHEMA.encode() + b).hexdigest()))
+        salt = ALERT_SCHEMA + (DIGEST_SCHEMA if digest(sc) else "")
+        out.append((sc, hashlib.sha256(salt.encode() + b).hexdigest()))
     return out
 
 
@@ -215,16 +217,25 @@ def ensure_outcomes(con, day: dt.date, frames: dict, refs: dict, scans: list[tup
     con.commit()
 
 
+def _merge_key(r: dict) -> tuple:
+    """What counts as "the same alarm" for a symbol: the scan, or the digest group when the row has one (the scans of a
+    group are one alarm per stock: live reads the last tick, the replay the next minute's open, and a stock sitting on
+    VWAP can land on the other side). The group is read from `payload.digest` or, on already shaped rows, `digest`."""
+    p = r.get("payload")
+    d = (p.get("digest") if isinstance(p, dict) else None) or r.get("digest")
+    g = d.get("group") if isinstance(d, dict) else None
+    return (f"group:{g}" if g else f"scan:{r['scan']}", r["symbol"])
+
+
 def merge_live_replay(rows: list[dict]) -> list[dict]:
-    """Drop a replay row when a live row for the same scan+symbol sits within ±1 minute."""
+    """Drop a replay row when a live row for the same scan (or digest group) + symbol sits within ±1 minute."""
     live: dict[tuple, list] = {}
     for r in rows:
         if r.get("source") == "live":
-            live.setdefault((r["scan"], r["symbol"]), []).append(r["ts"])
+            live.setdefault(_merge_key(r), []).append(r["ts"])
     out = []
     for r in rows:
-        if r.get("source") == "replay" and any(abs((t - r["ts"]).total_seconds()) <= 60
-                                               for t in live.get((r["scan"], r["symbol"]), ())):
+        if r.get("source") == "replay" and any(abs((t - r["ts"]).total_seconds()) <= 60 for t in live.get(_merge_key(r), ())):
             continue
         out.append(r)
     return out
@@ -308,6 +319,7 @@ def scan_stats(con, days: int) -> list[dict]:
     """Per-scan hit rate and average returns over roughly the last N trading days."""
     since = dt.datetime.now(IST) - dt.timedelta(days=int(days * 7 / 5) + 3)
     with con.cursor() as cur:
-        cur.execute("SELECT ts, scan, symbol, source, payload->'outcome' FROM alerts WHERE ts>=%s AND payload ? 'outcome'", (since,))
-        rows = [{"ts": ts, "scan": sc, "symbol": sym, "source": src, "outcome": o} for ts, sc, sym, src, o in cur.fetchall()]
+        cur.execute("SELECT ts, scan, symbol, source, payload->'outcome', payload->'digest'->>'group' FROM alerts WHERE ts>=%s AND payload ? 'outcome'", (since,))
+        rows = [{"ts": ts, "scan": sc, "symbol": sym, "source": src, "outcome": o, "digest": {"group": g} if g else None}
+                for ts, sc, sym, src, o, g in cur.fetchall()]
     return aggregate_stats(rows)

@@ -76,9 +76,15 @@ def test_only_the_0920_minute_can_fire():
     df, _ = shaped_day(UP, base=BASE)
     late = df.copy(); late["ts"] = late.ts + pd.Timedelta(minutes=5)     # the same shape, the day starting at 09:20
     assert fires(LONG, late, CTX, 400) == []
-    flat_then_up = [0.0, 0.3, 0.5, 0.6] + [0.6] * 20                      # nothing to read at 09:20; the move comes later
-    assert _fires(LONG, flat_then_up)[1] in ([], ["09:20"])              # whatever 09:20 says, no later minute fires
-    assert all(t == "09:20" for t in _fires(LONG, flat_then_up)[1] + _fires(SHORT, flat_then_up)[1])
+    dip_then_up = [-0.2, -0.25, 0.5, 0.6] + [0.6] * 20                    # short at 09:20; the later rally above VWAP never adds a long
+    assert _fires(SHORT, dip_then_up)[1] == ["09:20"] and _fires(LONG, dip_then_up)[1] == []
+
+
+def test_no_fire_on_a_stock_that_has_not_traded():
+    df, _ = shaped_day(UP, base=BASE, vol=[0] * len(UP))                   # prices but no volume: VWAP reads 0, "above VWAP" means nothing
+    assert fires(LONG, df, CTX, 400) == [] and fires(SHORT, df, CTX, 400) == []
+    bars = rules.resample(view_at(df, df.ts.iloc[5]), "1m"); bars.attrs["session_start"] = 0
+    assert rules.market_vote(LONG, bars, CTX) is None                    # and it has no vote in the market's lean
 
 
 def test_no_fire_without_reference_levels():

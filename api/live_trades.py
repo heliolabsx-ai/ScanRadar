@@ -11,6 +11,7 @@ import alerts as al
 import trades
 import deliveries
 import followups
+from core import rules
 from core.calendar import is_trading_day
 from core.gate import ledger
 
@@ -75,19 +76,8 @@ def _tombstones(R, day, alerts: list[dict], skip: set[str]) -> None:
             log.warning("tombstone for %s not written: %s", ref, e)
 
 
-def process_minute(con, R, day, at: dt.datetime, settings: dict) -> dict:
-    """Rows for the minute's new triggers, then settle the open rows; {"rows", "settled"}."""
-    trades.forget_other_days(day)
-    pat_stats, _ = live_desk.setup_stats(con, at)
-    scans = {s["name"]: s for s, _ in al.scan_files()}
-    have = trades.odds_by_ref(con, day)
-    apply_rules = day >= trades.RULES_FROM
-    try:                                                      # read before candidates(): an alert inserted in between is judged next minute
-        alerts = [a for a in trades._alert_rows(con, day) if a.get("source") == "live" and trades._minute(a["ts"]) <= at]
-    except Exception:  # noqa: BLE001
-        log.exception("alert rows for tombstones failed")
-        alerts = []
-    cands = trades.candidates(con, day, at, include_replay=False, max_age=desk.MAX_AGE_MIN, pat_stats=pat_stats, scans=scans)
+def _build_rows(con, R, day, at: dt.datetime, settings: dict, cands: list[dict], have, apply_rules: bool) -> int:
+    """A trade row (and its odds key) for every candidate that has none yet; the number inserted."""
     n = 0
     for cand in cands:
         ref = cand["ref"]
@@ -107,6 +97,28 @@ def process_minute(con, R, day, at: dt.datetime, settings: dict) -> dict:
             continue
         n += 1
         _set_odds(R, day, ref, row)
+    return n
+
+
+def process_minute(con, R, day, at: dt.datetime, settings: dict, between=None) -> dict:
+    """Rows for the minute's new triggers, then settle the open rows; {"rows", "settled", "followups"}.
+    The rows of digest scans are built last, after `between()` (the tick passes the deferred-queue flush): their
+    summary went out from the engine, no message waits for them, and thirty of them at 09:20 must not hold back the
+    alarms whose message does wait for its row."""
+    trades.forget_other_days(day)
+    pat_stats, _ = live_desk.setup_stats(con, at)
+    scans = {s["name"]: s for s, _ in al.scan_files()}
+    have = trades.odds_by_ref(con, day)
+    apply_rules = day >= trades.RULES_FROM
+    try:                                                      # read before candidates(): an alert inserted in between is judged next minute
+        alerts = [a for a in trades._alert_rows(con, day) if a.get("source") == "live" and trades._minute(a["ts"]) <= at]
+    except Exception:  # noqa: BLE001
+        log.exception("alert rows for tombstones failed")
+        alerts = []
+    cands = trades.candidates(con, day, at, include_replay=False, max_age=desk.MAX_AGE_MIN, pat_stats=pat_stats, scans=scans)
+    later = [c for c in cands if rules.digest(scans.get(c.get("kind_or_scan")) or {})]
+    waiting = {c["ref"] for c in later}
+    n = _build_rows(con, R, day, at, settings, [c for c in cands if c["ref"] not in waiting], have, apply_rules)
     try:                                                      # a row whose key never got written (Redis hiccup, insert race)
         for ref, row in trades.odds_by_ref(con, day).items():
             if not R.exists(f"trades:{day}:{ref}"):
@@ -114,6 +126,13 @@ def process_minute(con, R, day, at: dt.datetime, settings: dict) -> dict:
     except Exception:  # noqa: BLE001
         log.exception("odds key backfill failed")
     _tombstones(R, day, alerts, {c["ref"] for c in cands} | set(have))
+    if later:
+        if between is not None and any(c["ref"] not in have for c in later):
+            try:
+                between()                                     # the other alarms' messages go out before the digest rows are built
+            except Exception:  # noqa: BLE001
+                log.exception("flush before the digest rows failed")
+        n += _build_rows(con, R, day, at, settings, later, have, apply_rules)
     flat_by = dt.time.fromisoformat(settings["flat_by"])
     settled = trades.settle_open(con, day, at, settings["flat_by"], final=at.time() >= flat_by)
     try:                                                      # digest alarms: near-target and exit notes for the starred rows, the day result
@@ -202,14 +221,18 @@ def tick(connect, now: dt.datetime, send) -> dict:
     at = n.replace(second=0, microsecond=0)
     day = at.date()
     done = {"rows": 0, "settled": 0, "sent": 0}
+
+    def flush() -> None:
+        done["sent"] += flush_deferred(R, day, send, n, record=lambda ref, ok, err, silent: _record(connect, day, ref, "telegram", ok, err, silent, n))
+
     if should_run(at):                                        # the minute, not the wake-up second: 15:30:20 is the 15:30 minute
         try:
             with connect() as con:
-                done.update(process_minute(con, R, day, at, trades.get_settings(con)))
+                done.update(process_minute(con, R, day, at, trades.get_settings(con), between=flush))
         except Exception:  # noqa: BLE001
             log.exception("trades tick failed")
     try:
-        done["sent"] = flush_deferred(R, day, send, n, record=lambda ref, ok, err, silent: _record(connect, day, ref, "telegram", ok, err, silent, n))
+        flush()
     except Exception:  # noqa: BLE001
         log.exception("deferred telegram flush failed")
     return done

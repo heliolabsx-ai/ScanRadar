@@ -70,14 +70,19 @@ def test_the_day_result_counts_the_whole_group_and_names_the_starred():
 
 
 class FakeR:
-    def __init__(self): self.kv, self.q = {}, []
+    def __init__(self, fail=0): self.kv, self.q, self.fail = {}, [], fail
     def set(self, k, v, ex=None, nx=False):
         if nx and k in self.kv:
             return None
         self.kv[k] = v
         return True
-    def rpush(self, k, v): self.q.append((k, json.loads(v)))
+    def rpush(self, k, v):
+        if self.fail:
+            self.fail -= 1
+            raise ConnectionError("redis hiccup")
+        self.q.append((k, json.loads(v)))
     def expire(self, *a): pass
+    def delete(self, k): self.kv.pop(k, None)
 
 
 def test_send_once_queues_with_an_empty_odds_key_and_never_twice():
@@ -90,3 +95,41 @@ def test_send_once_queues_with_an_empty_odds_key_and_never_twice():
     assert R.kv["trades:2026-11-27:followup:alert:1:exit"] == ""                       # the flush sends it at once, plain
     assert "fu:2026-11-27:alert:4:exit" in R.kv                                        # the late one is marked, so it is never looked at again
     assert fu.send_once(R, DAY, T("10:15"), items) == 0 and len(R.q) == 2
+
+
+def test_a_message_that_could_not_be_queued_is_tried_again_the_next_minute():
+    R = FakeR(fail=1)
+    item = [{"key": "alert:1:exit", "text": "<b>TARGET</b>", "silent": False}]
+    assert fu.send_once(R, DAY, T("10:14"), item) == 0 and "fu:2026-11-27:alert:1:exit" not in R.kv      # the mark is taken back
+    assert fu.send_once(R, DAY, T("10:15"), item) == 1 and len(R.q) == 1
+    assert fu.send_once(R, DAY, T("10:16"), item) == 0
+
+
+def test_run_reads_live_digest_alerts_and_ignores_a_bar_from_before_the_alarm(monkeypatch):
+    import alerts as al
+    import trades
+    alerts = [dict(meta(1), ts="2026-11-27T09:20:02+05:30"), dict(meta(2, star=False), ts="2026-11-27T09:20:02+05:30"),
+              dict(meta(3), source="replay"), {"id": 4, "scan": "B0101", "symbol": "S4", "source": "live", "digest": None}]
+    rows = [dict(row(1), ts="2026-11-27T09:20:00+05:30"), dict(row(2), ts="2026-11-27T09:20:00+05:30"), dict(row(3), ts="2026-11-27T09:20:00+05:30"),
+            dict(row(4), ts="2026-11-27T09:20:00+05:30")]
+    monkeypatch.setattr(al, "alerts_for_day", lambda con, day: alerts)
+    monkeypatch.setattr(trades, "rows_for_day", lambda con, day, upto=None: rows)
+    bars = {}
+    class Cur:
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def execute(self, sql, params): self.symbols = params[0]
+        def fetchall(self): return [(s, *bars[s]) for s in self.symbols if s in bars]
+    class Con:
+        def cursor(self): return Cur()
+    # 09:20:20: the only closed bar is 09:19, from before the alarm, and it happens to sit near the target: no note
+    bars["S1"] = (T("09:19"), 5695.0)
+    R = FakeR()
+    assert fu.run(Con(), R, DAY, T("09:20"), "15:20", SCANS) == 0 and R.q == []
+    # 09:26: the last bar is after the alarm and 80 % of the way: one note, for the starred live row only
+    bars["S1"] = (T("09:25"), 5692.0)
+    assert fu.run(Con(), R, DAY, T("09:26"), "15:20", SCANS) == 1
+    assert [v["ref"] for _, v in R.q] == ["followup:alert:1:near"] and "now 5,692.00" in R.q[0][1]["text"]
+    assert fu.run(Con(), R, DAY, T("09:27"), "15:20", SCANS) == 0                    # once
+    monkeypatch.setattr(al, "alerts_for_day", lambda con, day: [a for a in alerts if not a.get("digest")])
+    assert fu.run(Con(), FakeR(), DAY, T("09:27"), "15:20", SCANS) == 0              # a day without digest alerts costs one query

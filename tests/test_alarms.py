@@ -209,6 +209,7 @@ def test_digest_rows_carry_star_rank_strength_and_their_side_of_the_market():
     assert cols["io_long"]["badge"] == {"cls": "against", "text": "against the market", "breadth": 39.4}
     assert cols["io_short"]["badge"] == {"cls": "with", "text": "with the market", "breadth": 39.4}
     assert cols["pdh_fade"]["badge"] is None and cols["pat"]["badge"] is None
+    assert not any(k.startswith("_") for r in b["rows"] for k in r)                    # the helper key never reaches the page
 
 
 def test_market_badge_reads_mixed_and_is_absent_before_the_fire():

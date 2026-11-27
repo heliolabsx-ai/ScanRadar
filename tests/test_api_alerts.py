@@ -194,3 +194,29 @@ def test_replay_rows_of_a_digest_scan_carry_rank_star_and_the_market_lean():
     assert short["digest"]["star"] and short["digest"]["market"] == "long" and short["scan_hash"] == "hash-short"
     pl = longs["BBB"][2]
     assert pl["levels"] == "scan" and pl["stop"] < longs["BBB"][1] < pl["target"] == 3000.0 * 1.01 and pl["outcome"]["hit"] in ("target", "stop", "none")
+
+
+def test_a_digest_group_is_one_alarm_per_symbol_when_live_and_replay_disagree_on_the_side():
+    # live read the 09:19 close (long); the replay reads the 09:20 open and lands on the short side: the live row wins
+    dg = {"group": "Inside open"}
+    rows = [{"scan": "Inside open long", "symbol": "X", "ts": T("09:20"), "source": "live", "payload": {"digest": dg}},
+            {"scan": "Inside open short", "symbol": "X", "ts": T("09:20"), "source": "replay", "payload": {"digest": dg}},
+            {"scan": "Inside open short", "symbol": "Y", "ts": T("09:20"), "source": "replay", "payload": {"digest": dg}},
+            {"scan": "Inside open long", "symbol": "Z", "ts": T("09:20"), "source": "replay", "digest": dg},          # the recent_alerts shape
+            {"scan": "Inside open long", "symbol": "Z", "ts": T("09:20"), "source": "live", "digest": dg},
+            {"scan": "PDH fade", "symbol": "X", "ts": T("09:20"), "source": "replay", "payload": {}}]                 # another scan on X is its own alarm
+    assert [(r["scan"], r["symbol"], r["source"]) for r in merge_live_replay(rows)] == [
+        ("Inside open long", "X", "live"), ("Inside open short", "Y", "replay"), ("Inside open long", "Z", "live"), ("PDH fade", "X", "replay")]
+
+
+def test_a_digest_scan_has_its_own_hash_salt(tmp_path, monkeypatch):
+    import json as _json
+    import alerts
+    plain = {"name": "plain", "side": "long", "rules": []}
+    dig = {"name": "dig", "side": "long", "rules": [], "alert": {"telegram": "digest"}, "digest": {"group": "g"}}
+    (tmp_path / "a.json").write_text(_json.dumps(plain)); (tmp_path / "b.json").write_text(_json.dumps(dig))
+    monkeypatch.setattr(alerts, "SCAN_DIR", str(tmp_path))
+    before = dict((s["name"], h) for s, h in alerts.scan_files())
+    monkeypatch.setattr(alerts, "DIGEST_SCHEMA", "test-other")
+    after = dict((s["name"], h) for s, h in alerts.scan_files())
+    assert after["plain"] == before["plain"] and after["dig"] != before["dig"]       # only the digest scans' replay rows are recomputed

@@ -114,27 +114,45 @@ def send_once(R, day, at: dt.datetime, items: list[dict]) -> int:
     deferred flush sends the message at once and plain (it has no trade row of its own to wait for)."""
     n = 0
     for it in items:
-        if not R.set(f"fu:{day}:{it['key']}", "1", ex=TTL, nx=True):
+        mark = f"fu:{day}:{it['key']}"
+        if not R.set(mark, "1", ex=TTL, nx=True):
             continue
         if it.get("skip"):
             continue
         ref = f"followup:{it['key']}"
-        R.set(f"trades:{day}:{ref}", "", ex=TTL)
-        R.rpush(f"tg:defer:{day}", json.dumps({"ref": ref, "text": it["text"], "ts": at.isoformat(), "silent": bool(it.get("silent"))}))
-        R.expire(f"tg:defer:{day}", TTL)
+        try:
+            R.set(f"trades:{day}:{ref}", "", ex=TTL)
+            R.rpush(f"tg:defer:{day}", json.dumps({"ref": ref, "text": it["text"], "ts": at.isoformat(), "silent": bool(it.get("silent"))}))
+        except Exception as e:  # noqa: BLE001  not queued: take the mark back so the next minute tries again
+            log.warning("follow-up %s not queued (%s); retrying next minute", it["key"], e)
+            try:
+                R.delete(mark)
+            except Exception:  # noqa: BLE001
+                pass
+            continue
         n += 1
+        try:
+            R.expire(f"tg:defer:{day}", TTL)
+        except Exception as e:  # noqa: BLE001  queued already; a missing TTL never warrants a second send
+            log.warning("deferred list TTL not set: %s", e)
     return n
 
 
 def _last_closes(con, day, at: dt.datetime, symbols: list[str]) -> dict:
-    """symbol -> the close of its last 1-minute bar before `at` today."""
+    """symbol -> (bar start, close) of its last 1-minute bar before `at` today."""
     if not symbols:
         return {}
     start = dt.datetime.combine(day, dt.time(9, 15), IST)
     with con.cursor() as cur:
-        cur.execute("SELECT DISTINCT ON (symbol) symbol, close FROM candles_1m WHERE symbol = ANY(%s) AND ts >= %s AND ts < %s "
+        cur.execute("SELECT DISTINCT ON (symbol) symbol, ts, close FROM candles_1m WHERE symbol = ANY(%s) AND ts >= %s AND ts < %s "
                     "ORDER BY symbol, ts DESC", (symbols, start, at))
-        return {s: float(c) for s, c in cur.fetchall() if c is not None}
+        return {s: (ts, float(c)) for s, ts, c in cur.fetchall() if c is not None}
+
+
+def _minute(ts) -> dt.datetime:
+    if isinstance(ts, str):
+        ts = dt.datetime.fromisoformat(ts)
+    return ts.astimezone(IST).replace(second=0, microsecond=0)
 
 
 def run(con, R, day, at: dt.datetime, flat_by: str, scans: dict) -> int:
@@ -145,6 +163,12 @@ def run(con, R, day, at: dt.datetime, flat_by: str, scans: dict) -> int:
     if not metas:
         return 0
     rows = [r for r in trades.rows_for_day(con, day) if r["ref"] in metas]
-    watch = sorted({r["symbol"] for r in rows if r.get("outcome") is None and (metas[r["ref"]].get("digest") or {}).get("star")})
+    watch = [r for r in rows if r.get("outcome") is None and (metas[r["ref"]].get("digest") or {}).get("star")]
+    last = _last_closes(con, day, at, sorted({r["symbol"] for r in watch}))
+    prices = {}
+    for r in watch:                                           # a bar from before the alarm is not "now": the first minute has no price yet
+        bar = last.get(r["symbol"])
+        if bar and bar[0].astimezone(IST) >= _minute(r["ts"]):
+            prices[r["symbol"]] = bar[1]
     final = at.time() >= dt.time.fromisoformat(flat_by)
-    return send_once(R, day, at, due(rows, metas, _last_closes(con, day, at, watch), at, final, flat_by, scans))
+    return send_once(R, day, at, due(rows, metas, prices, at, final, flat_by, scans))
