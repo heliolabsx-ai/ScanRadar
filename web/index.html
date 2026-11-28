@@ -118,7 +118,7 @@ canvas{display:block;width:100%;max-width:100%;margin-top:10px;border-radius:4px
 .filters .eyebrow{margin:0}.filters label{gap:4px}.filters input[type=number]{width:64px}.filters select{max-width:150px}
 .filters .chk{display:inline-flex;align-items:center;gap:4px;cursor:pointer}.filters.on{border-color:var(--accent)}
 .filters .count{font:600 10.5px var(--mono);color:var(--accent);margin-left:auto}
-.tabs{display:inline-flex;border:1px solid var(--line);border-radius:4px;overflow:hidden}.tabs .tab{border:0;border-radius:0;padding:4px 12px;color:var(--muted)}.tabs .tab.on{background:var(--fg);color:var(--bg)}
+.tabs{display:inline-flex;border:1px solid var(--line);border-radius:4px;overflow:hidden}.tabs .tab{border:0;border-radius:0;padding:4px 12px;color:var(--muted)}.tabs .tab.on{background:var(--fg);color:var(--bg)}.tabs .tablink{display:inline-flex;align-items:center;padding:4px 12px;color:var(--muted);background:var(--panel);text-decoration:none;font:500 12px var(--sans);white-space:nowrap}.tabs .tablink:hover{color:var(--fg)}.tabs .tablink:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
 .pgrid{display:grid;grid-template-columns:1fr 440px;gap:12px;align-items:start}.pgrid .eyebrow{display:flex;justify-content:space-between;gap:8px}@media (max-width:1000px){.pgrid{grid-template-columns:1fr}}
 .pstats{font:500 10.5px var(--mono);color:var(--muted);line-height:1.7;margin-bottom:8px}.pstats b{color:var(--fg)}
 .pills{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px}.pill{font:600 10px var(--mono);padding:3px 8px;border:1px solid var(--line);border-radius:12px;color:var(--muted);cursor:pointer;background:var(--panel)}.pill.on{border-color:var(--fg);color:var(--fg)}
@@ -296,7 +296,7 @@ canvas.chart{cursor:zoom-in}.lightbox canvas.chart{cursor:crosshair}
 </style></head><body>
 <div class="top">
   <h1 class="brand"><svg viewBox="0 0 64 64" aria-hidden="true"><rect width="64" height="64" rx="14" fill="#e0a63a"/><path d="M12 52h40" stroke="#1b1f1c" stroke-opacity=".35" stroke-width="3" stroke-linecap="round"/><path d="M12 44 L24 30 L33 38 L52 16" fill="none" stroke="#1b1f1c" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/><circle cx="52" cy="16" r="6" fill="#1b1f1c"/></svg><span>Scan<b>Radar</b></span></h1>
-  <span class="tabs"><button class="tab on" data-view="scanner">Scanner</button><button class="tab" data-view="patterns">Patterns</button><button class="tab" data-view="desk">Desk</button><button class="tab" data-view="watch">Watch</button><button class="tab" data-view="trades">Trades</button><button class="tab" data-view="alarms" title="One column per setup; stocks stack under it as they fire">Alarms<span class="abadge" id="alarmsBadge" hidden></span></button></span>
+  <span class="tabs"><button class="tab on" data-view="scanner">Scanner</button><button class="tab" data-view="patterns">Patterns</button><button class="tab" data-view="desk">Desk</button><button class="tab" data-view="watch">Watch</button><button class="tab" data-view="trades">Trades</button><button class="tab" data-view="alarms" title="One column per setup; stocks stack under it as they fire">Alarms<span class="abadge" id="alarmsBadge" hidden></span></button><a class="tablink" href="inside-open.html" title="The 09:20 Inside open alarm, replayed minute by minute: every stock, its levels, the Telegram messages">Inside open</a></span>
   <span class="daypick" id="daypick"><button class="nav" id="dayPrev" title="Previous session">‹</button><button class="cur" id="dayBtn" title="Choose a session" aria-haspopup="listbox"><b id="dayLbl">—</b><small id="dayTag"></small></button><button class="nav" id="dayNext" title="Next session">›</button><div class="daymenu" id="dayMenu" hidden role="listbox"></div></span><select id="day" title="Session" aria-hidden="true" tabindex="-1"></select>
   <span class="clock mono" id="clock">--:--</span>
   <span class="st" id="status"><i class="dot"></i><span id="statusText">WAITING</span></span>
@@ -960,6 +960,7 @@ document.addEventListener('keydown', e => {
 // ---------- desktop notifications (live feed only) ----------
 S.notify = false; S.seenAlerts = new Set(); S.seenPicks = new Set(); S.notifySeeded = false;
 try{ S.notify = localStorage.getItem('notify') === '1'; }catch(e){}
+if(window.self !== window.top) S.notify = false;      // inside a frame (the Inside open page's chart): the real tab does the notifying
 $('notifyTone').value = ScanNotify.getTone();
 $('notifyTone').onchange = () => { ScanNotify.setTone($('notifyTone').value); if($('notifyTone').value === 'chime') ScanNotify.chime(); else if($('notifyTone').value === 'system' && S.notify) ScanNotify.show({title:'ScanRadar', body:'This is the system sound. Change it in System Settings › Notifications › your browser.'}); };
 function notifyLabel(){
@@ -1888,5 +1889,6 @@ matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => { if
   else if(S.live){ setStatus('WAITING',''); $('day').value = todayIST(); syncDayUI(); loadAlerts(); }
   else if(S.days.length){ enterReplay(S.days[0], '15:30', true); }
   else { showEmpty('No sessions stored yet. On the VPS run <code>docker compose run --rm ingest python backfill.py</code> to load the last 60 days, then reload.'); }
+  S.booted = true;                                   // the start-up has picked its session: a framing page (Inside open) may now drive the clock
 })();
 </script></body></html>

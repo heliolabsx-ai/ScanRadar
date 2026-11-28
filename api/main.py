@@ -1,7 +1,7 @@
 import os, json, asyncio, datetime as dt, logging
 from concurrent.futures import ProcessPoolExecutor
 import redis.asyncio as aioredis, psycopg
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Response
 
 import replay as rp
 import history as hs
@@ -13,6 +13,7 @@ import live_desk as ld
 import live_trades as lt
 import trades as tr
 import alarms as alm
+import inside_open as iop
 import watch as wt
 import screens as sc
 from core.patterns import detector_hash
@@ -633,6 +634,42 @@ async def alarms_board(day: str, at: str | None = None):
     if need:
         await _kick_prepare(d)
     return json.loads(json.dumps(body, default=float))
+
+
+# ---------- Inside open page ----------
+@app.get("/api/inside-open/days")
+async def inside_open_days():
+    """The sessions the page offers (newest first) and the record under it."""
+    now = dt.datetime.now(IST)
+
+    def q():
+        with connect() as con:
+            return iop.index_body(con, now)
+    return await asyncio.get_running_loop().run_in_executor(None, q)
+
+
+@app.get("/api/inside-open")
+async def inside_open_day(day: str):
+    """One session of the Inside open alarm for the page to replay: rows with their 1-minute bars, the funnel, the Telegram
+    texts. A settled day is cached for ten minutes; a live day is read fresh (the page asks again every 15 seconds)."""
+    now = dt.datetime.now(IST)
+    try:
+        d = dt.date.fromisoformat(day)
+    except ValueError:
+        raise HTTPException(400, "day must be YYYY-MM-DD")
+    if d > now.date():
+        raise HTTPException(400, f"{d} has not happened yet")
+    key = f"io:day:{d}"
+    settled = rp.day_is_settled(d, now)
+    raw = await R.get(key) if settled else None
+    if not raw:
+        def q():
+            with connect() as con:
+                return json.dumps(iop.day_body(con, d, now), separators=(",", ":"), default=float)
+        raw = await asyncio.get_running_loop().run_in_executor(None, q)
+        if settled:
+            await R.set(key, raw, ex=600)
+    return Response(content=raw, media_type="application/json")
 
 
 @app.get("/api/trades/settings")
