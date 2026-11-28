@@ -134,3 +134,19 @@ test('pickChips: rank, star, distance from VWAP and the side of the market', () 
   assert.deepEqual(A.pickChips(null), []);
   assert.deepEqual([1, 2, 3, 4, 11, 12, 13, 21, 22, 23, 101].map(A.ordinal), ['1st', '2nd', '3rd', '4th', '11th', '12th', '13th', '21st', '22nd', '23rd', '101st']);
 });
+
+test('midLevel: the middle of yesterday\'s range, for the Inside open rows only', () => {
+  assert.equal(A.midLevel({ col: 'io_long' }, { prev_high: 3806.9, prev_low: 3686.2 }), 3746.55);
+  assert.equal(A.midLevel({ col: 'io_short' }, { prev_high: 102, prev_low: 98 }), 100);
+  assert.equal(A.midLevel({ col: 'pdh_fade' }, { prev_high: 102, prev_low: 98 }), null);      // any other alarm keeps its chart as it was
+  assert.equal(A.midLevel({ col: 'io_long' }, { prev_high: 102, prev_low: null }), null);
+  assert.equal(A.midLevel({ col: 'io_long' }, null), null);
+  assert.equal(A.midLevel(null, { prev_high: 102, prev_low: 98 }), null);
+});
+
+test('midChip: which half of yesterday\'s range the price is in', () => {
+  assert.deepEqual(A.midChip(3771, 3746.55), { text: 'PD mid 3,746.55 · price above it', cls: 'mid' });
+  assert.deepEqual(A.midChip(3700, 3746.55), { text: 'PD mid 3,746.55 · price below it', cls: 'mid' });
+  assert.equal(A.midChip(3700, null), null);
+  assert.equal(A.midChip(null, 3746.55), null);
+});

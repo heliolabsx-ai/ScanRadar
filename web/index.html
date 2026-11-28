@@ -10,7 +10,7 @@
 <script src="desk.js?v=ec9593b"></script>
 <script src="watch.js?v=052fe9a"></script>
 <script src="trades.js?v=5e3d8fa"></script>
-<script src="alarms.js?v=c87ca5c"></script>
+<script src="alarms.js?v=eb3a7a1"></script>
 <script src="structure.js?v=9337f0c"></script>
 <style>
 /* Layout: control strip → sector/breadth rail → bull/bear card grid → detail panel with canvas chart. Terminal-style data UI. */
@@ -245,7 +245,7 @@ canvas.chart{cursor:zoom-in}.lightbox canvas.chart{cursor:crosshair}
 .acol .ahd .rec{font:500 10.5px var(--mono);color:var(--muted);margin-top:2px}
 .astar{color:var(--amber);margin-right:4px}
 .amk{font:600 9.5px var(--mono);padding:1px 7px;border-radius:999px;margin-left:6px;background:var(--line);color:var(--muted);white-space:nowrap;vertical-align:1px}
-.amk.with,.achip.with{background:var(--bull-soft);color:var(--bull)}.amk.against,.achip.against,.achip.star{background:color-mix(in srgb,var(--amber) 18%,transparent);color:var(--amber)}
+.amk.with,.achip.with{background:var(--bull-soft);color:var(--bull)}.amk.against,.achip.against,.achip.star,.achip.mid{background:color-mix(in srgb,var(--amber) 18%,transparent);color:var(--amber)}
 .achips{display:flex;flex-wrap:wrap;gap:6px;margin-top:7px}
 .achip{font:600 10.5px var(--mono);padding:2px 9px;border-radius:999px;background:var(--line);color:var(--muted)}
 .wbtn button.pri{background:var(--amber);border-color:var(--amber);color:#1b1f1c;font-weight:600}
@@ -758,7 +758,7 @@ function drawChart(a){
     zone(t.entry, t.target, '--bull-soft'); zone(t.entry, t.stop, '--bear-soft');
     [['ENTRY', t.entry, '--fg'], ['STOP', t.stop, '--bear'], ['T1', t.target, '--bull'], ['T2', t.target2, '--bull']].forEach(([n, p, c]) => { if(p != null && hline(+p, C(c), n === 'ENTRY' ? [] : [4, 3], 1, xt)) tag(n + ' ' + fmt(p), Y(+p), C(c), false); });
     if(b){ ctx.strokeStyle = C('--accent'); ctx.setLineDash([2, 2]); ctx.beginPath(); ctx.moveTo(xt, pT); ctx.lineTo(xt, pT + Hp); ctx.stroke(); ctx.setLineDash([]); ctx.fillStyle = C('--accent'); ctx.fillText(`${t.side === 'long' ? 'BUY' : 'SELL'} ${String(t.ts).slice(11, 16)}`, xt + 4, pT + 10); } }
-  if(a.levels_extra) a.levels_extra.forEach(([n, p]) => { if(p == null) return; const c = n === 'STOP' ? '--bear' : '--bull'; if(hline(+p, C(c), [6, 3], 1.3, tx0)){ const t = n + ' ' + fmt(p); ctx.fillStyle = C(c); ctx.fillText(t, W - pR - ctx.measureText(t).width - 4, Y(+p) - 3); } });
+  if(a.levels_extra) a.levels_extra.forEach(([n, p]) => { if(p == null) return; const mid = n === 'PD MID', c = n === 'STOP' ? '--bear' : mid ? '--amber' : '--bull'; if(hline(+p, C(c), mid ? [2, 4] : [6, 3], mid ? 1.1 : 1.3, tx0)){ const t = n + ' ' + fmt(p); ctx.fillStyle = C(c); ctx.fillText(t, W - pR - ctx.measureText(t).width - 4, Y(+p) - 3); } });
   if(a.pattern){ const pat = a.pattern, long = pat.side === 'long', mi = ts => hhmmToMin(String(ts).slice(11, 16)), pb = barAt(mi(pat.points[0].ts)), x0n = pb ? Math.max(pL, X(pb.i)) : tx0;
     if(hline(pat.neckline, C('--accent'), [5, 3], 1.4, x0n)) tag('NECK ' + fmt(pat.neckline), Y(pat.neckline), C('--accent'), false);
     [['STOP', pat.stop, '--bear'], ['TGT', pat.target, '--bull']].forEach(([n, p, c]) => { if(hline(p, C(c), [2, 3], 1, x0n)) tag(n + ' ' + fmt(p), Y(p), C(c), false); });
@@ -1685,7 +1685,7 @@ function alarmRange(sym, px){
   return {lo, hi, pos: Math.max(0, Math.min(100, ((px != null ? px : c[c.length-1].c) - lo) / ((hi - lo) || 1) * 100))};
 }
 const aRangeHtml = g => g ? `<div class="v" style="font-size:12px">${fmt(g.lo)} – ${fmt(g.hi)}</div><div class="arng"><i style="left:${g.pos}%"></i></div>` : '<div class="v mut">—</div><div class="u">from the candles</div>';
-const LADC = {PDH:'--bull', PDL:'--bear', R1:'--bull', R2:'--bull', S1:'--amber', S2:'--amber', VWAP:'--vwap', PIVOT:'--muted', PC:'--muted'};
+const LADC = {PDH:'--bull', PDL:'--bear', R1:'--bull', R2:'--bull', S1:'--amber', S2:'--amber', VWAP:'--vwap', PIVOT:'--muted', PC:'--muted', 'PD MID':'--amber'};
 function alarmTicket(r, px){
   const fired = AK.fmtTime(r.ts);
   if(aBreak(r)) return `<div class="atkt"><div class="row2"><span>BREAK NOTE · ${esc(r.setup)} · ${fired}</span><span>no trade levels · watching for the fade</span></div></div>`;
@@ -1713,10 +1713,11 @@ const aMine = (r, e) => aBreak(r) ? e.kind === 'break' && e.at === ((r.story && 
 function drawAlarmPanel(r, w){
   const d = $('abody'), at = (S.alarms && S.alarms.at) || S.at || '15:30', long = r.side === 'long', fired = AK.fmtTime(r.ts);
   const px = w ? w.price : r.price, pct = w ? w.pct : null;
-  const lad = w ? AK.ladder([['PDH', w.prev_high], ['R2', w.R2], ['R1', w.R1], ['PIVOT', w.P], ['PC', w.prev_close], ['S1', w.S1], ['S2', w.S2], ['PDL', w.prev_low], ['VWAP', w.vwap]].filter(x => x[1] != null), px) : [];
-  const words = w ? AK.positionWords(px, w.vwap, w.prev_high, w.prev_low, lad) : [];
+  const mid = AK.midLevel(r, w);                    // the middle of yesterday's range, for the Inside open rows
+  const lad = w ? AK.ladder([['PDH', w.prev_high], ['R2', w.R2], ['R1', w.R1], ['PIVOT', w.P], ['PC', w.prev_close], ['S1', w.S1], ['S2', w.S2], ['PDL', w.prev_low], ['VWAP', w.vwap], ['PD MID', mid]].filter(x => x[1] != null), px) : [];
+  const words = w ? AK.positionWords(px, w.vwap, w.prev_high, w.prev_low, lad.filter(l => l.name !== 'PD MID')) : [];
   const sector = (w && w.sector) || S.sectorsOf[r.symbol] || '';
-  const tl = AK.timelineRows(r.timeline, at), chips = AK.pickChips(r);
+  const tl = AK.timelineRows(r.timeline, at), chips = AK.pickChips(r).concat(AK.midChip(px, mid) || []);
   const vw = w && w.vwap ? `<div class="u ${px >= w.vwap ? 'up' : 'dn'}">${px >= w.vwap ? 'above' : 'below'} by ${fmt(Math.abs(px / w.vwap - 1) * 100)} %</div>` : '<div class="u">—</div>';
   const tiles = w ? `<div class="atile"><div class="k">VWAP</div><div class="v" style="color:var(--vwap)">${fmt(w.vwap)}</div>${vw}</div>
      <div class="atile"><div class="k">OI vs yesterday</div><div class="v">${aPct(w.oi_pct)}</div><div class="u"><span class="chip ${esc(w.oi_cls)}">${esc(w.oi_label)}</span></div></div>
@@ -1737,7 +1738,7 @@ function drawAlarmPanel(r, w){
    <ul class="atl">${tl.map(e => `<li class="${esc(e.kind)}${e.kind === 'alarm' ? (alarmMarkers({...r, timeline: [e]})[0].side === 'long' ? ' l' : ' s') : ''}${aMine(r, e) ? ' me' : ''}"><span class="tm">${esc(e.at)}</span><span>${esc(e.text)}</span></li>`).join('') || '<li><span class="tm"></span><span class="mut">nothing yet</span></li>'}</ul>
    <div class="wbtn"><button id="aOpenChart" class="pri" title="The full chart with every level, structure and timeframe">Open chart ⤢</button><button id="aToScanner">Open in Scanner at ${fired}</button><button id="aToTrades" title="The Trades tab, with this row's drawer when it has a trade row">Open in Trades</button></div>`;
   const a = w ? {...w} : {symbol: r.symbol, minimal: true};
-  a.ref = r.ref; a.markers = alarmMarkers(r); a.levels_extra = [['STOP', r.stop], ['TGT', r.target]];
+  a.ref = r.ref; a.markers = alarmMarkers(r); a.levels_extra = [['STOP', r.stop], ['TGT', r.target]].concat(mid != null ? [['PD MID', mid]] : []);
   wireChart(a).then(() => { const el = $('arange'); if(el && S.asel === r.ref) el.innerHTML = aRangeHtml(alarmRange(r.symbol, px)); });
   $('aOpenChart').onclick = () => openStockPanel(a);
   $('aToScanner').onclick = () => { S.selected = r.symbol; closeAlarmPanel(); setView('scanner'); enterReplay(S.day || todayIST(), fired); };
@@ -1824,7 +1825,7 @@ function drawStockPanel(a, sp){
   const a2 = {...(w || {}), symbol: sym, minimal: !w};
   if(a.pattern) a2.pattern = a.pattern; if(a.trade) a2.trade = a.trade; if(a.ob) a2.ob = a.ob;
   if(row && row.timeline) a2.markers = alarmMarkers(row);
-  if(row && row.stop != null && !a.trade && !a.pattern) a2.levels_extra = [['STOP', row.stop], ['TGT', row.target]];
+  if(row && row.stop != null && !a.trade && !a.pattern){ const mid = AK.midLevel(row, w); a2.levels_extra = [['STOP', row.stop], ['TGT', row.target]].concat(mid != null ? [['PD MID', mid]] : []); }
   S.lbA = Object.assign(S.lbA || {}, {symbol: sym, _row: row, _w: w, _rows: rows, _a: a2});
   wireChart(a2).then(() => { const el = $('spRange'); if(el && S.lbA && S.lbA.symbol === sym) el.innerHTML = aRangeHtml(alarmRange(sym, px)); fillStructureUI(); });
   $('spScanner').onclick = () => { S.selected = sym; closeChartBig(); setView('scanner'); if(!S.following) enterReplay(S.day || todayIST(), fired || at); else renderAll(); };
@@ -1840,6 +1841,7 @@ function fillStructureUI(){
   const tile = $('spStruct'); if(tile) tile.innerHTML = st && st.trend ? `<div class="v" style="color:var(${st.trend === 'up' ? '--bull' : '--bear'})">${st.trend === 'up' ? 'BULLISH' : 'BEARISH'}</div><div class="u">${lastEv ? `${lastEv.kind} ${lastEv.dir === 'up' ? '↑' : '↓'} ${B5[lastEv.i].day !== day ? 'prev session ' : ''}${minToHHMM(B5[lastEv.i].m + 5)} at ${fmt(lastEv.px)}` : 'no break yet'}</div>` : `<div class="v mut">—</div><div class="u">waiting for swings</div>`;
   const lv = w ? [['PDH', w.prev_high], ['R2', w.R2], ['R1', w.R1], ['PIVOT', w.P], ['PC', w.prev_close], ['S1', w.S1], ['S2', w.S2], ['PDL', w.prev_low], ['VWAP', w.vwap]] : (chartCache.ref && chartCache.ref.prev_high ? [['PDH', chartCache.ref.prev_high], ['PC', chartCache.ref.prev_close], ['PDL', chartCache.ref.prev_low]] : []);
   if(st && st.upLevel != null) lv.push(['SWING H', st.upLevel]); if(st && st.dnLevel != null) lv.push(['SWING L', st.dnLevel]);
+  const pdMid = AK.midLevel(row, w); if(pdMid != null) lv.push(['PD MID', pdMid]);
   const lad = px != null ? AK.ladder(lv.filter(x => x[1] != null), px) : lv.filter(x => x[1] != null).map(([name, value]) => ({name, value}));
   const LC = Object.assign({'SWING H': '--accent', 'SWING L': '--accent'}, LADC);
   $('spLadder').innerHTML = `<div class="k">Levels</div>${lad.map(l => l.now ? `<div class="now"><span>NOW</span><span>${fmt(l.value)}</span></div>` : `<div class="lr"><small style="color:var(${LC[l.name] || '--muted'})">${l.name}</small><span>${fmt(l.value)}</span></div>`).join('') || '<span class="mut">—</span>'}

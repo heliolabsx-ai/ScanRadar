@@ -93,6 +93,19 @@
     return out;
   }
 
+  // The middle of yesterday's range, (PDH + PDL) / 2: the line the Inside open alarm is read against (which half the
+  // stock opened in, and the first hurdle on the way to the target). null for any other row or without both levels.
+  function midLevel(row, w) {
+    if (!row || !w || !String(row.col || '').startsWith('io_') || w.prev_high == null || w.prev_low == null) return null;
+    return Math.round((Number(w.prev_high) + Number(w.prev_low)) / 2 * 100) / 100;
+  }
+
+  function midChip(price, mid) {
+    if (mid == null || price == null) return null;
+    const px = Number(mid).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    return { text: 'PD mid ' + px + ' · price ' + (price >= mid ? 'above' : 'below') + ' it', cls: 'mid' };
+  }
+
   function deliveryMark(row) {
     const d = row && row.delivery;
     if (d && d.ok) return { text: 'sent ' + hhmmss(d.sent_at), cls: 'ok' };
@@ -122,5 +135,5 @@
     return (rows || []).filter(r => F.pass({ symbol: r.symbol, sector: (sectorsOf || {})[r.symbol], price: r.price, rr: r.rr == null ? Infinity : r.rr, rvol: null, oi_label: null, above_vwap: null, picked: false }, f));
   }
 
-  root.ScanAlarms = { group, unread, ladder, chartLevels, positionWords, deliveryMark, pastDots, timelineRows, fmtTime, filterRows, pickChips, ordinal };
+  root.ScanAlarms = { group, unread, ladder, chartLevels, positionWords, deliveryMark, pastDots, timelineRows, fmtTime, filterRows, pickChips, ordinal, midLevel, midChip };
 })(typeof window !== 'undefined' ? window : globalThis);
